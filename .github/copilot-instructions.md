@@ -38,6 +38,7 @@
 - コミットメッセージと PR タイトルは **英語** で記述する。
 - PR の説明文は **日本語** で記述し、テストの実行方法（例: `cargo test` / `cargo run -p platform-pc-sim`）を必ず明記する。
 - HAL trait（`hal-api`）とアプリロジック（`core-app`）、プラットフォーム固有実装（`platform-*`）の依存方向を崩さない提案を行うこと。
+- GitHub 連携の push / PR / Issue に関するコード例や手順を提案する場合は、`git` / `gh` を直接叩くのではなく、`scripts/gh-workflow.sh push|pr|issue` を利用する形を優先すること。
 
 ## 共通開発ルール
 
