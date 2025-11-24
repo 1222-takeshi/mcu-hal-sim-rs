@@ -1,7 +1,44 @@
-# GitHub Copilot Instructions - web-development,code-architect
+# GitHub Copilot Instructions - mcu-hal-sim-rs
 
-このファイルは、このリポジトリで GitHub Copilot を利用する際の共通ルールとプロジェクトコンテキストを定義します。
+このファイルは、このリポジトリ（mcu-hal-sim-rs）で GitHub Copilot を利用する際の共通ルールとプロジェクトコンテキストを定義します。
 コード補完や提案は、以下のガイドラインとコンテキストに従って行ってください。
+
+## プロジェクトコンテキスト
+
+- プロジェクト名: `mcu-hal-sim-rs`
+- 目的:
+  - ESP32 / Arduino Nano / Raspberry Pi Pico などのマイコン向けアプリケーションを Rust で開発する。
+  - アプリのロジックを MCU 非依存の HAL trait 経由で記述し、PC 上の疑似エミュレータで動作確認できるようにする。
+  - 将来的には同じ Rust コードベースから ESP32 実機向けバイナリもビルド可能とする。
+- 優先ターゲット:
+  - 最初の実機ターゲットは ESP32。
+  - Arduino Nano / Raspberry Pi Pico は後から対応。
+  - 当面は WiFi / Bluetooth などの無線機能は対象外とし、GPIO / I2C / SPI / ADC など基本的な周辺機能に集中する。
+- 使用言語 / 開発環境:
+  - 使用言語は Rust。
+  - ホスト環境は macOS（Apple Silicon） / Windows / Ubuntu Linux を想定。
+  - まずはホスト向けバイナリ（PC シミュレータ）を優先的に開発する。
+- アーキテクチャ方針:
+  - Cargo workspace を用いて以下の構成をとる想定。
+  - `crates/hal-api`: MCU 非依存の HAL trait を定義するクレート（まずは GPIO / I2C、その後 SPI / ADC / Timer などを追加）。
+  - `crates/core-app`: アプリ本体のロジックを定義するクレート。HAL の trait のみに依存し、具体的なハードウェア実装には依存しない。
+  - `crates/platform-pc-sim`: PC 上で動作する疑似エミュレータ用クレート。`hal-api` の trait を実装したモック HAL を提供し、CLI アプリとして `core-app` を動かす。
+  - `crates/platform-esp32`（将来追加）: ESP32 実機向けの HAL 実装用クレート。ESP32 向け HAL ライブラリ（例: esp-hal 系）を利用して `hal-api` の trait を満たすラッパーを提供する。
+  - `examples/`: LED 点滅や I2C センサ読み取りなどのサンプルアプリを配置。
+- 最初の機能目標:
+  - `hal-api` クレートで GPIO / I2C の基本的な trait（例: `OutputPin` / `InputPin` / `I2cBus`）を定義する。
+  - `core-app` クレートで HAL を利用する `App` 構造体を定義し、ジェネリクスで HAL 実装を受け取り、`tick()` メソッドで 1 ステップ分の処理を行う。
+  - `platform-pc-sim` クレートで HAL のモック実装を作成し、CLI アプリとして `App` を動かす（GPIO 操作や I2C アクセスは標準出力へのログ出力のみでもよい）。
+  - その後、`platform-esp32` クレートを追加し、ESP32 向け HAL を用いて `hal-api` の trait を満たす実装を提供する（最初はシリアルログ出力と GPIO / I2C が動けば十分とし、WiFi / Bluetooth は当面対象外）。
+
+## プロジェクト固有の開発ルール
+
+- コードはシンプルで読みやすく保つことを優先する。
+- 1 回の変更は小さめの単位で行い、それに対応するコミットも細かく分ける。
+- コミットメッセージと PR タイトルは **英語** で記述する。
+- PR の説明文は **日本語** で記述し、テストの実行方法（例: `cargo test` / `cargo run -p platform-pc-sim`）を必ず明記する。
+- HAL trait（`hal-api`）とアプリロジック（`core-app`）、プラットフォーム固有実装（`platform-*`）の依存方向を崩さない提案を行うこと。
+- GitHub 連携の push / PR / Issue に関するコード例や手順を提案する場合は、`git` / `gh` を直接叩くのではなく、`scripts/gh-workflow.sh push|pr|issue` を利用する形を優先すること。
 
 ## 共通開発ルール
 
@@ -494,4 +531,3 @@ src/
 - **プロトタイピング**: 概念実証の実施
 - **移行戦略**: 段階的な技術移行
 - **リスク評価**: 技術導入のリスク分析
-
