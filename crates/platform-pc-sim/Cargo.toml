@@ -1,0 +1,13 @@
+[package]
+name = "platform-pc-sim"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+hal-api = { path = "../hal-api" }
+core-app = { path = "../core-app" }
+
+[[bin]]
+name = "platform-pc-sim"
+path = "main.rs"
+

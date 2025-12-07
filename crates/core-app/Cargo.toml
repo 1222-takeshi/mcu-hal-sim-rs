@@ -1,0 +1,11 @@
+[package]
+name = "core-app"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+hal-api = { path = "../hal-api" }
+
+[lib]
+path = "lib.rs"
+

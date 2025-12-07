@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "crates/hal-api",
+    "crates/core-app",
+    "crates/platform-pc-sim",
+]
+
