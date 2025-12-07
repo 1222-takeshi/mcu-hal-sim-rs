@@ -1,5 +1,5 @@
-use hal-api::gpio::OutputPin;
-use hal-api::i2c::I2cBus;
+use hal_api::gpio::OutputPin;
+use hal_api::i2c::I2cBus;
 
 pub struct App<PIN, I2C> {
     pin: PIN,
