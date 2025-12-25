@@ -447,8 +447,8 @@ ESP32/Arduino Nano/Raspberry Pi Pico 等のマイコン向けRustアプリケー
   - [ ] `no_std`制約で困った点は？
 - **成果物**: `docs/esp32-integration-findings.md`
 - **受け入れ基準**:
-  - [x] 改善点リストが文書化される
-  - [x] 必要に応じてHAL trait設計を修正
+  - [ ] 改善点リストが文書化される
+  - [ ] 必要に応じてHAL trait設計を修正
 
 ---
 
