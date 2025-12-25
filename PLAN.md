@@ -539,8 +539,8 @@ ESP32/Arduino Nano/Raspberry Pi Pico 等のマイコン向けRustアプリケー
   - `crates/platform-rp2040`
   - `rp2040-hal`の利用
 - **受け入れ基準**:
-  - [x] 同じ`core-app`が複数MCUで動作
-  - [x] HAL traitの汎用性が証明される
+  - [ ] 同じ`core-app`が複数MCUで動作
+  - [ ] HAL traitの汎用性が証明される
 
 #### 4.3 高度な機能の追加
 - **SPI / ADC / Timer**: 新しいHAL traitの追加
