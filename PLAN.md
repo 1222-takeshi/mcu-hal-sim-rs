@@ -150,10 +150,10 @@ ESP32/Arduino Nano/Raspberry Pi Pico 等のマイコン向けRustアプリケー
   }
   ```
 - **受け入れ基準**:
-  - [x] `platform-pc-sim/mock_hal.rs`が実装される
-  - [x] `MockPin`が`OutputPin`を実装
-  - [x] `MockI2c`が`I2cBus`を実装
-  - [x] GPIO/I2C操作が標準出力にログ出力される
+  - [ ] `platform-pc-sim/mock_hal.rs`が実装される
+  - [ ] `MockPin`が`OutputPin`を実装
+  - [ ] `MockI2c`が`I2cBus`を実装
+  - [ ] GPIO/I2C操作が標準出力にログ出力される
 
 #### 1.3 `core-app`のアプリロジック実装
 - **タスク**: `App::tick()`に具体的な処理を実装
