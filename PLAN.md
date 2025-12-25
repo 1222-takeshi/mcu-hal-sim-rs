@@ -331,8 +331,8 @@ ESP32/Arduino Nano/Raspberry Pi Pico 等のマイコン向けRustアプリケー
   - エラー型のマッピングが適切か
   - ライフタイム管理が問題ないか
 - **受け入れ基準**:
-  - [x] `OutputPin` trait実装が完了
-  - [x] 実機でLED点滅が動作
+  - [ ] `OutputPin` trait実装が完了
+  - [ ] 実機でLED点滅が動作
 
 #### 2.4 ESP32用HAL実装（I2C）
 - **タスク**: `I2cBus`の実装
