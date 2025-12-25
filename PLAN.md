@@ -510,9 +510,9 @@ ESP32/Arduino Nano/Raspberry Pi Pico 等のマイコン向けRustアプリケー
   - `examples/esp32/blink.rs`: ESP32実機用LED点滅
   - `examples/esp32/i2c_bme280.rs`: ESP32実機用BME280センサ
 - **受け入れ基準**:
-  - [x] PCシミュレータ例が動作
-  - [x] ESP32実機例が動作
-  - [x] 各サンプルに詳細なコメント
+  - [ ] PCシミュレータ例が動作
+  - [ ] ESP32実機例が動作
+  - [ ] 各サンプルに詳細なコメント
 
 #### 3.6 各クレートのドキュメントコメント追加
 - **対象**: 全パブリックAPI
