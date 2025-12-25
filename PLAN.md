@@ -518,8 +518,8 @@ ESP32/Arduino Nano/Raspberry Pi Pico 等のマイコン向けRustアプリケー
 - **対象**: 全パブリックAPI
 - **形式**: Rustdoc形式
 - **受け入れ基準**:
-  - [x] `cargo doc --open`でドキュメント生成・閲覧可能
-  - [x] 主要なtraitとメソッドに使用例を記載
+  - [ ] `cargo doc --open`でドキュメント生成・閲覧可能
+  - [ ] 主要なtraitとメソッドに使用例を記載
 
 ---
 
