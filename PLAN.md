@@ -631,11 +631,11 @@ ESP32/Arduino Nano/Raspberry Pi Pico 等のマイコン向けRustアプリケー
 ## 成功基準（ESP32重視版）
 
 ### ✅ フェーズ1完了時（PC基本動作）
-- ✅ `cargo build`が全クレートで成功
-- ✅ `cargo run -p platform-pc-sim`でPCシミュレータが起動
-- ✅ 標準出力にLED点滅・I2C操作のログが出力される
-- ✅ Ctrl+Cで正常終了できる
-- ✅ **この時点でPRをマージ**
+- [ ] `cargo build`が全クレートで成功
+- [ ] `cargo run -p platform-pc-sim`でPCシミュレータが起動
+- [ ] 標準出力にLED点滅・I2C操作のログが出力される
+- [ ] Ctrl+Cで正常終了できる
+- [ ] **この時点でPRをマージ**
 
 ### 🔥 フェーズ2完了時（ESP32実機検証）**← 最重要マイルストーン**
 - ✅ ESP32開発環境が構築され、サンプルが動作
