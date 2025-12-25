@@ -97,8 +97,8 @@ ESP32/Arduino Nano/Raspberry Pi Pico 等のマイコン向けRustアプリケー
   }
   ```
 - **受け入れ基準**:
-  - [x] `hal-api/error.rs`が作成され、`lib.rs`でエクスポート
-  - [x] 各traitの実装でエラー型が利用可能
+  - [ ] `hal-api/error.rs`が作成され、`lib.rs`でエクスポート
+  - [ ] 各traitの実装でエラー型が利用可能
 
 #### 1.2 PCシミュレータのHAL実装（モック）
 - **タスク**: `platform-pc-sim`にモックHAL実装を追加
