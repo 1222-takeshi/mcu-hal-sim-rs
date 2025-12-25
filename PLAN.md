@@ -485,8 +485,8 @@ ESP32/Arduino Nano/Raspberry Pi Pico 等のマイコン向けRustアプリケー
   - `platform-pc-sim`: モックHALのテスト
   - `platform-esp32`: （可能な範囲で）実機テスト
 - **受け入れ基準**:
-  - [x] `cargo test`が全クレートで成功
-  - [x] テストカバレッジ80%以上
+  - [ ] `cargo test`が全クレートで成功
+  - [ ] テストカバレッジ80%以上
 
 #### 3.4 README.mdの充実
 - **内容**:
