@@ -370,8 +370,8 @@ ESP32/Arduino Nano/Raspberry Pi Pico 等のマイコン向けRustアプリケー
   - エラーハンドリングの妥当性
   - タイムアウト処理の必要性
 - **受け入れ基準**:
-  - [x] `I2cBus` trait実装が完了
-  - [x] 実機でI2Cセンサからデータ取得可能
+  - [ ] `I2cBus` trait実装が完了
+  - [ ] 実機でI2Cセンサからデータ取得可能
 
 #### 2.5 ESP32でのアプリ統合
 - **タスク**: `core-app`のAppをESP32で実行
