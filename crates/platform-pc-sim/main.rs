@@ -1,29 +1,22 @@
-// 動作確認用の簡単なテストコード
-// このPRではモックHALのログ出力を確認するため、最小限の実装のみ
+use core_app::App;
 mod mock_hal;
-use mock_hal::{MockPin, MockI2c};
-use hal_api::gpio::OutputPin;
-use hal_api::i2c::I2cBus;
+use mock_hal::{MockI2c, MockPin};
+use std::thread;
+use std::time::Duration;
 
 fn main() {
-    println!("=== Mock HAL Test ===");
-    
-    // MockPinのテスト
-    let mut pin = MockPin::new(13);
-    println!("\nTesting MockPin:");
-    let _ = pin.set_high();
-    let _ = pin.set_low();
-    let _ = pin.set(true);
-    let _ = pin.set(false);
-    
-    // MockI2cのテスト
-    let mut i2c = MockI2c::new();
-    println!("\nTesting MockI2c:");
-    let _ = i2c.write(0x48, &[0x01, 0x02]);
-    let mut buffer = [0u8; 4];
-    let _ = i2c.read(0x48, &mut buffer);
-    let _ = i2c.write_read(0x48, &[0x03], &mut buffer);
-    
-    println!("\n=== Test Complete ===");
+    println!("=== PC Simulator Started ===");
+
+    let pin = MockPin::new(13);
+    let i2c = MockI2c::new();
+    let mut app = App::new(pin, i2c);
+
+    loop {
+        if let Err(e) = app.tick() {
+            eprintln!("Error: {:?}", e);
+            break;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
 }
 
