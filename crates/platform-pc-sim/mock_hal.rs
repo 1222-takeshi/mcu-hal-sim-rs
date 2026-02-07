@@ -64,4 +64,3 @@ impl I2cBus for MockI2c {
         self.read(addr, buffer)
     }
 }
-

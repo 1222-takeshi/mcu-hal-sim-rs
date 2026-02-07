@@ -10,4 +10,3 @@ pub enum I2cError {
     BusError,
     Timeout,
 }
-

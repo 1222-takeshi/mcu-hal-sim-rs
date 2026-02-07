@@ -22,4 +22,3 @@ fn main() {
         thread::sleep(Duration::from_millis(10)); // 10ms = 100Hz
     }
 }
-
