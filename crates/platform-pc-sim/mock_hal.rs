@@ -66,12 +66,7 @@ impl I2cBus for MockI2c {
         Ok(())
     }
 
-    fn write_read(
-        &mut self,
-        addr: u8,
-        bytes: &[u8],
-        buffer: &mut [u8],
-    ) -> Result<(), Self::Error> {
+    fn write_read(&mut self, addr: u8, bytes: &[u8], buffer: &mut [u8]) -> Result<(), Self::Error> {
         self.write(addr, bytes)?;
         self.read(addr, buffer)
     }
@@ -263,4 +258,5 @@ mod tests {
         assert_eq!(buffer, [0xFF, 0xFF]);
     }
 }
+
 
