@@ -82,7 +82,7 @@ mod tests {
     fn test_mock_pin_new() {
         let pin = MockPin::new(13);
         assert_eq!(pin.pin_number(), 13);
-        assert_eq!(pin.state(), false);
+        assert!(!pin.state());
     }
 
     #[test]
