@@ -97,11 +97,27 @@ cargo test -p core-app
 ### コード品質チェック
 
 ```bash
-# フォーマットチェック
-cargo fmt --all -- --check
+# すべてのCIチェックをローカルで実行（推奨）
+./scripts/ci-local.sh
 
-# Lintチェック
-cargo clippy --all --all-targets -- -D warnings
+# 自動修正モード
+./scripts/ci-local.sh --fix
+
+# 個別チェック
+cargo fmt --all -- --check            # フォーマットチェック
+cargo clippy --all --all-targets -- -D warnings  # Lintチェック
+```
+
+### CI結果の自動監視
+
+PRをプッシュした後、CIの完了を自動で監視:
+
+```bash
+# 最新のワークフローを監視
+./scripts/ci-wait.sh
+
+# 特定のrun-idを監視
+./scripts/ci-wait.sh 21797882688
 ```
 
 ## 📦 プロジェクト構成
