@@ -6,3 +6,12 @@ members = [
     "crates/platform-pc-sim",
 ]
 
+[package]
+name = "mcu-hal-sim-rs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+hal-api = { path = "crates/hal-api" }
+core-app = { path = "crates/core-app" }
+
