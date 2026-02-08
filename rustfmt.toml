@@ -9,10 +9,6 @@ max_width = 100
 tab_spaces = 4
 newline_style = "Unix"
 
-# インポート
-imports_granularity = "Crate"
-group_imports = "StdExternalCrate"
-
 # その他
 use_field_init_shorthand = true
 use_try_shorthand = true
