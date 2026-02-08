@@ -148,4 +148,3 @@ pub trait I2cBus {
     /// ```
     fn write_read(&mut self, addr: u8, bytes: &[u8], buffer: &mut [u8]) -> Result<(), Self::Error>;
 }
-

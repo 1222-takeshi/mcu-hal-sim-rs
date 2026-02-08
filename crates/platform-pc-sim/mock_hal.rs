@@ -258,5 +258,3 @@ mod tests {
         assert_eq!(buffer, [0xFF, 0xFF]);
     }
 }
-
-
