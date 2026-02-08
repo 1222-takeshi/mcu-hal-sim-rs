@@ -146,11 +146,5 @@ pub trait I2cBus {
     /// assert!(i2c.write_read(0x48, &[0x03], &mut buffer).is_ok());
     /// assert_eq!(buffer, [0xAA, 0xAA]);
     /// ```
-    fn write_read(
-        &mut self,
-        addr: u8,
-        bytes: &[u8],
-        buffer: &mut [u8],
-    ) -> Result<(), Self::Error>;
+    fn write_read(&mut self, addr: u8, bytes: &[u8], buffer: &mut [u8]) -> Result<(), Self::Error>;
 }
-

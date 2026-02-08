@@ -66,12 +66,7 @@ impl I2cBus for MockI2c {
         Ok(())
     }
 
-    fn write_read(
-        &mut self,
-        addr: u8,
-        bytes: &[u8],
-        buffer: &mut [u8],
-    ) -> Result<(), Self::Error> {
+    fn write_read(&mut self, addr: u8, bytes: &[u8], buffer: &mut [u8]) -> Result<(), Self::Error> {
         self.write(addr, bytes)?;
         self.read(addr, buffer)
     }
@@ -87,7 +82,7 @@ mod tests {
     fn test_mock_pin_new() {
         let pin = MockPin::new(13);
         assert_eq!(pin.pin_number(), 13);
-        assert_eq!(pin.state(), false);
+        assert!(!pin.state());
     }
 
     #[test]
@@ -102,7 +97,7 @@ mod tests {
     fn test_mock_pin_set_high() {
         let mut pin = MockPin::new(13);
         assert!(pin.set_high().is_ok());
-        assert_eq!(pin.state(), true);
+        assert!(pin.state());
     }
 
     #[test]
@@ -110,14 +105,14 @@ mod tests {
         let mut pin = MockPin::new(13);
         pin.state = true; // 初期状態をHIGHに設定
         assert!(pin.set_low().is_ok());
-        assert_eq!(pin.state(), false);
+        assert!(!pin.state());
     }
 
     #[test]
     fn test_mock_pin_set_with_true() {
         let mut pin = MockPin::new(13);
         assert!(pin.set(true).is_ok());
-        assert_eq!(pin.state(), true);
+        assert!(pin.state());
     }
 
     #[test]
@@ -125,7 +120,7 @@ mod tests {
         let mut pin = MockPin::new(13);
         pin.state = true;
         assert!(pin.set(false).is_ok());
-        assert_eq!(pin.state(), false);
+        assert!(!pin.state());
     }
 
     #[test]
@@ -133,13 +128,13 @@ mod tests {
         let mut pin = MockPin::new(13);
 
         pin.set_high().unwrap();
-        assert_eq!(pin.state(), true);
+        assert!(pin.state());
 
         pin.set_low().unwrap();
-        assert_eq!(pin.state(), false);
+        assert!(!pin.state());
 
         pin.set_high().unwrap();
-        assert_eq!(pin.state(), true);
+        assert!(pin.state());
     }
 
     #[test]
@@ -148,7 +143,7 @@ mod tests {
         pin.set_high().unwrap();
         pin.set_high().unwrap();
         pin.set_high().unwrap();
-        assert_eq!(pin.state(), true);
+        assert!(pin.state());
     }
 
     #[test]
@@ -263,4 +258,3 @@ mod tests {
         assert_eq!(buffer, [0xFF, 0xFF]);
     }
 }
-

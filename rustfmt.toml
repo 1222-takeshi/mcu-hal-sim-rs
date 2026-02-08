@@ -1,0 +1,14 @@
+# rustfmt設定
+# https://rust-lang.github.io/rustfmt/
+
+# Edition
+edition = "2021"
+
+# 基本設定
+max_width = 100
+tab_spaces = 4
+newline_style = "Unix"
+
+# その他
+use_field_init_shorthand = true
+use_try_shorthand = true

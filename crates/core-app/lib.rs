@@ -41,6 +41,7 @@ where
         }
     }
 
+    #[allow(clippy::manual_is_multiple_of)]
     pub fn tick(&mut self) -> Result<(), AppError> {
         self.tick_count += 1;
 
@@ -186,7 +187,7 @@ mod tests {
         let app = App::new(pin, i2c);
 
         assert_eq!(app.tick_count(), 0);
-        assert_eq!(app.led_state(), false);
+        assert!(!app.led_state());
     }
 
     #[test]
@@ -241,19 +242,19 @@ mod tests {
         for _ in 0..100 {
             app.tick().unwrap();
         }
-        assert_eq!(app.led_state(), true);
+        assert!(app.led_state());
 
         // 200tick: LOW
         for _ in 0..100 {
             app.tick().unwrap();
         }
-        assert_eq!(app.led_state(), false);
+        assert!(!app.led_state());
 
         // 300tick: HIGH
         for _ in 0..100 {
             app.tick().unwrap();
         }
-        assert_eq!(app.led_state(), true);
+        assert!(app.led_state());
     }
 
     #[test]
@@ -422,7 +423,7 @@ mod tests {
         }
 
         assert_eq!(pin.get_history().len(), 1);
-        assert_eq!(pin.get_history()[0], true);
+        assert!(pin.get_history()[0]);
         assert_eq!(i2c.get_read_count(), 0);
     }
 
@@ -462,7 +463,7 @@ mod tests {
         let i2c = MockI2c::new();
         let app = App::new(pin, i2c);
 
-        assert_eq!(app.led_state(), false);
+        assert!(!app.led_state());
     }
 
     #[test]
@@ -497,4 +498,3 @@ mod tests {
         }
     }
 }
-

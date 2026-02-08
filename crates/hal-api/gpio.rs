@@ -157,4 +157,3 @@ pub trait InputPin {
     /// ピンがLOW（0）かどうかを確認
     fn is_low(&self) -> Result<bool, Self::Error>;
 }
-
