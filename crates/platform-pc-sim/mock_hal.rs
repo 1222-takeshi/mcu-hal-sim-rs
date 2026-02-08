@@ -97,7 +97,7 @@ mod tests {
     fn test_mock_pin_set_high() {
         let mut pin = MockPin::new(13);
         assert!(pin.set_high().is_ok());
-        assert_eq!(pin.state(), true);
+        assert!(pin.state());
     }
 
     #[test]
@@ -105,14 +105,14 @@ mod tests {
         let mut pin = MockPin::new(13);
         pin.state = true; // 初期状態をHIGHに設定
         assert!(pin.set_low().is_ok());
-        assert_eq!(pin.state(), false);
+        assert!(!pin.state());
     }
 
     #[test]
     fn test_mock_pin_set_with_true() {
         let mut pin = MockPin::new(13);
         assert!(pin.set(true).is_ok());
-        assert_eq!(pin.state(), true);
+        assert!(pin.state());
     }
 
     #[test]
@@ -120,7 +120,7 @@ mod tests {
         let mut pin = MockPin::new(13);
         pin.state = true;
         assert!(pin.set(false).is_ok());
-        assert_eq!(pin.state(), false);
+        assert!(!pin.state());
     }
 
     #[test]
@@ -128,13 +128,13 @@ mod tests {
         let mut pin = MockPin::new(13);
 
         pin.set_high().unwrap();
-        assert_eq!(pin.state(), true);
+        assert!(pin.state());
 
         pin.set_low().unwrap();
-        assert_eq!(pin.state(), false);
+        assert!(!pin.state());
 
         pin.set_high().unwrap();
-        assert_eq!(pin.state(), true);
+        assert!(pin.state());
     }
 
     #[test]
@@ -143,7 +143,7 @@ mod tests {
         pin.set_high().unwrap();
         pin.set_high().unwrap();
         pin.set_high().unwrap();
-        assert_eq!(pin.state(), true);
+        assert!(pin.state());
     }
 
     #[test]
