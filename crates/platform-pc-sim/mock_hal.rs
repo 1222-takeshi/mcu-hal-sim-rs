@@ -1,13 +1,52 @@
+//! # モックHAL実装
+//!
+//! PCシミュレータ用のHAL trait実装。
+//!
+//! このモジュールは、実際のハードウェアを持たないPC環境で
+//! アプリケーションをテスト・実行するためのモック実装を提供します。
+//!
+//! ## 提供する型
+//!
+//! - [`MockPin`]: GPIO出力ピンのモック実装
+//! - [`MockI2c`]: I2Cバスのモック実装
+
 use hal_api::error::{GpioError, I2cError};
 use hal_api::gpio::OutputPin;
 use hal_api::i2c::I2cBus;
 
+/// GPIO出力ピンのモック実装
+///
+/// ピンの状態変更をコンソールに出力します。
+///
+/// # Examples
+///
+/// ```
+/// use platform_pc_sim::mock_hal::MockPin;
+/// use hal_api::gpio::OutputPin;
+///
+/// let mut pin = MockPin::new(13);
+/// pin.set_high().unwrap();
+/// pin.set_low().unwrap();
+/// ```
 pub struct MockPin {
     pin_number: u8,
     state: bool,
 }
 
 impl MockPin {
+    /// 新しいモックピンを作成
+    ///
+    /// # Arguments
+    ///
+    /// - `pin_number`: ピン番号（ログ出力用）
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use platform_pc_sim::mock_hal::MockPin;
+    ///
+    /// let pin = MockPin::new(13);
+    /// ```
     pub fn new(pin_number: u8) -> Self {
         Self {
             pin_number,
@@ -44,9 +83,34 @@ impl OutputPin for MockPin {
     }
 }
 
+/// I2Cバスのモック実装
+///
+/// I2C通信をコンソールに出力します。
+/// 読み取り操作では、バッファを0xFFで埋めます。
+///
+/// # Examples
+///
+/// ```
+/// use platform_pc_sim::mock_hal::MockI2c;
+/// use hal_api::i2c::I2cBus;
+///
+/// let mut i2c = MockI2c::new();
+/// let mut buffer = [0u8; 4];
+/// i2c.read(0x48, &mut buffer).unwrap();
+/// assert_eq!(buffer, [0xFF, 0xFF, 0xFF, 0xFF]);
+/// ```
 pub struct MockI2c;
 
 impl MockI2c {
+    /// 新しいモックI2Cバスを作成
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use platform_pc_sim::mock_hal::MockI2c;
+    ///
+    /// let i2c = MockI2c::new();
+    /// ```
     pub fn new() -> Self {
         Self
     }
