@@ -16,8 +16,14 @@
 //! ```text
 //! === I2C Read Example ===
 //! Reading from I2C temperature sensor at 0x48...
+//!
+//! Press Ctrl+C to exit
+//!
 //! [I2C] Read from 0x48: 4 bytes
-//! Temperature data: [255, 255, 255, 255]
+//! Sensor read completed (tick: 500)
+//!
+//! [I2C] Read from 0x48: 4 bytes
+//! Sensor read completed (tick: 1000)
 //! ...
 //! ```
 
@@ -31,17 +37,15 @@ mod mock_hal {
     use hal_api::i2c::I2cBus;
 
     pub struct MockPin {
-        #[allow(dead_code)]
-        pin_number: u8,
-        #[allow(dead_code)]
-        state: bool,
+        _pin_number: u8,
+        _state: bool,
     }
 
     impl MockPin {
         pub fn new(pin_number: u8) -> Self {
             Self {
-                pin_number,
-                state: false,
+                _pin_number: pin_number,
+                _state: false,
             }
         }
     }
@@ -50,12 +54,12 @@ mod mock_hal {
         type Error = GpioError;
 
         fn set_high(&mut self) -> Result<(), Self::Error> {
-            self.state = true;
+            self._state = true;
             Ok(())
         }
 
         fn set_low(&mut self) -> Result<(), Self::Error> {
-            self.state = false;
+            self._state = false;
             Ok(())
         }
     }

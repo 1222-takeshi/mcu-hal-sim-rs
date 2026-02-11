@@ -33,15 +33,15 @@ mod mock_hal {
     pub struct MockPin {
         pin_number: u8,
         state: bool,
-        label: String,
+        label: &'static str,
     }
 
     impl MockPin {
-        pub fn new(pin_number: u8, label: &str) -> Self {
+        pub fn new(pin_number: u8, label: &'static str) -> Self {
             Self {
                 pin_number,
                 state: false,
-                label: label.to_string(),
+                label,
             }
         }
     }
