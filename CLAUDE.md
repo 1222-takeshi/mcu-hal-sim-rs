@@ -223,7 +223,9 @@ cargo run -p platform-pc-sim --release
 
 ---
 
-## CI/CD（Week 3で実装予定）
+## CI/CD（Week 3で実装済み）
+
+### GitHub Actions設定
 
 `.github/workflows/ci.yml` で以下を自動化:
 
@@ -232,23 +234,75 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - cargo test --all
+      - cargo test --all --verbose
 
   build:
     runs-on: ubuntu-latest
     steps:
-      - cargo build --all --release
+      - cargo build --all --release --verbose
 
   fmt:
     runs-on: ubuntu-latest
     steps:
-      - cargo fmt -- --check
+      - cargo fmt --all -- --check
 
   clippy:
     runs-on: ubuntu-latest
     steps:
-      - cargo clippy -- -D warnings
+      - cargo clippy --all --all-targets -- -D warnings
 ```
+
+### CI検証ベストプラクティス
+
+#### ローカル検証（PRを作成する前）
+
+```bash
+# すべてのCIチェックをローカルで実行
+./scripts/ci-local.sh
+
+# または手動で実行
+cargo test --all --verbose
+cargo build --all --release --verbose
+cargo fmt --all -- --check
+cargo clippy --all --all-targets -- -D warnings
+```
+
+#### CI失敗時のデバッグ
+
+```bash
+# 最新のワークフロー状態を確認
+gh run list --limit 1
+
+# 特定のワークフローの詳細ログを取得
+gh run view <run-id> --log-failed
+
+# Clippyエラーの詳細を確認
+gh run view <run-id> --log-failed 2>&1 | grep -A 20 "clippy"
+```
+
+#### よくあるCI失敗パターンと対処法
+
+| エラー | 原因 | 対処法 |
+|--------|------|--------|
+| `bool_assert_comparison` | `assert_eq!(bool, true/false)` | `assert!(bool)` または `assert!(!bool)` に変更 |
+| `manual_is_multiple_of` | `x % n == 0` | `#[allow(clippy::manual_is_multiple_of)]` を追加（unstable機能） |
+| Formatエラー | 末尾の改行、複数の空行 | `cargo fmt --all` で自動修正 |
+| `dead_code` warning | 未使用のフィールド/関数 | `#[allow(dead_code)]` を追加またはコードを削除 |
+
+### rustfmt設定
+
+`rustfmt.toml` の設定:
+
+```toml
+edition = "2021"
+max_width = 100
+tab_spaces = 4
+newline_style = "Unix"
+use_field_init_shorthand = true
+use_try_shorthand = true
+```
+
+**注意**: unstable機能（`imports_granularity`など）はnightly必須のため使用しない
 
 ---
 
@@ -345,14 +399,110 @@ RUST_LOG=debug cargo test
 
 ---
 
+## Examples作成ガイドライン（Week 4で確立）
+
+### Examplesの配置
+
+Examplesはワークスペースルートの`examples/`ディレクトリに配置:
+
+```
+mcu-hal-sim-rs/
+├── examples/
+│   ├── basic_blink.rs      # 基本的な使用例
+│   ├── i2c_read.rs          # I2C通信の例
+│   └── custom_timing.rs     # 高度な例
+├── Cargo.toml               # [package]セクション必須
+└── crates/
+```
+
+### ワークスペースルートのCargo.toml設定
+
+Examplesを認識させるため、ワークスペースルートに`[package]`セクションを追加:
+
+```toml
+[workspace]
+resolver = "2"
+members = [
+    "crates/hal-api",
+    "crates/core-app",
+    "crates/platform-pc-sim",
+]
+
+[package]
+name = "mcu-hal-sim-rs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+hal-api = { path = "crates/hal-api" }
+core-app = { path = "crates/core-app" }
+```
+
+### Exampleのテンプレート
+
+```rust
+//! # Example Title
+//!
+//! 簡潔な説明（1-2文）
+//!
+//! ## 実行方法
+//!
+//! ```bash
+//! cargo run --example example_name
+//! ```
+//!
+//! ## 期待される出力
+//!
+//! ```text
+//! 出力例
+//! ```
+
+use core_app::App;
+use std::thread;
+use std::time::Duration;
+
+// モックHALの定義（各exampleで独自に定義）
+mod mock_hal {
+    // MockPin、MockI2cの実装
+}
+
+use mock_hal::{MockI2c, MockPin};
+
+fn main() {
+    println!("=== Example Title ===");
+    // 実装
+}
+```
+
+### Exampleの実行とビルド
+
+```bash
+# 単一のexampleを実行
+cargo run --example basic_blink
+
+# 全examplesをビルド
+cargo build --examples
+
+# 特定のexampleをビルド
+cargo build --example i2c_read
+```
+
+### 注意点
+
+- 各exampleは独立して実行可能にする
+- コメントで初心者にも理解しやすく説明
+- `#[allow(dead_code)]`で未使用警告を抑制（必要に応じて）
+
+---
+
 ## 開発ロードマップ
 
 | Week | フェーズ | 内容 | 状態 |
 |------|---------|------|------|
 | 1 | Phase 1完成 | Issue #13実装 | ✅ 完了 |
 | 2 | テスト基盤 | 57個のテスト追加 | ✅ 完了 |
-| 3 | CI/CD | GitHub Actions整備 | 📅 予定 |
-| 4 | ドキュメント | README、examples | 📅 予定 |
+| 3 | CI/CD | GitHub Actions整備 | ✅ 完了 |
+| 4 | ドキュメント | README、examples | 🚧 進行中 |
 | 5 | 統合テスト | カバレッジ80%+ | 📅 予定 |
 | 6 | no_std対応 | ESP32準備 | 📅 予定 |
 | 7-8 | ESP32実装 | 実機動作確認 | 📅 オプション |
