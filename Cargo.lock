@@ -14,6 +14,14 @@ name = "hal-api"
 version = "0.1.0"
 
 [[package]]
+name = "mcu-hal-sim-rs"
+version = "0.1.0"
+dependencies = [
+ "core-app",
+ "hal-api",
+]
+
+[[package]]
 name = "platform-pc-sim"
 version = "0.1.0"
 dependencies = [
