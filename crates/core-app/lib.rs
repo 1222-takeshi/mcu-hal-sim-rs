@@ -1,10 +1,91 @@
+//! # Core Application
+//!
+//! プラットフォーム非依存のアプリケーションロジック。
+//!
+//! このクレートは、HAL traitを介してハードウェアを抽象化し、
+//! 任意のプラットフォーム（PCシミュレータ、ESP32、Raspberry Pi Picoなど）で
+//! 動作可能なアプリケーションを提供します。
+//!
+//! # Features
+//!
+//! - 100 tickごとのLED点滅（1秒周期想定）
+//! - 500 tickごとのI2Cセンサ読み取り（5秒周期想定）
+//! - エラーハンドリング（GPIO、I2Cエラーの伝播）
+//!
+//! # Examples
+//!
+//! ```
+//! use core_app::App;
+//! use hal_api::gpio::OutputPin;
+//! use hal_api::i2c::I2cBus;
+//! use hal_api::error::{GpioError, I2cError};
+//!
+//! // モックHAL実装（例）
+//! struct MockPin { state: bool }
+//! impl OutputPin for MockPin {
+//!     type Error = GpioError;
+//!     fn set_high(&mut self) -> Result<(), Self::Error> {
+//!         self.state = true;
+//!         Ok(())
+//!     }
+//!     fn set_low(&mut self) -> Result<(), Self::Error> {
+//!         self.state = false;
+//!         Ok(())
+//!     }
+//! }
+//!
+//! struct MockI2c;
+//! impl I2cBus for MockI2c {
+//!     type Error = I2cError;
+//!     fn write(&mut self, _addr: u8, _bytes: &[u8]) -> Result<(), Self::Error> { Ok(()) }
+//!     fn read(&mut self, _addr: u8, buffer: &mut [u8]) -> Result<(), Self::Error> {
+//!         buffer.fill(0xFF);
+//!         Ok(())
+//!     }
+//!     fn write_read(&mut self, _addr: u8, _bytes: &[u8], buffer: &mut [u8]) -> Result<(), Self::Error> {
+//!         buffer.fill(0xFF);
+//!         Ok(())
+//!     }
+//! }
+//!
+//! // アプリケーション初期化
+//! let pin = MockPin { state: false };
+//! let i2c = MockI2c;
+//! let mut app = App::new(pin, i2c);
+//!
+//! // 10ms周期でtick()を呼び出す
+//! for _ in 0..100 {
+//!     app.tick().unwrap();
+//! }
+//! ```
+
 use hal_api::error::{GpioError, I2cError};
 use hal_api::gpio::OutputPin;
 use hal_api::i2c::I2cBus;
 
+/// アプリケーション実行時のエラー型
+///
+/// GPIO操作やI2C通信で発生したエラーをラップします。
+///
+/// # Examples
+///
+/// ```
+/// use core_app::AppError;
+/// use hal_api::error::{GpioError, I2cError};
+///
+/// // GpioErrorからの変換
+/// let gpio_err = GpioError::InvalidPin;
+/// let app_err: AppError = gpio_err.into();
+///
+/// // I2cErrorからの変換
+/// let i2c_err = I2cError::Timeout;
+/// let app_err: AppError = i2c_err.into();
+/// ```
 #[derive(Debug)]
 pub enum AppError {
+    /// GPIO操作エラー
     Gpio(GpioError),
+    /// I2C通信エラー
     I2c(I2cError),
 }
 
@@ -20,6 +101,59 @@ impl From<I2cError> for AppError {
     }
 }
 
+/// プラットフォーム非依存のアプリケーション本体
+///
+/// HAL traitを介してGPIOとI2Cを制御し、周期的なタスクを実行します。
+///
+/// # Type Parameters
+///
+/// - `PIN`: GPIO出力ピン（[`OutputPin`] traitを実装）
+/// - `I2C`: I2Cバス（[`I2cBus`] traitを実装）
+///
+/// # Examples
+///
+/// ```
+/// use core_app::App;
+/// use hal_api::gpio::OutputPin;
+/// use hal_api::i2c::I2cBus;
+/// use hal_api::error::{GpioError, I2cError};
+///
+/// struct MyPin { state: bool }
+/// impl OutputPin for MyPin {
+///     type Error = GpioError;
+///     fn set_high(&mut self) -> Result<(), Self::Error> {
+///         self.state = true;
+///         Ok(())
+///     }
+///     fn set_low(&mut self) -> Result<(), Self::Error> {
+///         self.state = false;
+///         Ok(())
+///     }
+/// }
+///
+/// struct MyI2c;
+/// impl I2cBus for MyI2c {
+///     type Error = I2cError;
+///     fn write(&mut self, _addr: u8, _bytes: &[u8]) -> Result<(), Self::Error> { Ok(()) }
+///     fn read(&mut self, _addr: u8, buffer: &mut [u8]) -> Result<(), Self::Error> {
+///         buffer.fill(0xFF);
+///         Ok(())
+///     }
+///     fn write_read(&mut self, _addr: u8, _bytes: &[u8], buffer: &mut [u8]) -> Result<(), Self::Error> {
+///         buffer.fill(0xFF);
+///         Ok(())
+///     }
+/// }
+///
+/// let pin = MyPin { state: false };
+/// let i2c = MyI2c;
+/// let mut app = App::new(pin, i2c);
+///
+/// // 100 tickでLEDが切り替わる
+/// for _ in 0..100 {
+///     app.tick().unwrap();
+/// }
+/// ```
 pub struct App<PIN, I2C> {
     pin: PIN,
     i2c: I2C,
@@ -32,6 +166,44 @@ where
     PIN: OutputPin<Error = GpioError>,
     I2C: I2cBus<Error = I2cError>,
 {
+    /// 新しいアプリケーションインスタンスを作成
+    ///
+    /// # Arguments
+    ///
+    /// - `pin`: GPIO出力ピン（LED制御用）
+    /// - `i2c`: I2Cバス（センサ通信用）
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use core_app::App;
+    /// use hal_api::gpio::OutputPin;
+    /// use hal_api::i2c::I2cBus;
+    /// use hal_api::error::{GpioError, I2cError};
+    ///
+    /// # struct MyPin { state: bool }
+    /// # impl OutputPin for MyPin {
+    /// #     type Error = GpioError;
+    /// #     fn set_high(&mut self) -> Result<(), Self::Error> { self.state = true; Ok(()) }
+    /// #     fn set_low(&mut self) -> Result<(), Self::Error> { self.state = false; Ok(()) }
+    /// # }
+    /// # struct MyI2c;
+    /// # impl I2cBus for MyI2c {
+    /// #     type Error = I2cError;
+    /// #     fn write(&mut self, _addr: u8, _bytes: &[u8]) -> Result<(), Self::Error> { Ok(()) }
+    /// #     fn read(&mut self, _addr: u8, buffer: &mut [u8]) -> Result<(), Self::Error> {
+    /// #         buffer.fill(0xFF);
+    /// #         Ok(())
+    /// #     }
+    /// #     fn write_read(&mut self, _addr: u8, _bytes: &[u8], buffer: &mut [u8]) -> Result<(), Self::Error> {
+    /// #         buffer.fill(0xFF);
+    /// #         Ok(())
+    /// #     }
+    /// # }
+    /// let pin = MyPin { state: false };
+    /// let i2c = MyI2c;
+    /// let app = App::new(pin, i2c);
+    /// ```
     pub fn new(pin: PIN, i2c: I2C) -> Self {
         Self {
             pin,
@@ -41,6 +213,54 @@ where
         }
     }
 
+    /// 周期的なタスクを実行（10ms周期を想定）
+    ///
+    /// このメソッドは、アプリケーションのメインループから定期的に呼び出されます。
+    /// 内部カウンタをインクリメントし、以下のタスクを実行します：
+    ///
+    /// - 100 tickごと（1秒想定）: LEDの点滅
+    /// - 500 tickごと（5秒想定）: I2Cセンサ（アドレス0x48）からの読み取り
+    ///
+    /// # Errors
+    ///
+    /// GPIO操作またはI2C通信でエラーが発生した場合、[`AppError`]を返します。
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use core_app::App;
+    /// use hal_api::gpio::OutputPin;
+    /// use hal_api::i2c::I2cBus;
+    /// use hal_api::error::{GpioError, I2cError};
+    ///
+    /// # struct MyPin { state: bool }
+    /// # impl OutputPin for MyPin {
+    /// #     type Error = GpioError;
+    /// #     fn set_high(&mut self) -> Result<(), Self::Error> { self.state = true; Ok(()) }
+    /// #     fn set_low(&mut self) -> Result<(), Self::Error> { self.state = false; Ok(()) }
+    /// # }
+    /// # struct MyI2c;
+    /// # impl I2cBus for MyI2c {
+    /// #     type Error = I2cError;
+    /// #     fn write(&mut self, _addr: u8, _bytes: &[u8]) -> Result<(), Self::Error> { Ok(()) }
+    /// #     fn read(&mut self, _addr: u8, buffer: &mut [u8]) -> Result<(), Self::Error> {
+    /// #         buffer.fill(0xFF);
+    /// #         Ok(())
+    /// #     }
+    /// #     fn write_read(&mut self, _addr: u8, _bytes: &[u8], buffer: &mut [u8]) -> Result<(), Self::Error> {
+    /// #         buffer.fill(0xFF);
+    /// #         Ok(())
+    /// #     }
+    /// # }
+    /// let pin = MyPin { state: false };
+    /// let i2c = MyI2c;
+    /// let mut app = App::new(pin, i2c);
+    ///
+    /// // 500 tick実行
+    /// for _ in 0..500 {
+    ///     app.tick().unwrap();
+    /// }
+    /// ```
     #[allow(clippy::manual_is_multiple_of)]
     pub fn tick(&mut self) -> Result<(), AppError> {
         self.tick_count += 1;
