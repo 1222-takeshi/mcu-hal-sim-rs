@@ -182,13 +182,20 @@ mcu-hal-sim-rs/
 
 ### コントリビューション
 
-プルリクエストを歓迎します！以下の手順に従ってください:
+プルリクエストを歓迎します！詳細は [CONTRIBUTING.md](./CONTRIBUTING.md) をご覧ください。
+
+**クイックスタート:**
 
 1. このリポジトリをフォーク
 2. 機能ブランチを作成 (`git checkout -b feat/amazing-feature`)
-3. 変更をコミット (`git commit -m 'add: amazing feature'`)
-4. ブランチをプッシュ (`git push origin feat/amazing-feature`)
-5. プルリクエストを作成
+3. **🔴 Red**: テストを先に書く
+4. **🟢 Green**: 実装してテストを通す
+5. **🔵 Refactor**: コードを改善
+6. 変更をコミット (`git commit -m 'feat: add amazing feature'`)
+7. ブランチをプッシュ (`git push origin feat/amazing-feature`)
+8. プルリクエストを作成
+
+開発ガイドライン、TDD原則、コーディング規約などの詳細は [CONTRIBUTING.md](./CONTRIBUTING.md) を参照してください。
 
 ## 📅 ロードマップ
 
