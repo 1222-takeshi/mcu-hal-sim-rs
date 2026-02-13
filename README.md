@@ -202,12 +202,12 @@ mcu-hal-sim-rs/
 - [x] **Week 1**: PCシミュレータの完成
 - [x] **Week 2**: テスト基盤の整備（57テスト）
 - [x] **Week 3**: CI/CD環境の構築
-- [ ] **Week 4**: ドキュメント充実（現在）
-- [ ] **Week 5**: 統合テスト・カバレッジ向上
+- [x] **Week 4**: ドキュメント充実
+- [ ] **Week 5**: 統合テスト・カバレッジ向上（次のフェーズ）
 - [ ] **Week 6**: no_std対応・ESP32準備
 - [ ] **Week 7-8**: ESP32実機対応（オプション）
 
-詳細は [開発計画](https://github.com/1222-takeshi/mcu-hal-sim-rs/blob/main/.claude/plans/hazy-drifting-frost.md) を参照してください。
+詳細は [CHANGELOG.md](./CHANGELOG.md) と [開発計画](https://github.com/1222-takeshi/mcu-hal-sim-rs/blob/main/.claude/plans/hazy-drifting-frost.md) を参照してください。
 
 ## 📄 ライセンス
 
