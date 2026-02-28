@@ -3,6 +3,9 @@ name = "hal-api"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = ["std"]
+std = []
+
 [lib]
 path = "lib.rs"
-
