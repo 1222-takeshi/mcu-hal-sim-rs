@@ -164,3 +164,36 @@ fi
 # デフォルトのワークフロー名を変更
 RUN_ID=$(gh run list --workflow=custom-workflow.yml --limit 1 --json databaseId --jq '.[0].databaseId')
 ```
+
+---
+
+### `dev-loop.sh` - シミュレータ/実機高速ループ
+
+シミュレータで確認したコードを、ESP32-C3へ素早く反映するためのスクリプトです。
+
+**使用方法:**
+
+```bash
+# PCシミュレータを実行
+./scripts/dev-loop.sh sim
+
+# 実機へビルド + 書き込み + モニタ
+./scripts/dev-loop.sh flash
+
+# ポートを明示する場合
+./scripts/dev-loop.sh flash /dev/tty.usbserial-0001
+
+# ホストテスト + ESP32クロスビルド確認
+./scripts/dev-loop.sh check
+```
+
+**前提条件:**
+
+- `espflash` がインストールされていること
+- `riscv32imc-unknown-none-elf` ターゲットがインストールされていること
+- `rustc` が 1.82 以上であること（`esp-hal` と依存クレートの要件）
+
+```bash
+cargo install espflash
+rustup target add riscv32imc-unknown-none-elf
+```
