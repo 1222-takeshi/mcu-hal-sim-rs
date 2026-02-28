@@ -1,3 +1,5 @@
+#![cfg_attr(not(feature = "std"), no_std)]
+
 //! # HAL API
 //!
 //! マイコン向けハードウェア抽象化層（HAL）のtrait定義。

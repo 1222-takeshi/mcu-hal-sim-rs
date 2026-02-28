@@ -3,9 +3,12 @@ name = "core-app"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = ["std"]
+std = ["hal-api/std"]
+
 [dependencies]
-hal-api = { path = "../hal-api" }
+hal-api = { path = "../hal-api", default-features = false }
 
 [lib]
 path = "lib.rs"
-
