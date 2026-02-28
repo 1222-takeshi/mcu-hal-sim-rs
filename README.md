@@ -8,6 +8,7 @@
 
 - **🎯 プラットフォーム非依存**: HAL traitを使用し、同じアプリケーションコードを複数のプラットフォームで実行
 - **💻 PCシミュレータ**: 実機なしで開発・デバッグが可能
+- **⚡ 高速デプロイループ**: `./scripts/dev-loop.sh flash` でESP32-C3へビルド+書き込み+モニタ
 - **🧪 テスト駆動開発**: 57個のテストでコードの品質を保証
 - **🔧 CI/CD自動化**: GitHub Actionsで自動ビルド・テスト・Lint
 - **🚀 将来の拡張性**: ESP32、Arduino Nano、Raspberry Pi Picoなどへの対応を予定
@@ -35,7 +36,7 @@
         ┌────────┴────────┐
         │                 │
 ┌───────▼──────┐  ┌──────▼────────┐
-│ PC Simulator │  │ ESP32 (予定)  │
+│ PC Simulator │  │ ESP32-C3      │
 │ platform-    │  │ platform-     │
 │ pc-sim       │  │ esp32         │
 │ - MockPin    │  │ - Esp32Pin    │
@@ -48,6 +49,7 @@
 ### 前提条件
 
 - Rust 1.70以降（[rustup](https://rustup.rs/)でインストール）
+- ESP32-C3実機デプロイを使う場合は Rust 1.82 以降を推奨
 
 ### ビルド
 
@@ -68,6 +70,9 @@ cargo build --release
 ```bash
 # PCシミュレータを実行
 cargo run -p platform-pc-sim
+
+# ESP32-C3へビルド + 書き込み + モニタ（要 espflash）
+./scripts/dev-loop.sh flash
 ```
 
 **期待される出力:**
@@ -80,6 +85,14 @@ cargo run -p platform-pc-sim
 ```
 
 Ctrl+Cで終了します。
+
+ESP32-C3向けの事前準備:
+
+```bash
+# 1回だけ実行
+cargo install espflash
+rustup target add riscv32imc-unknown-none-elf
+```
 
 ### テスト
 
@@ -140,6 +153,10 @@ mcu-hal-sim-rs/
 │       ├── main.rs       # エントリポイント（10ms tickループ）
 │       └── mock_hal.rs   # モックHAL実装
 │
+│   └── platform-esp32/   # ESP32-C3実機向け実装
+│       ├── main.rs       # 実機エントリポイント（10ms tickループ）
+│       └── esp32_hal.rs  # embedded-hal -> hal-api アダプタ
+│
 ├── .github/
 │   └── workflows/
 │       └── ci.yml        # CI/CD設定
@@ -156,6 +173,7 @@ mcu-hal-sim-rs/
 | **hal-api** | HAL trait定義（`OutputPin`, `I2cBus`など） | なし |
 | **core-app** | プラットフォーム非依存のアプリケーションロジック | `hal-api` |
 | **platform-pc-sim** | PCシミュレータ実装（モックHAL） | `hal-api`, `core-app` |
+| **platform-esp32** | ESP32-C3実機向け実装（GPIO/I2Cアダプタ） | `hal-api`, `core-app`, `embedded-hal`, `esp-hal` |
 
 ## 🧪 テスト
 
@@ -204,8 +222,8 @@ mcu-hal-sim-rs/
 - [x] **Week 3**: CI/CD環境の構築
 - [x] **Week 4**: ドキュメント充実
 - [ ] **Week 5**: 統合テスト・カバレッジ向上（次のフェーズ）
-- [ ] **Week 6**: no_std対応・ESP32準備
-- [ ] **Week 7-8**: ESP32実機対応（オプション）
+- [x] **Week 6**: no_std対応・ESP32準備
+- [x] **Week 7-8**: ESP32-C3実機デプロイ導線の追加
 
 詳細は [CHANGELOG.md](./CHANGELOG.md) と [開発計画](https://github.com/1222-takeshi/mcu-hal-sim-rs/blob/main/.claude/plans/hazy-drifting-frost.md) を参照してください。
 
