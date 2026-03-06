@@ -7,7 +7,9 @@ edition = "2021"
 hal-api = { path = "../hal-api" }
 core-app = { path = "../core-app" }
 
+[lib]
+path = "lib.rs"
+
 [[bin]]
 name = "platform-pc-sim"
 path = "main.rs"
-

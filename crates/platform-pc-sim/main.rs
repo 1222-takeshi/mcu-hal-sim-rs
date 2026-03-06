@@ -18,8 +18,7 @@
 //! ```
 
 use core_app::App;
-mod mock_hal;
-use mock_hal::{MockI2c, MockPin};
+use platform_pc_sim::mock_hal::{MockI2c, MockPin};
 use std::thread;
 use std::time::Duration;
 

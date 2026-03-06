@@ -1,3 +1,5 @@
+#![no_std]
+
 //! # Core Application
 //!
 //! プラットフォーム非依存のアプリケーションロジック。
@@ -63,6 +65,9 @@ use hal_api::error::{GpioError, I2cError};
 use hal_api::gpio::OutputPin;
 use hal_api::i2c::I2cBus;
 
+#[cfg(test)]
+extern crate std;
+
 /// アプリケーション実行時のエラー型
 ///
 /// GPIO操作やI2C通信で発生したエラーをラップします。
@@ -81,7 +86,7 @@ use hal_api::i2c::I2cBus;
 /// let i2c_err = I2cError::Timeout;
 /// let app_err: AppError = i2c_err.into();
 /// ```
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum AppError {
     /// GPIO操作エラー
     Gpio(GpioError),
@@ -297,7 +302,10 @@ where
 mod tests {
     use super::*;
     use std::cell::RefCell;
+    use std::format;
     use std::rc::Rc;
+    use std::vec;
+    use std::vec::Vec;
 
     // テスト用モックGPIOピン
     #[derive(Clone)]
