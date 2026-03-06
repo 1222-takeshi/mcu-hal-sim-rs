@@ -12,9 +12,11 @@
 
 ### 開発目標
 - ✅ **Phase 1**: PCシミュレータの完成（hal-api、core-app、platform-pc-sim）
-- 🚧 **Phase 2**: テスト基盤の整備（現在進行中 - Week 2）
-- 📅 **Phase 3**: CI/CD環境の構築（Week 3）
-- 📅 **Phase 4**: no_std対応とESP32実機対応（Week 6-8）
+- ✅ **Phase 2**: テスト基盤の整備（59テスト）
+- ✅ **Phase 3**: CI/CD環境の構築
+- 🚧 **Phase 4**: `no_std` 対応とESP32実機準備
+  - `hal-api` と `core-app` は `no_std` 対応済み
+  - 次は `platform-esp32` の骨組みと `no_std` 検証のCI化
 
 ---
 
@@ -35,6 +37,7 @@ mcu-hal-sim-rs/
 │   │                     # - 500 tickごとのI2C読み取り
 │   │
 │   ├── platform-pc-sim/  # PCシミュレータ実装
+│   │   ├── lib.rs        # モックHALの公開
 │   │   ├── main.rs       # 10ms tickループ
 │   │   └── mock_hal.rs   # MockPin、MockI2c実装
 │   │
@@ -58,14 +61,14 @@ platform-esp32 ───┘       ↑          ↑
 
 ---
 
-## テスト構成（Week 2で整備済み）
+## テスト構成（現状）
 
 | クレート | テストタイプ | テスト数 | PR |
 |---------|------------|---------|-----|
 | hal-api | ドキュメントテスト | 17個 | #21 |
-| core-app | ユニットテスト | 20個 | #22 |
-| platform-pc-sim | ユニットテスト | 20個 | #23 |
-| **合計** | | **57個** | |
+| core-app | ユニット + doc test | 25個 | #22 他 |
+| platform-pc-sim | ユニット + 統合 + doc test | 17個 | #23 他 |
+| **合計** | | **59個** | |
 
 ### テスト実行コマンド
 

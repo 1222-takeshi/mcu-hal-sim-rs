@@ -19,6 +19,7 @@ version = "0.1.0"
 dependencies = [
  "core-app",
  "hal-api",
+ "platform-pc-sim",
 ]
 
 [[package]]

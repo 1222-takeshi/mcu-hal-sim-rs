@@ -10,10 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- 今後追加される機能
+- `platform-pc-sim` にライブラリターゲットを追加し、`mock_hal` を examples と統合テストから再利用可能にした
+- `platform-pc-sim` に cross-crate の統合テストを追加し、`core-app` と PC シミュレータ用モックHALの組み合わせを検証できるようにした
 
 ### Changed
-- 今後変更される機能
+- `hal-api` と `core-app` を `no_std` 前提の構成に変更した
+- `basic_blink` と `i2c_read` examples が `platform-pc-sim` のモックHALを再利用するようにした
+- `PLAN.md` / `README.md` / `CLAUDE.md` を現状の実装フェーズとテスト数に合わせて更新した
 
 ### Fixed
 - 今後修正されるバグ
