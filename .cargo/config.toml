@@ -1,0 +1,5 @@
+[alias]
+check-esp32 = "check -p platform-esp32 --lib --target xtensa-esp32-none-elf"
+
+[target.xtensa-esp32-none-elf]
+runner = "espflash flash --monitor"

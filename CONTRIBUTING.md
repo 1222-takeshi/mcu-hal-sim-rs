@@ -25,6 +25,7 @@
 - **Rust**: 1.70以降（安定版推奨）
 - **Git**: バージョン管理
 - **GitHub CLI** (推奨): `gh` コマンドでPR作成が簡単に
+- **espup / espflash** (ESP32作業時のみ): original ESP32 向け Xtensa toolchain と書き込み
 
 ### Rustのインストール
 
@@ -67,6 +68,10 @@ rustup component add clippy
 # GitHub CLI（PR作成用）
 # macOS: brew install gh
 # Ubuntu: sudo apt install gh
+
+# original ESP32 を触る場合
+cargo install espup --locked
+cargo install espflash --locked
 ```
 
 ---
@@ -152,9 +157,10 @@ $ cargo test
 3. **🔴 Red**: テストを先に書く
 4. **🟢 Green**: 実装してテストを通す
 5. **🔵 Refactor**: コードを改善
-6. **PRを作成**
-7. **レビューを受ける**
-8. **マージ**
+6. `./scripts/gh-workflow.sh push` でブランチを push
+7. `./scripts/gh-workflow.sh pr -B main --fill` で PR を作成
+8. **レビューを受ける**
+9. **マージ**
 
 ---
 
@@ -189,6 +195,7 @@ cargo clippy --all --all-targets -- -D warnings
 cargo check -p hal-api --lib --target thumbv6m-none-eabi
 cargo check -p core-app --lib --target thumbv6m-none-eabi
 cargo check -p platform-esp32 --lib --target thumbv6m-none-eabi
+cargo check-esp32   # platform-esp32 / .cargo を変更した場合
 ```
 
 **必須チェック**:
@@ -196,6 +203,7 @@ cargo check -p platform-esp32 --lib --target thumbv6m-none-eabi
 - [ ] フォーマットが正しい（`cargo fmt --all -- --check`）
 - [ ] Clippyで警告なし（`cargo clippy --all -- -D warnings`）
 - [ ] `hal-api` / `core-app` / `platform-esp32` の `no_std` ターゲットチェック成功
+- [ ] `platform-esp32` や `.cargo/config.toml` を変更した場合は original ESP32 向け手順を確認
 - [ ] 新しい機能にテストを追加
 - [ ] ドキュメント（Rustdoc）を追加・更新
 - [ ] CLAUDE.mdの受け入れ基準を満たす

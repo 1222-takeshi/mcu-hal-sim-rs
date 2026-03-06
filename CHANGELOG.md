@@ -14,11 +14,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `platform-pc-sim` に cross-crate の統合テストを追加し、`core-app` と PC シミュレータ用モックHALの組み合わせを検証できるようにした
 - CI に `hal-api` / `core-app` / `platform-esp32` の `no_std` ターゲットチェックを追加した
 - `platform-esp32` クレートを追加し、GPIO / I2C 向けの最小アダプタ骨組みを導入した
+- `.cargo/config.toml` に original ESP32 向け `cargo check-esp32` alias と `espflash` runner を追加した
+- `crates/platform-esp32/README.md` を追加し、original ESP32 向け toolchain と最小確認手順を整理した
 
 ### Changed
 - `hal-api` と `core-app` を `no_std` 前提の構成に変更した
 - `basic_blink` と `i2c_read` examples が `platform-pc-sim` のモックHALを再利用するようにした
 - `PLAN.md` / `README.md` / `CLAUDE.md` を現状の実装フェーズとテスト数に合わせて更新した
+- `platform-esp32` の GPIO / I2C アダプタを `embedded-hal` v1.0 互換実装へ接続する形に変更した
 
 ### Fixed
 - 今後修正されるバグ
