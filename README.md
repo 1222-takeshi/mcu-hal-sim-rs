@@ -107,6 +107,8 @@ cargo test -p core-app
 # 個別チェック
 cargo fmt --all -- --check            # フォーマットチェック
 cargo clippy --all --all-targets -- -D warnings  # Lintチェック
+cargo check -p hal-api --lib --target thumbv6m-none-eabi
+cargo check -p core-app --lib --target thumbv6m-none-eabi
 ```
 
 ### CI結果の自動監視

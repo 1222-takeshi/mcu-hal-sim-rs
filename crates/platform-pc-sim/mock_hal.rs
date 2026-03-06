@@ -7,8 +7,8 @@
 //!
 //! ## 提供する型
 //!
-//! - [`MockPin`]: GPIO出力ピンのモック実装
-//! - [`MockI2c`]: I2Cバスのモック実装
+//! - [`MockPin`][]: GPIO出力ピンのモック実装
+//! - [`MockI2c`][]: I2Cバスのモック実装
 
 use hal_api::error::{GpioError, I2cError};
 use hal_api::gpio::OutputPin;
@@ -173,6 +173,12 @@ impl MockI2c {
     }
 }
 
+impl Default for MockI2c {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl I2cBus for MockI2c {
     type Error = I2cError;
 
@@ -192,12 +198,7 @@ impl I2cBus for MockI2c {
         Ok(())
     }
 
-    fn write_read(
-        &mut self,
-        addr: u8,
-        bytes: &[u8],
-        buffer: &mut [u8],
-    ) -> Result<(), Self::Error> {
+    fn write_read(&mut self, addr: u8, bytes: &[u8], buffer: &mut [u8]) -> Result<(), Self::Error> {
         self.write(addr, bytes)?;
         self.read(addr, buffer)
     }
