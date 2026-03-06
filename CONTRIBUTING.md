@@ -188,13 +188,14 @@ cargo fmt --all -- --check
 cargo clippy --all --all-targets -- -D warnings
 cargo check -p hal-api --lib --target thumbv6m-none-eabi
 cargo check -p core-app --lib --target thumbv6m-none-eabi
+cargo check -p platform-esp32 --lib --target thumbv6m-none-eabi
 ```
 
 **必須チェック**:
 - [ ] すべてのテストが成功（`cargo test --all`）
 - [ ] フォーマットが正しい（`cargo fmt --all -- --check`）
 - [ ] Clippyで警告なし（`cargo clippy --all -- -D warnings`）
-- [ ] `hal-api` / `core-app` の `no_std` ターゲットチェック成功
+- [ ] `hal-api` / `core-app` / `platform-esp32` の `no_std` ターゲットチェック成功
 - [ ] 新しい機能にテストを追加
 - [ ] ドキュメント（Rustdoc）を追加・更新
 - [ ] CLAUDE.mdの受け入れ基準を満たす

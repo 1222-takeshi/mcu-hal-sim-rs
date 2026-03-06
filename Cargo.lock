@@ -23,6 +23,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "platform-esp32"
+version = "0.1.0"
+dependencies = [
+ "hal-api",
+]
+
+[[package]]
 name = "platform-pc-sim"
 version = "0.1.0"
 dependencies = [
