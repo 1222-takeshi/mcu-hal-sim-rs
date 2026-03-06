@@ -1,11 +1,14 @@
 //! ESP32 GPIO アダプタ
 
+use core::cell::{Ref, RefCell, RefMut};
+
+use embedded_hal::digital::{InputPin as EmbeddedInputPin, OutputPin as EmbeddedOutputPin};
 use hal_api::gpio::{InputPin, OutputPin};
 
 /// ESP32 向けの出力ピンラッパー。
 ///
-/// 今は具体的な ESP32 HAL 型に依存せず、後段で `esp-hal` のピン型を
-/// 包めるように最小限の薄いラッパーとして定義しています。
+/// `esp-hal` を含む `embedded-hal` v1.0 互換の出力ピンを受け取り、
+/// `hal-api::gpio::OutputPin` に橋渡しします。
 pub struct Esp32OutputPin<P> {
     inner: P,
 }
@@ -34,7 +37,7 @@ impl<P> Esp32OutputPin<P> {
 
 impl<P> OutputPin for Esp32OutputPin<P>
 where
-    P: OutputPin,
+    P: EmbeddedOutputPin,
 {
     type Error = P::Error;
 
@@ -48,39 +51,49 @@ where
 }
 
 /// ESP32 向けの入力ピンラッパー。
+///
+/// `embedded-hal` v1.0 の `InputPin` は `&mut self` を要求するため、
+/// 内部では `RefCell` を使って可変借用を管理します。
 pub struct Esp32InputPin<P> {
-    inner: P,
+    inner: RefCell<P>,
 }
 
 impl<P> Esp32InputPin<P> {
     /// ラップ対象のピンからアダプタを生成します。
     pub fn new(inner: P) -> Self {
-        Self { inner }
+        Self {
+            inner: RefCell::new(inner),
+        }
     }
 
-    /// 内部のピン参照を取得します。
-    pub fn inner(&self) -> &P {
-        &self.inner
+    /// 内部のピン参照を借用します。
+    pub fn borrow_inner(&self) -> Ref<'_, P> {
+        self.inner.borrow()
+    }
+
+    /// 内部のピン可変参照を借用します。
+    pub fn borrow_inner_mut(&self) -> RefMut<'_, P> {
+        self.inner.borrow_mut()
     }
 
     /// 内部のピンを取り出します。
     pub fn into_inner(self) -> P {
-        self.inner
+        self.inner.into_inner()
     }
 }
 
 impl<P> InputPin for Esp32InputPin<P>
 where
-    P: InputPin,
+    P: EmbeddedInputPin,
 {
     type Error = P::Error;
 
     fn is_high(&self) -> Result<bool, Self::Error> {
-        self.inner.is_high()
+        self.inner.borrow_mut().is_high()
     }
 
     fn is_low(&self) -> Result<bool, Self::Error> {
-        self.inner.is_low()
+        self.inner.borrow_mut().is_low()
     }
 }
 
@@ -89,16 +102,19 @@ extern crate std;
 
 #[cfg(test)]
 mod tests {
+    use core::convert::Infallible;
+
     use super::*;
-    use hal_api::error::GpioError;
 
     struct DummyOutputPin {
         level: bool,
     }
 
-    impl OutputPin for DummyOutputPin {
-        type Error = GpioError;
+    impl embedded_hal::digital::ErrorType for DummyOutputPin {
+        type Error = Infallible;
+    }
 
+    impl EmbeddedOutputPin for DummyOutputPin {
         fn set_high(&mut self) -> Result<(), Self::Error> {
             self.level = true;
             Ok(())
@@ -112,16 +128,22 @@ mod tests {
 
     struct DummyInputPin {
         level: bool,
+        high_reads: usize,
+        low_reads: usize,
     }
 
-    impl InputPin for DummyInputPin {
-        type Error = GpioError;
+    impl embedded_hal::digital::ErrorType for DummyInputPin {
+        type Error = Infallible;
+    }
 
-        fn is_high(&self) -> Result<bool, Self::Error> {
+    impl EmbeddedInputPin for DummyInputPin {
+        fn is_high(&mut self) -> Result<bool, Self::Error> {
+            self.high_reads += 1;
             Ok(self.level)
         }
 
-        fn is_low(&self) -> Result<bool, Self::Error> {
+        fn is_low(&mut self) -> Result<bool, Self::Error> {
+            self.low_reads += 1;
             Ok(!self.level)
         }
     }
@@ -148,15 +170,25 @@ mod tests {
 
     #[test]
     fn esp32_input_pin_delegates_to_inner_pin() {
-        let pin = Esp32InputPin::new(DummyInputPin { level: true });
+        let pin = Esp32InputPin::new(DummyInputPin {
+            level: true,
+            high_reads: 0,
+            low_reads: 0,
+        });
 
         assert!(pin.is_high().unwrap());
         assert!(!pin.is_low().unwrap());
+        assert_eq!(pin.borrow_inner().high_reads, 1);
+        assert_eq!(pin.borrow_inner().low_reads, 1);
     }
 
     #[test]
     fn esp32_input_pin_into_inner_returns_wrapped_pin() {
-        let pin = Esp32InputPin::new(DummyInputPin { level: false });
+        let pin = Esp32InputPin::new(DummyInputPin {
+            level: false,
+            high_reads: 0,
+            low_reads: 0,
+        });
 
         assert!(!pin.into_inner().level);
     }

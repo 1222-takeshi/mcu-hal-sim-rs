@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+embedded-hal = "1.0"
 hal-api = { path = "../hal-api" }
 
 [lib]
 path = "lib.rs"
-

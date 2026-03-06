@@ -1,11 +1,12 @@
 //! ESP32 I2C アダプタ
 
+use embedded_hal::i2c::{I2c as EmbeddedI2c, SevenBitAddress};
 use hal_api::i2c::I2cBus;
 
 /// ESP32 向けの I2C バスラッパー。
 ///
-/// 将来的には `esp-hal` の I2C 実装を包み、`hal-api::i2c::I2cBus`
-/// に接続する責務を持たせます。
+/// `esp-hal` を含む `embedded-hal` v1.0 互換の I2C 実装を包み、
+/// `hal-api::i2c::I2cBus` に接続します。
 pub struct Esp32I2c<I> {
     inner: I,
 }
@@ -34,7 +35,7 @@ impl<I> Esp32I2c<I> {
 
 impl<I> I2cBus for Esp32I2c<I>
 where
-    I: I2cBus,
+    I: EmbeddedI2c<SevenBitAddress>,
 {
     type Error = I::Error;
 
@@ -56,8 +57,9 @@ extern crate std;
 
 #[cfg(test)]
 mod tests {
+    use core::convert::Infallible;
+
     use super::*;
-    use hal_api::error::I2cError;
 
     struct DummyI2c {
         writes: usize,
@@ -65,9 +67,11 @@ mod tests {
         last_addr: Option<u8>,
     }
 
-    impl I2cBus for DummyI2c {
-        type Error = I2cError;
+    impl embedded_hal::i2c::ErrorType for DummyI2c {
+        type Error = Infallible;
+    }
 
+    impl EmbeddedI2c<SevenBitAddress> for DummyI2c {
         fn write(&mut self, addr: u8, _bytes: &[u8]) -> Result<(), Self::Error> {
             self.writes += 1;
             self.last_addr = Some(addr);
@@ -89,6 +93,29 @@ mod tests {
         ) -> Result<(), Self::Error> {
             self.write(addr, bytes)?;
             self.read(addr, buffer)
+        }
+
+        fn transaction(
+            &mut self,
+            addr: u8,
+            operations: &mut [embedded_hal::i2c::Operation<'_>],
+        ) -> Result<(), Self::Error> {
+            self.last_addr = Some(addr);
+
+            for operation in operations {
+                match operation {
+                    embedded_hal::i2c::Operation::Read(buffer) => {
+                        self.reads += 1;
+                        buffer.fill(0xAB);
+                    }
+                    embedded_hal::i2c::Operation::Write(bytes) => {
+                        self.writes += 1;
+                        let _ = bytes;
+                    }
+                }
+            }
+
+            Ok(())
         }
     }
 

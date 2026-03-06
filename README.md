@@ -8,9 +8,10 @@
 
 - **🎯 プラットフォーム非依存**: HAL traitを使用し、同じアプリケーションコードを複数のプラットフォームで実行
 - **💻 PCシミュレータ**: 実機なしで開発・デバッグが可能
-- **🧪 テスト駆動開発**: 59個のテストでコードの品質を保証
+- **🧪 テスト駆動開発**: 66個のテストでコードの品質を保証
 - **🔧 CI/CD自動化**: GitHub Actionsで自動ビルド・テスト・Lint
 - **📦 `no_std` 準備**: `hal-api` と `core-app` はホスト依存を持たない構成
+- **⚙️ original ESP32 準備**: `platform-esp32` は `embedded-hal` v1.0 経由で実機HALを受けられる構成
 - **🚀 将来の拡張性**: ESP32、Arduino Nano、Raspberry Pi Picoなどへの対応を予定
 
 ## 📐 アーキテクチャ
@@ -35,13 +36,13 @@
                  │ implemented by
         ┌────────┴────────┐
         │                 │
-┌───────▼──────┐  ┌──────▼────────┐
-│ PC Simulator │  │ ESP32 (予定)  │
+┌───────▼──────┐  ┌──────▼────────────────┐
+│ PC Simulator │  │ ESP32 (original 準備中) │
 │ platform-    │  │ platform-     │
 │ pc-sim       │  │ esp32         │
 │ - MockPin    │  │ - Esp32Pin    │
 │ - MockI2c    │  │ - Esp32I2c    │
-└──────────────┘  └───────────────┘
+└──────────────┘  └───────────────────────┘
 ```
 
 ## 🚀 クイックスタート
@@ -110,7 +111,22 @@ cargo clippy --all --all-targets -- -D warnings  # Lintチェック
 cargo check -p hal-api --lib --target thumbv6m-none-eabi
 cargo check -p core-app --lib --target thumbv6m-none-eabi
 cargo check -p platform-esp32 --lib --target thumbv6m-none-eabi
+cargo check-esp32
 ```
+
+### original ESP32 実機向けの最小確認
+
+`platform-esp32` は original Xtensa-based ESP32 を対象に進めています。
+
+```bash
+# 1. Xtensa 向け toolchain をセットアップ
+#    https://docs.espressif.com/projects/rust/book/
+
+# 2. 実機向けチェック
+cargo check-esp32
+```
+
+詳細は [crates/platform-esp32/README.md](./crates/platform-esp32/README.md) を参照してください。
 
 ### CI結果の自動監視
 
@@ -140,19 +156,23 @@ mcu-hal-sim-rs/
 │   │                     #   - 100 tickごとにLED点滅
 │   │                     #   - 500 tickごとにI2C読み取り
 │   │
-│   └── platform-pc-sim/  # PCシミュレータ
+│   ├── platform-pc-sim/  # PCシミュレータ
 │       ├── lib.rs        # モックHAL公開
 │       ├── main.rs       # エントリポイント（10ms tickループ）
 │       └── mock_hal.rs   # モックHAL実装
 │
-│   └── platform-esp32/   # ESP32向けアダプタ骨組み
+│   └── platform-esp32/   # original ESP32向けアダプタ
 │       ├── gpio.rs       # Esp32OutputPin / Esp32InputPin
 │       ├── i2c.rs        # Esp32I2c
-│       └── lib.rs
+│       ├── lib.rs
+│       └── README.md
 │
 ├── .github/
 │   └── workflows/
 │       └── ci.yml        # CI/CD設定
+│
+├── .cargo/
+│   └── config.toml       # original ESP32向け cargo alias / runner
 │
 ├── Cargo.toml            # ワークスペース設定
 ├── rustfmt.toml          # フォーマット設定
@@ -166,7 +186,7 @@ mcu-hal-sim-rs/
 | **hal-api** | HAL trait定義（`OutputPin`, `I2cBus`など） | なし |
 | **core-app** | プラットフォーム非依存のアプリケーションロジック | `hal-api` |
 | **platform-pc-sim** | PCシミュレータ実装（モックHAL） | `hal-api`, `core-app` |
-| **platform-esp32** | ESP32向けアダプタ骨組み | `hal-api` |
+| **platform-esp32** | original ESP32向け `embedded-hal` アダプタ | `hal-api`, `embedded-hal` |
 
 ## 🧪 テスト
 
@@ -177,7 +197,8 @@ mcu-hal-sim-rs/
 | hal-api | ドキュメントテスト | 17個 |
 | core-app | ユニット + doc test | 25個 |
 | platform-pc-sim | ユニット + 統合 + doc test | 17個 |
-| **合計** | | **59個** |
+| platform-esp32 | ユニットテスト | 7個 |
+| **合計** | | **66個** |
 
 ## 🛠️ 開発
 
@@ -203,8 +224,8 @@ mcu-hal-sim-rs/
 4. **🟢 Green**: 実装してテストを通す
 5. **🔵 Refactor**: コードを改善
 6. 変更をコミット (`git commit -m 'feat: add amazing feature'`)
-7. ブランチをプッシュ (`git push origin feat/amazing-feature`)
-8. プルリクエストを作成
+7. `./scripts/gh-workflow.sh push` でブランチをプッシュ
+8. `./scripts/gh-workflow.sh pr -B main --fill` でプルリクエストを作成
 
 開発ガイドライン、TDD原則、コーディング規約などの詳細は [CONTRIBUTING.md](./CONTRIBUTING.md) を参照してください。
 
