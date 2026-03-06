@@ -4,6 +4,7 @@ members = [
     "crates/hal-api",
     "crates/core-app",
     "crates/platform-pc-sim",
+    "crates/platform-esp32",
 ]
 
 [package]

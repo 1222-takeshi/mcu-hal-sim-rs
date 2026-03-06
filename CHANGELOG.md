@@ -12,7 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `platform-pc-sim` にライブラリターゲットを追加し、`mock_hal` を examples と統合テストから再利用可能にした
 - `platform-pc-sim` に cross-crate の統合テストを追加し、`core-app` と PC シミュレータ用モックHALの組み合わせを検証できるようにした
-- CI に `hal-api` / `core-app` の `no_std` ターゲットチェックを追加した
+- CI に `hal-api` / `core-app` / `platform-esp32` の `no_std` ターゲットチェックを追加した
+- `platform-esp32` クレートを追加し、GPIO / I2C 向けの最小アダプタ骨組みを導入した
 
 ### Changed
 - `hal-api` と `core-app` を `no_std` 前提の構成に変更した

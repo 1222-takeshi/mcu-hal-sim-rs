@@ -109,6 +109,7 @@ cargo fmt --all -- --check            # フォーマットチェック
 cargo clippy --all --all-targets -- -D warnings  # Lintチェック
 cargo check -p hal-api --lib --target thumbv6m-none-eabi
 cargo check -p core-app --lib --target thumbv6m-none-eabi
+cargo check -p platform-esp32 --lib --target thumbv6m-none-eabi
 ```
 
 ### CI結果の自動監視
@@ -144,6 +145,11 @@ mcu-hal-sim-rs/
 │       ├── main.rs       # エントリポイント（10ms tickループ）
 │       └── mock_hal.rs   # モックHAL実装
 │
+│   └── platform-esp32/   # ESP32向けアダプタ骨組み
+│       ├── gpio.rs       # Esp32OutputPin / Esp32InputPin
+│       ├── i2c.rs        # Esp32I2c
+│       └── lib.rs
+│
 ├── .github/
 │   └── workflows/
 │       └── ci.yml        # CI/CD設定
@@ -160,6 +166,7 @@ mcu-hal-sim-rs/
 | **hal-api** | HAL trait定義（`OutputPin`, `I2cBus`など） | なし |
 | **core-app** | プラットフォーム非依存のアプリケーションロジック | `hal-api` |
 | **platform-pc-sim** | PCシミュレータ実装（モックHAL） | `hal-api`, `core-app` |
+| **platform-esp32** | ESP32向けアダプタ骨組み | `hal-api` |
 
 ## 🧪 テスト
 
