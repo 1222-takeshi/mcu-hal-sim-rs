@@ -161,4 +161,3 @@ mod tests {
         assert!(!pin.into_inner().level);
     }
 }
-

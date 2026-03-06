@@ -46,12 +46,7 @@ where
         self.inner.read(addr, buffer)
     }
 
-    fn write_read(
-        &mut self,
-        addr: u8,
-        bytes: &[u8],
-        buffer: &mut [u8],
-    ) -> Result<(), Self::Error> {
+    fn write_read(&mut self, addr: u8, bytes: &[u8], buffer: &mut [u8]) -> Result<(), Self::Error> {
         self.inner.write_read(addr, bytes, buffer)
     }
 }
