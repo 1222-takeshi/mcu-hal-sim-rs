@@ -8,6 +8,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  NO_STD_TARGET: thumbv6m-none-eabi
 
 jobs:
   test:
@@ -119,3 +120,33 @@ jobs:
 
       - name: Run clippy
         run: cargo clippy --all --all-targets -- -D warnings
+
+  no-std:
+    name: no_std Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ env.NO_STD_TARGET }}
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.toml') }}
+
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.toml') }}
+
+      - name: Check hal-api for no_std target
+        run: cargo check -p hal-api --lib --target $NO_STD_TARGET
+
+      - name: Check core-app for no_std target
+        run: cargo check -p core-app --lib --target $NO_STD_TARGET

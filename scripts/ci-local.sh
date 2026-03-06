@@ -13,6 +13,7 @@
 #   --skip-build    ビルドをスキップ
 #   --skip-fmt      フォーマットチェックをスキップ
 #   --skip-clippy   Clippyチェックをスキップ
+#   --skip-no-std   no_stdターゲットチェックをスキップ
 #   --fix           可能な問題を自動修正（fmt, clippy --fix）
 
 set -euo pipefail
@@ -29,7 +30,9 @@ SKIP_TEST=false
 SKIP_BUILD=false
 SKIP_FMT=false
 SKIP_CLIPPY=false
+SKIP_NO_STD=false
 FIX_MODE=false
+NO_STD_TARGET="${NO_STD_TARGET:-thumbv6m-none-eabi}"
 
 for arg in "$@"; do
     case $arg in
@@ -45,12 +48,15 @@ for arg in "$@"; do
         --skip-clippy)
             SKIP_CLIPPY=true
             ;;
+        --skip-no-std)
+            SKIP_NO_STD=true
+            ;;
         --fix)
             FIX_MODE=true
             ;;
         *)
             echo -e "${RED}Unknown option: $arg${NC}"
-            echo "Usage: $0 [--skip-test] [--skip-build] [--skip-fmt] [--skip-clippy] [--fix]"
+            echo "Usage: $0 [--skip-test] [--skip-build] [--skip-fmt] [--skip-clippy] [--skip-no-std] [--fix]"
             exit 1
             ;;
     esac
@@ -74,18 +80,18 @@ print_section() {
 # 関数: 成功メッセージ
 print_success() {
     echo -e "${GREEN}✓ $1${NC}"
-    ((PASSED++))
+    PASSED=$((PASSED + 1))
 }
 
 # 関数: 失敗メッセージ
 print_failure() {
     echo -e "${RED}✗ $1${NC}"
-    ((FAILED++))
+    FAILED=$((FAILED + 1))
 }
 
 # 1. テスト
 if [ "$SKIP_TEST" = false ]; then
-    print_section "1/4 Running Tests"
+    print_section "1/5 Running Tests"
     if cargo test --all --verbose; then
         print_success "All tests passed"
     else
@@ -97,7 +103,7 @@ fi
 
 # 2. ビルド
 if [ "$SKIP_BUILD" = false ]; then
-    print_section "2/4 Building Release"
+    print_section "2/5 Building Release"
     if cargo build --all --release --verbose; then
         print_success "Build succeeded"
     else
@@ -109,7 +115,7 @@ fi
 
 # 3. フォーマット
 if [ "$SKIP_FMT" = false ]; then
-    print_section "3/4 Checking Format"
+    print_section "3/5 Checking Format"
     if ! command -v rustfmt &> /dev/null; then
         echo -e "${YELLOW}Warning: rustfmt not found, skipping format check${NC}"
         echo -e "${YELLOW}Install with: rustup component add rustfmt${NC}"
@@ -132,7 +138,7 @@ fi
 
 # 4. Clippy
 if [ "$SKIP_CLIPPY" = false ]; then
-    print_section "4/4 Running Clippy"
+    print_section "4/5 Running Clippy"
     if ! command -v cargo-clippy &> /dev/null && ! cargo clippy --version &> /dev/null; then
         echo -e "${YELLOW}Warning: clippy not found, skipping clippy check${NC}"
         echo -e "${YELLOW}Install with: rustup component add clippy${NC}"
@@ -154,6 +160,27 @@ if [ "$SKIP_CLIPPY" = false ]; then
     fi
 else
     echo -e "${YELLOW}Skipping clippy${NC}"
+fi
+
+# 5. no_std target check
+if [ "$SKIP_NO_STD" = false ]; then
+    print_section "5/5 Checking no_std target (${NO_STD_TARGET})"
+    if ! command -v rustup &> /dev/null; then
+        echo -e "${YELLOW}Warning: rustup not found, skipping no_std target check${NC}"
+        echo -e "${YELLOW}Install rustup to enable target management${NC}"
+    elif ! rustup target list --installed | grep -qx "${NO_STD_TARGET}"; then
+        echo -e "${YELLOW}Warning: target '${NO_STD_TARGET}' not installed, skipping no_std target check${NC}"
+        echo -e "${YELLOW}Install with: rustup target add ${NO_STD_TARGET}${NC}"
+    else
+        if cargo check -p hal-api --lib --target "${NO_STD_TARGET}" \
+            && cargo check -p core-app --lib --target "${NO_STD_TARGET}"; then
+            print_success "no_std target check passed"
+        else
+            print_failure "no_std target check failed"
+        fi
+    fi
+else
+    echo -e "${YELLOW}Skipping no_std target check${NC}"
 fi
 
 # サマリー
