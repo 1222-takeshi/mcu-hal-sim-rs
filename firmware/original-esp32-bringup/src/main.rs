@@ -4,12 +4,13 @@
 use core_app::App;
 use esp_backtrace as _;
 use esp_hal::{
-    delay::Delay,
     gpio::{Level, Output, OutputConfig},
     main,
 };
 use esp_println::println;
+#[cfg(not(feature = "real-i2c"))]
 use hal_api::error::I2cError;
+#[cfg(not(feature = "real-i2c"))]
 use hal_api::i2c::I2cBus;
 use platform_esp32::gpio::Esp32OutputPin;
 
@@ -21,12 +22,25 @@ use platform_esp32::i2c::Esp32I2c;
 esp_bootloader_esp_idf::esp_app_desc!();
 
 const LED_GPIO: u8 = 2;
+const TICK_DELAY_SPINS: u32 = 120_000;
+#[cfg(feature = "real-i2c")]
 const I2C_SDA_GPIO: u8 = 21;
+#[cfg(feature = "real-i2c")]
 const I2C_SCL_GPIO: u8 = 22;
 const APP_I2C_ADDRESS: u8 = 0x48;
 
+#[cfg(not(feature = "real-i2c"))]
 struct NoopI2c;
 
+// `esp_hal::delay` is currently unstable for this stable-toolchain bring-up flow,
+// so keep the loop timing coarse and dependency-free.
+fn busy_wait(iterations: u32) {
+    for _ in 0..iterations {
+        core::hint::spin_loop();
+    }
+}
+
+#[cfg(not(feature = "real-i2c"))]
 impl I2cBus for NoopI2c {
     type Error = I2cError;
 
@@ -53,8 +67,8 @@ impl I2cBus for NoopI2c {
 #[main]
 fn main() -> ! {
     let peripherals = esp_hal::init(esp_hal::Config::default());
-    let delay = Delay::new();
 
+    // `esp-hal` exposes GPIOs as named fields, so keep this in sync with `LED_GPIO`.
     let led = Output::new(peripherals.GPIO2, Level::Low, OutputConfig::default());
     let led = Esp32OutputPin::new(led);
 
@@ -94,6 +108,6 @@ fn main() -> ! {
             println!("tick failed: {:?}", error);
         }
 
-        delay.delay_millis(10);
+        busy_wait(TICK_DELAY_SPINS);
     }
 }

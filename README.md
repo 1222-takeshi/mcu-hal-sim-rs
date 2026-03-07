@@ -147,6 +147,8 @@ cargo run --release --features real-i2c
 ```
 
 現在の `core-app` は `0x48` に 4-byte read を行うため、I2C を試す場合は `0x48` で応答する 3.3V デバイスが必要です。
+original ESP32 + CP210x bridge では、LED only firmware の flash / boot log まで確認済みです。
+WSL2 で `/dev/ttyUSB*` が見えない場合は、WSL で build して Windows 側の `espflash.exe` から `COMx` へ書き込む手順を使ってください。
 
 ### CI結果の自動監視
 
