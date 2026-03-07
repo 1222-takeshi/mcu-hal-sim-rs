@@ -35,6 +35,13 @@ cargo check-esp32
 
 `.cargo/config.toml` で `xtensa-esp32-none-elf` 向け runner と alias を定義しています。
 
+## 実機で確認済み
+
+- original ESP32 + CP210x USB-UART bridge
+- `espflash board-info`
+- `firmware/original-esp32-bringup` の LED only flash / boot log
+- WSL2 host では build を WSL、flash を Windows `espflash.exe` に分ける経路
+
 ## 今のスコープ
 
 - `Esp32OutputPin<P>`: `embedded_hal::digital::OutputPin` を `hal_api::gpio::OutputPin<Error = GpioError>` に接続
@@ -46,4 +53,4 @@ cargo check-esp32
 
 - `esp-hal` の original ESP32 向け GPIO 型を使った薄い生成ヘルパーを追加する
 - I2C 初期化の board-specific な引数設計を決める
-- 実機で LED 点滅と単純な I2C 読み取りを確認する
+- 実機で `real-i2c` 経路を確認する
