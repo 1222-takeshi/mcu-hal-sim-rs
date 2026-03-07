@@ -3,10 +3,8 @@
 use core::cell::{Ref, RefCell, RefMut};
 
 use embedded_hal::digital::{
-    Error as EmbeddedDigitalError,
-    ErrorKind as EmbeddedDigitalErrorKind,
-    InputPin as EmbeddedInputPin,
-    OutputPin as EmbeddedOutputPin,
+    Error as EmbeddedDigitalError, ErrorKind as EmbeddedDigitalErrorKind,
+    InputPin as EmbeddedInputPin, OutputPin as EmbeddedOutputPin,
 };
 use hal_api::error::GpioError;
 use hal_api::gpio::{InputPin, OutputPin};

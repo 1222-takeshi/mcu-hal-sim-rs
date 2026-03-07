@@ -86,6 +86,9 @@ fn core_app_runs_with_esp32_adapters() {
         app.tick().unwrap();
     }
 
-    assert_eq!(pin_history.borrow().as_slice(), &[true, false, true, false, true]);
+    assert_eq!(
+        pin_history.borrow().as_slice(),
+        &[true, false, true, false, true]
+    );
     assert_eq!(i2c_reads.borrow().as_slice(), &[(0x48, 4)]);
 }

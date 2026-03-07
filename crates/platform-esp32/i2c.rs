@@ -1,18 +1,17 @@
 //! ESP32 I2C アダプタ
 
 use embedded_hal::i2c::{
-    Error as EmbeddedI2cError,
-    ErrorKind as EmbeddedI2cErrorKind,
-    I2c as EmbeddedI2c,
-    NoAcknowledgeSource,
-    SevenBitAddress,
+    Error as EmbeddedI2cError, ErrorKind as EmbeddedI2cErrorKind, I2c as EmbeddedI2c,
+    NoAcknowledgeSource, SevenBitAddress,
 };
 use hal_api::error::I2cError;
 use hal_api::i2c::I2cBus;
 
 fn map_i2c_error(error: impl EmbeddedI2cError) -> I2cError {
     match error.kind() {
-        EmbeddedI2cErrorKind::NoAcknowledge(NoAcknowledgeSource::Address) => I2cError::InvalidAddress,
+        EmbeddedI2cErrorKind::NoAcknowledge(NoAcknowledgeSource::Address) => {
+            I2cError::InvalidAddress
+        }
         EmbeddedI2cErrorKind::Bus
         | EmbeddedI2cErrorKind::ArbitrationLoss
         | EmbeddedI2cErrorKind::NoAcknowledge(NoAcknowledgeSource::Data)
