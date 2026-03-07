@@ -47,6 +47,7 @@ cargo run --release
 ```
 
 このモードでは GPIO2 の LED 点滅だけを確認し、I2C は no-op です。
+シリアルログでは `heartbeat tick = 100` のように 100 tick ごとの生存確認も出ます。
 
 ### I2C も試す場合
 
@@ -57,6 +58,9 @@ cargo run --release
 cd firmware/original-esp32-bringup
 cargo run --release --features real-i2c
 ```
+
+このモードでは 500 tick ごとに `i2c read ok: ...` または `i2c read err: ...` が出るので、
+LED の見た目だけでなくシリアルログでも I2C 経路を確認できます。
 
 ## WSL2 + Windows COM ポートでの実行
 

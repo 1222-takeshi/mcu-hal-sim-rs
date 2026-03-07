@@ -8,9 +8,7 @@ use esp_hal::{
     main,
 };
 use esp_println::println;
-#[cfg(not(feature = "real-i2c"))]
 use hal_api::error::I2cError;
-#[cfg(not(feature = "real-i2c"))]
 use hal_api::i2c::I2cBus;
 use platform_esp32::gpio::Esp32OutputPin;
 
@@ -31,6 +29,18 @@ const APP_I2C_ADDRESS: u8 = 0x48;
 
 #[cfg(not(feature = "real-i2c"))]
 struct NoopI2c;
+
+#[cfg(feature = "real-i2c")]
+struct LoggingI2c<I> {
+    inner: I,
+}
+
+#[cfg(feature = "real-i2c")]
+impl<I> LoggingI2c<I> {
+    fn new(inner: I) -> Self {
+        Self { inner }
+    }
+}
 
 // `esp_hal::delay` is currently unstable for this stable-toolchain bring-up flow,
 // so keep the loop timing coarse and dependency-free.
@@ -64,6 +74,46 @@ impl I2cBus for NoopI2c {
     }
 }
 
+#[cfg(feature = "real-i2c")]
+impl<I> I2cBus for LoggingI2c<I>
+where
+    I: I2cBus<Error = I2cError>,
+{
+    type Error = I2cError;
+
+    fn write(&mut self, addr: u8, bytes: &[u8]) -> Result<(), Self::Error> {
+        let result = self.inner.write(addr, bytes);
+        match &result {
+            Ok(()) => println!("i2c write ok: addr=0x{:02x} len={}", addr, bytes.len()),
+            Err(error) => println!("i2c write err: addr=0x{:02x} err={:?}", addr, error),
+        }
+        result
+    }
+
+    fn read(&mut self, addr: u8, buffer: &mut [u8]) -> Result<(), Self::Error> {
+        let result = self.inner.read(addr, buffer);
+        match &result {
+            Ok(()) => println!("i2c read ok: addr=0x{:02x} data={:02x?}", addr, buffer),
+            Err(error) => println!("i2c read err: addr=0x{:02x} err={:?}", addr, error),
+        }
+        result
+    }
+
+    fn write_read(&mut self, addr: u8, bytes: &[u8], buffer: &mut [u8]) -> Result<(), Self::Error> {
+        let result = self.inner.write_read(addr, bytes, buffer);
+        match &result {
+            Ok(()) => println!(
+                "i2c write_read ok: addr=0x{:02x} tx_len={} rx={:02x?}",
+                addr,
+                bytes.len(),
+                buffer
+            ),
+            Err(error) => println!("i2c write_read err: addr=0x{:02x} err={:?}", addr, error),
+        }
+        result
+    }
+}
+
 #[main]
 fn main() -> ! {
     let peripherals = esp_hal::init(esp_hal::Config::default());
@@ -78,7 +128,7 @@ fn main() -> ! {
             .unwrap()
             .with_sda(peripherals.GPIO21)
             .with_scl(peripherals.GPIO22);
-        Esp32I2c::new(bus)
+        LoggingI2c::new(Esp32I2c::new(bus))
     };
 
     #[cfg(not(feature = "real-i2c"))]
@@ -103,9 +153,16 @@ fn main() -> ! {
         APP_I2C_ADDRESS
     );
 
+    let mut loop_count = 0u32;
+
     loop {
         if let Err(error) = app.tick() {
             println!("tick failed: {:?}", error);
+        }
+        loop_count += 1;
+
+        if loop_count.is_multiple_of(100) {
+            println!("heartbeat tick = {}", loop_count);
         }
 
         busy_wait(TICK_DELAY_SPINS);
