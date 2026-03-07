@@ -42,6 +42,12 @@ cargo check-esp32
 - `firmware/original-esp32-bringup` の LED only flash / boot log
 - WSL2 host では build を WSL、flash を Windows `espflash.exe` に分ける経路
 
+## ホスト OS 方針
+
+- 実行ホストは native macOS / native Linux / Windows / WSL2 を想定する
+- flash 手順を提案するときは、Windows の `COMx` だけを前提にせず、macOS / Linux の serial device path も考慮する
+- WSL2 は native serial が見えない場合の例外経路として扱い、native macOS / Linux は通常の `espflash` 実行経路として扱う
+
 ## 今のスコープ
 
 - `Esp32OutputPin<P>`: `embedded_hal::digital::OutputPin` を `hal_api::gpio::OutputPin<Error = GpioError>` に接続

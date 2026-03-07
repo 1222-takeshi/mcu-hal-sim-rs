@@ -15,7 +15,10 @@ original ESP32 向けの最小ファームウェア雛形です。
 - toolchain: `espup` で導入した `esp` toolchain
 - フラッシュ: `espflash`
 - 電圧: **3.3V only**
-- USB-UART: CP210x / COM ポートが見えること
+- 想定ホスト OS: native macOS / native Linux / Windows / WSL2
+- USB-UART:
+  - macOS / Linux では `CP210x` がシリアルデバイスとして見えること
+  - Windows では `COMx` として見えること
 
 ## 実機で確認済み
 
@@ -27,6 +30,12 @@ original ESP32 向けの最小ファームウェア雛形です。
 ## 標準手順
 
 ネイティブ Linux / macOS、または WSL からシリアルポートが直接見えている場合はこのままで構いません。
+
+### macOS / Linux での確認の目安
+
+- macOS では `/dev/cu.*` や `/dev/tty.*` に CP210x が見えることを確認してから進める
+- Linux では `/dev/ttyUSB*` や `/dev/ttyACM*` を確認してから進める
+- どちらも `espflash board-info` が通ることを先に確認すると切り分けが速い
 
 ### LED only
 
@@ -108,3 +117,4 @@ CP210x ドライバが入っていない場合は、まず Silicon Labs の VCP 
 - 初回で詰まりやすいのは toolchain と USB 接続です。USB ケーブルは給電専用でないものを使ってください
 - `espflash board-info` が通ることを先に確認すると、flash 失敗の切り分けが速くなります
 - WSL2 では COM ポートが Linux 側へ見えないことがあります。その場合は上の Windows 経由手順を使ってください
+- macOS を含む native host では、Windows 固有の `COMx` 前提ではなくネイティブの serial device path を使って手順を考えてください
