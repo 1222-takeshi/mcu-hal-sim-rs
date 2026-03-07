@@ -299,6 +299,7 @@ git stash pop
   - コミットメッセージと PR タイトルは英語とし、PR の説明文は日本語で書く。
   - PR の説明文にはテストの実行方法（例: `cargo test` / `cargo run -p platform-pc-sim` など）を必ず明記する。
   - GitHub 連携の `git push` / Pull Request / Issue 作成などの操作は、原則として `scripts/gh-workflow.sh` (`push` / `pr` / `issue` サブコマンド) を経由して行う。
+  - 実機 bring-up や `espflash` 実行手順を提案するときは、ホスト OS として macOS も必ず考慮する。Windows の `COMx` だけを前提にせず、macOS / Linux の native serial device path 前提の案内を優先し、WSL2 + Windows 経由は代替経路として扱う。
 - 機能面での最初の目標:
   - `hal-api` クレートで GPIO / I2C の基本的な trait（例: `OutputPin` / `InputPin` / `I2cBus` など）を定義する。
   - `core-app` クレートで HAL を使うための `App` 構造体を定義する。ジェネリクスで HAL 実装を受け取り、`tick()` メソッドで 1 ステップ分の処理を行う。
