@@ -1,0 +1,24 @@
+[package]
+name = "original-esp32-bringup"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+core-app = { path = "../../crates/core-app" }
+hal-api = { path = "../../crates/hal-api" }
+platform-esp32 = { path = "../../crates/platform-esp32" }
+esp-backtrace = { version = "0.18.0", features = ["panic-handler", "println", "esp32"] }
+esp-bootloader-esp-idf = { version = "0.4.0", features = ["esp32"] }
+esp-hal = { version = "1.0.0", features = ["esp32"] }
+esp-println = { version = "0.16.0", features = ["esp32"] }
+
+[features]
+default = []
+real-i2c = []
+
+[profile.release]
+debug = true
+debug-assertions = true
+lto = "fat"
+codegen-units = 1

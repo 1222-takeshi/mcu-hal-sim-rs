@@ -6,6 +6,9 @@
 `hal-api` に橋渡しするところまでを責務にしています。これにより、`core-app` 側を
 変えずに `esp-hal` の具体型を後から接続できます。
 
+エラーは `embedded-hal` の generic error kind から `hal_api::error::{GpioError, I2cError}`
+へ正規化しているため、`core-app::App` がそのまま利用できます。
+
 ## 想定ターゲット
 
 - チップ: original ESP32
@@ -34,9 +37,10 @@ cargo check-esp32
 
 ## 今のスコープ
 
-- `Esp32OutputPin<P>`: `embedded_hal::digital::OutputPin` を `hal_api::gpio::OutputPin` に接続
-- `Esp32InputPin<P>`: `embedded_hal::digital::InputPin` を `hal_api::gpio::InputPin` に接続
-- `Esp32I2c<I>`: `embedded_hal::i2c::I2c<SevenBitAddress>` を `hal_api::i2c::I2cBus` に接続
+- `Esp32OutputPin<P>`: `embedded_hal::digital::OutputPin` を `hal_api::gpio::OutputPin<Error = GpioError>` に接続
+- `Esp32InputPin<P>`: `embedded_hal::digital::InputPin` を `hal_api::gpio::InputPin<Error = GpioError>` に接続
+- `Esp32I2c<I>`: `embedded_hal::i2c::I2c<SevenBitAddress>` を `hal_api::i2c::I2cBus<Error = I2cError>` に接続
+- `tests/app_bridge.rs`: `core-app::App` と `platform-esp32` アダプタの組み合わせを host 上で検証
 
 ## 次にやること
 

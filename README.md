@@ -8,10 +8,11 @@
 
 - **🎯 プラットフォーム非依存**: HAL traitを使用し、同じアプリケーションコードを複数のプラットフォームで実行
 - **💻 PCシミュレータ**: 実機なしで開発・デバッグが可能
-- **🧪 テスト駆動開発**: 66個のテストでコードの品質を保証
+- **🧪 テスト駆動開発**: 71個のテストでコードの品質を保証
 - **🔧 CI/CD自動化**: GitHub Actionsで自動ビルド・テスト・Lint
 - **📦 `no_std` 準備**: `hal-api` と `core-app` はホスト依存を持たない構成
 - **⚙️ original ESP32 準備**: `platform-esp32` は `embedded-hal` v1.0 経由で実機HALを受けられる構成
+- **🧰 実機雛形あり**: `firmware/original-esp32-bringup` から LED only / real I2C の両方を試せる
 - **🚀 将来の拡張性**: ESP32、Arduino Nano、Raspberry Pi Picoなどへの対応を予定
 
 ## 📐 アーキテクチャ
@@ -128,6 +129,25 @@ cargo check-esp32
 
 詳細は [crates/platform-esp32/README.md](./crates/platform-esp32/README.md) を参照してください。
 
+### original ESP32 bring-up
+
+![Original ESP32 bring-up flow](./docs/images/original-esp32-bringup-flow.svg)
+
+![Original ESP32 wiring](./docs/images/original-esp32-wiring.svg)
+
+実機 bring-up は [firmware/original-esp32-bringup/README.md](./firmware/original-esp32-bringup/README.md) から始めてください。
+
+```bash
+# LED だけ先に確認
+cd firmware/original-esp32-bringup
+cargo run --release
+
+# 0x48 の I2C デバイスがある場合
+cargo run --release --features real-i2c
+```
+
+現在の `core-app` は `0x48` に 4-byte read を行うため、I2C を試す場合は `0x48` で応答する 3.3V デバイスが必要です。
+
 ### CI結果の自動監視
 
 PRをプッシュした後、CIの完了を自動で監視:
@@ -167,12 +187,23 @@ mcu-hal-sim-rs/
 │       ├── lib.rs
 │       └── README.md
 │
+├── docs/
+│   └── images/                # 配線図 / bring-up フロー図
+│
 ├── .github/
 │   └── workflows/
 │       └── ci.yml        # CI/CD設定
 │
 ├── .cargo/
 │   └── config.toml       # original ESP32向け cargo alias / runner
+│
+├── firmware/
+│   └── original-esp32-bringup/
+│       ├── .cargo/config.toml  # xtensa target / espflash runner
+│       ├── src/main.rs         # LED only / real I2C bring-up
+│       ├── Cargo.toml
+│       ├── README.md
+│       └── rust-toolchain.toml
 │
 ├── Cargo.toml            # ワークスペース設定
 ├── rustfmt.toml          # フォーマット設定
@@ -188,6 +219,12 @@ mcu-hal-sim-rs/
 | **platform-pc-sim** | PCシミュレータ実装（モックHAL） | `hal-api`, `core-app` |
 | **platform-esp32** | original ESP32向け `embedded-hal` アダプタ | `hal-api`, `embedded-hal` |
 
+### 実機用テンプレート
+
+| ディレクトリ | 説明 | 依存関係 |
+|-------------|------|---------|
+| **firmware/original-esp32-bringup** | original ESP32 向け bring-up 雛形 | `core-app`, `platform-esp32`, `esp-hal` |
+
 ## 🧪 テスト
 
 このプロジェクトはテスト駆動開発（TDD）で構築されています。
@@ -197,8 +234,8 @@ mcu-hal-sim-rs/
 | hal-api | ドキュメントテスト | 17個 |
 | core-app | ユニット + doc test | 25個 |
 | platform-pc-sim | ユニット + 統合 + doc test | 17個 |
-| platform-esp32 | ユニットテスト | 7個 |
-| **合計** | | **66個** |
+| platform-esp32 | ユニット + 統合テスト | 12個 |
+| **合計** | | **71個** |
 
 ## 🛠️ 開発
 

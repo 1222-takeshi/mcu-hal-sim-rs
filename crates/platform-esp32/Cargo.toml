@@ -9,3 +9,6 @@ hal-api = { path = "../hal-api" }
 
 [lib]
 path = "lib.rs"
+
+[dev-dependencies]
+core-app = { path = "../core-app" }

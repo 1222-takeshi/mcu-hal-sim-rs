@@ -1,7 +1,27 @@
 //! ESP32 I2C アダプタ
 
-use embedded_hal::i2c::{I2c as EmbeddedI2c, SevenBitAddress};
+use embedded_hal::i2c::{
+    Error as EmbeddedI2cError,
+    ErrorKind as EmbeddedI2cErrorKind,
+    I2c as EmbeddedI2c,
+    NoAcknowledgeSource,
+    SevenBitAddress,
+};
+use hal_api::error::I2cError;
 use hal_api::i2c::I2cBus;
+
+fn map_i2c_error(error: impl EmbeddedI2cError) -> I2cError {
+    match error.kind() {
+        EmbeddedI2cErrorKind::NoAcknowledge(NoAcknowledgeSource::Address) => I2cError::InvalidAddress,
+        EmbeddedI2cErrorKind::Bus
+        | EmbeddedI2cErrorKind::ArbitrationLoss
+        | EmbeddedI2cErrorKind::NoAcknowledge(NoAcknowledgeSource::Data)
+        | EmbeddedI2cErrorKind::NoAcknowledge(NoAcknowledgeSource::Unknown)
+        | EmbeddedI2cErrorKind::Overrun
+        | EmbeddedI2cErrorKind::Other => I2cError::BusError,
+        _ => I2cError::BusError,
+    }
+}
 
 /// ESP32 向けの I2C バスラッパー。
 ///
@@ -37,18 +57,20 @@ impl<I> I2cBus for Esp32I2c<I>
 where
     I: EmbeddedI2c<SevenBitAddress>,
 {
-    type Error = I::Error;
+    type Error = I2cError;
 
     fn write(&mut self, addr: u8, bytes: &[u8]) -> Result<(), Self::Error> {
-        self.inner.write(addr, bytes)
+        self.inner.write(addr, bytes).map_err(map_i2c_error)
     }
 
     fn read(&mut self, addr: u8, buffer: &mut [u8]) -> Result<(), Self::Error> {
-        self.inner.read(addr, buffer)
+        self.inner.read(addr, buffer).map_err(map_i2c_error)
     }
 
     fn write_read(&mut self, addr: u8, bytes: &[u8], buffer: &mut [u8]) -> Result<(), Self::Error> {
-        self.inner.write_read(addr, bytes, buffer)
+        self.inner
+            .write_read(addr, bytes, buffer)
+            .map_err(map_i2c_error)
     }
 }
 
@@ -60,6 +82,7 @@ mod tests {
     use core::convert::Infallible;
 
     use super::*;
+    use embedded_hal::i2c::ErrorKind as EmbeddedI2cErrorKind;
 
     struct DummyI2c {
         writes: usize,
@@ -119,6 +142,33 @@ mod tests {
         }
     }
 
+    #[derive(Debug, Clone, Copy)]
+    struct DummyI2cDriverError(EmbeddedI2cErrorKind);
+
+    impl embedded_hal::i2c::Error for DummyI2cDriverError {
+        fn kind(&self) -> EmbeddedI2cErrorKind {
+            self.0
+        }
+    }
+
+    struct FailingI2c {
+        error: DummyI2cDriverError,
+    }
+
+    impl embedded_hal::i2c::ErrorType for FailingI2c {
+        type Error = DummyI2cDriverError;
+    }
+
+    impl EmbeddedI2c<SevenBitAddress> for FailingI2c {
+        fn transaction(
+            &mut self,
+            _addr: u8,
+            _operations: &mut [embedded_hal::i2c::Operation<'_>],
+        ) -> Result<(), Self::Error> {
+            Err(self.error)
+        }
+    }
+
     #[test]
     fn esp32_i2c_delegates_write_and_read() {
         let inner = DummyI2c {
@@ -165,5 +215,26 @@ mod tests {
         });
 
         assert_eq!(i2c.into_inner().writes, 0);
+    }
+
+    #[test]
+    fn esp32_i2c_maps_address_errors() {
+        let mut i2c = Esp32I2c::new(FailingI2c {
+            error: DummyI2cDriverError(EmbeddedI2cErrorKind::NoAcknowledge(
+                NoAcknowledgeSource::Address,
+            )),
+        });
+
+        assert_eq!(i2c.write(0x48, &[0x01]), Err(I2cError::InvalidAddress));
+    }
+
+    #[test]
+    fn esp32_i2c_maps_bus_errors() {
+        let mut i2c = Esp32I2c::new(FailingI2c {
+            error: DummyI2cDriverError(EmbeddedI2cErrorKind::Bus),
+        });
+        let mut buffer = [0u8; 2];
+
+        assert_eq!(i2c.read(0x48, &mut buffer), Err(I2cError::BusError));
     }
 }
