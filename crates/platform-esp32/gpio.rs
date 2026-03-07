@@ -2,8 +2,19 @@
 
 use core::cell::{Ref, RefCell, RefMut};
 
-use embedded_hal::digital::{InputPin as EmbeddedInputPin, OutputPin as EmbeddedOutputPin};
+use embedded_hal::digital::{
+    Error as EmbeddedDigitalError, ErrorKind as EmbeddedDigitalErrorKind,
+    InputPin as EmbeddedInputPin, OutputPin as EmbeddedOutputPin,
+};
+use hal_api::error::GpioError;
 use hal_api::gpio::{InputPin, OutputPin};
+
+fn map_gpio_error(error: impl EmbeddedDigitalError) -> GpioError {
+    match error.kind() {
+        EmbeddedDigitalErrorKind::Other => GpioError::HardwareError,
+        _ => GpioError::HardwareError,
+    }
+}
 
 /// ESP32 向けの出力ピンラッパー。
 ///
@@ -39,14 +50,14 @@ impl<P> OutputPin for Esp32OutputPin<P>
 where
     P: EmbeddedOutputPin,
 {
-    type Error = P::Error;
+    type Error = GpioError;
 
     fn set_high(&mut self) -> Result<(), Self::Error> {
-        self.inner.set_high()
+        self.inner.set_high().map_err(map_gpio_error)
     }
 
     fn set_low(&mut self) -> Result<(), Self::Error> {
-        self.inner.set_low()
+        self.inner.set_low().map_err(map_gpio_error)
     }
 }
 
@@ -86,14 +97,14 @@ impl<P> InputPin for Esp32InputPin<P>
 where
     P: EmbeddedInputPin,
 {
-    type Error = P::Error;
+    type Error = GpioError;
 
     fn is_high(&self) -> Result<bool, Self::Error> {
-        self.inner.borrow_mut().is_high()
+        self.inner.borrow_mut().is_high().map_err(map_gpio_error)
     }
 
     fn is_low(&self) -> Result<bool, Self::Error> {
-        self.inner.borrow_mut().is_low()
+        self.inner.borrow_mut().is_low().map_err(map_gpio_error)
     }
 }
 
@@ -105,6 +116,7 @@ mod tests {
     use core::convert::Infallible;
 
     use super::*;
+    use embedded_hal::digital::ErrorKind as EmbeddedDigitalErrorKind;
 
     struct DummyOutputPin {
         level: bool,
@@ -123,6 +135,31 @@ mod tests {
         fn set_low(&mut self) -> Result<(), Self::Error> {
             self.level = false;
             Ok(())
+        }
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    struct DummyDigitalError;
+
+    impl embedded_hal::digital::Error for DummyDigitalError {
+        fn kind(&self) -> EmbeddedDigitalErrorKind {
+            EmbeddedDigitalErrorKind::Other
+        }
+    }
+
+    struct FailingOutputPin;
+
+    impl embedded_hal::digital::ErrorType for FailingOutputPin {
+        type Error = DummyDigitalError;
+    }
+
+    impl EmbeddedOutputPin for FailingOutputPin {
+        fn set_high(&mut self) -> Result<(), Self::Error> {
+            Err(DummyDigitalError)
+        }
+
+        fn set_low(&mut self) -> Result<(), Self::Error> {
+            Err(DummyDigitalError)
         }
     }
 
@@ -148,6 +185,22 @@ mod tests {
         }
     }
 
+    struct FailingInputPin;
+
+    impl embedded_hal::digital::ErrorType for FailingInputPin {
+        type Error = DummyDigitalError;
+    }
+
+    impl EmbeddedInputPin for FailingInputPin {
+        fn is_high(&mut self) -> Result<bool, Self::Error> {
+            Err(DummyDigitalError)
+        }
+
+        fn is_low(&mut self) -> Result<bool, Self::Error> {
+            Err(DummyDigitalError)
+        }
+    }
+
     #[test]
     fn esp32_output_pin_delegates_to_inner_pin() {
         let inner = DummyOutputPin { level: false };
@@ -166,6 +219,14 @@ mod tests {
         let pin = Esp32OutputPin::new(inner);
 
         assert!(pin.into_inner().level);
+    }
+
+    #[test]
+    fn esp32_output_pin_maps_embedded_hal_errors() {
+        let mut pin = Esp32OutputPin::new(FailingOutputPin);
+
+        assert_eq!(pin.set_high(), Err(GpioError::HardwareError));
+        assert_eq!(pin.set_low(), Err(GpioError::HardwareError));
     }
 
     #[test]
@@ -191,5 +252,13 @@ mod tests {
         });
 
         assert!(!pin.into_inner().level);
+    }
+
+    #[test]
+    fn esp32_input_pin_maps_embedded_hal_errors() {
+        let pin = Esp32InputPin::new(FailingInputPin);
+
+        assert_eq!(pin.is_high(), Err(GpioError::HardwareError));
+        assert_eq!(pin.is_low(), Err(GpioError::HardwareError));
     }
 }

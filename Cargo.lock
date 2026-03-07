@@ -32,6 +32,7 @@ dependencies = [
 name = "platform-esp32"
 version = "0.1.0"
 dependencies = [
+ "core-app",
  "embedded-hal",
  "hal-api",
 ]

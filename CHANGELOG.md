@@ -16,12 +16,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `platform-esp32` クレートを追加し、GPIO / I2C 向けの最小アダプタ骨組みを導入した
 - `.cargo/config.toml` に original ESP32 向け `cargo check-esp32` alias と `espflash` runner を追加した
 - `crates/platform-esp32/README.md` を追加し、original ESP32 向け toolchain と最小確認手順を整理した
+- `firmware/original-esp32-bringup` を追加し、LED only / real I2C の実機 bring-up 雛形を用意した
+- `docs/images/original-esp32-wiring.svg` と `docs/images/original-esp32-bringup-flow.svg` を追加した
 
 ### Changed
 - `hal-api` と `core-app` を `no_std` 前提の構成に変更した
 - `basic_blink` と `i2c_read` examples が `platform-pc-sim` のモックHALを再利用するようにした
 - `PLAN.md` / `README.md` / `CLAUDE.md` を現状の実装フェーズとテスト数に合わせて更新した
 - `platform-esp32` の GPIO / I2C アダプタを `embedded-hal` v1.0 互換実装へ接続する形に変更した
+- `platform-esp32` の GPIO / I2C アダプタが `hal-api` のエラー型へ正規化するようになり、`core-app::App` と直接接続できるようになった
 
 ### Fixed
 - 今後修正されるバグ

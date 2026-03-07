@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="320" viewBox="0 0 960 320" role="img" aria-labelledby="title desc">
+  <title id="title">Original ESP32 Bring-up Flow</title>
+  <desc id="desc">Development flow from host-side validation to LED bring-up, optional I2C bring-up, refactoring, test audit, and documentation polish.</desc>
+  <rect width="960" height="320" fill="#eef2f4"/>
+  <text x="480" y="46" font-family="monospace" font-size="30" text-anchor="middle" fill="#17313a">Original ESP32 Bring-up Flow</text>
+
+  <rect x="40" y="110" width="170" height="110" rx="18" fill="#fffdf8" stroke="#335c67" stroke-width="3"/>
+  <text x="125" y="150" font-family="monospace" font-size="19" text-anchor="middle" fill="#17313a">1. Host-safe</text>
+  <text x="125" y="178" font-family="monospace" font-size="19" text-anchor="middle" fill="#17313a">adapters + tests</text>
+  <text x="125" y="205" font-family="monospace" font-size="14" text-anchor="middle" fill="#4d4d4d">no hardware needed</text>
+
+  <rect x="235" y="110" width="170" height="110" rx="18" fill="#fffdf8" stroke="#d66a2a" stroke-width="3"/>
+  <text x="320" y="150" font-family="monospace" font-size="19" text-anchor="middle" fill="#6b2d12">2. LED-only</text>
+  <text x="320" y="178" font-family="monospace" font-size="19" text-anchor="middle" fill="#6b2d12">firmware flash</text>
+  <text x="320" y="205" font-family="monospace" font-size="14" text-anchor="middle" fill="#4d4d4d">GPIO2 blink</text>
+
+  <rect x="430" y="110" width="170" height="110" rx="18" fill="#fffdf8" stroke="#2f7c54" stroke-width="3"/>
+  <text x="515" y="150" font-family="monospace" font-size="19" text-anchor="middle" fill="#175c39">3. Optional</text>
+  <text x="515" y="178" font-family="monospace" font-size="19" text-anchor="middle" fill="#175c39">real I2C</text>
+  <text x="515" y="205" font-family="monospace" font-size="14" text-anchor="middle" fill="#4d4d4d">GPIO21 / GPIO22 / 0x48</text>
+
+  <rect x="625" y="110" width="140" height="110" rx="18" fill="#fffdf8" stroke="#6b46c1" stroke-width="3"/>
+  <text x="695" y="150" font-family="monospace" font-size="19" text-anchor="middle" fill="#4a2f8f">4. Refactor</text>
+  <text x="695" y="178" font-family="monospace" font-size="19" text-anchor="middle" fill="#4a2f8f">and audit</text>
+  <text x="695" y="205" font-family="monospace" font-size="14" text-anchor="middle" fill="#4d4d4d">tests first</text>
+
+  <rect x="790" y="110" width="130" height="110" rx="18" fill="#fffdf8" stroke="#975a16" stroke-width="3"/>
+  <text x="855" y="150" font-family="monospace" font-size="19" text-anchor="middle" fill="#744210">5. README</text>
+  <text x="855" y="178" font-family="monospace" font-size="19" text-anchor="middle" fill="#744210">and docs</text>
+  <text x="855" y="205" font-family="monospace" font-size="14" text-anchor="middle" fill="#4d4d4d">images included</text>
+
+  <line x1="210" y1="165" x2="235" y2="165" stroke="#335c67" stroke-width="6"/>
+  <polygon points="235,165 225,159 225,171" fill="#335c67"/>
+  <line x1="405" y1="165" x2="430" y2="165" stroke="#335c67" stroke-width="6"/>
+  <polygon points="430,165 420,159 420,171" fill="#335c67"/>
+  <line x1="600" y1="165" x2="625" y2="165" stroke="#335c67" stroke-width="6"/>
+  <polygon points="625,165 615,159 615,171" fill="#335c67"/>
+  <line x1="765" y1="165" x2="790" y2="165" stroke="#335c67" stroke-width="6"/>
+  <polygon points="790,165 780,159 780,171" fill="#335c67"/>
+
+  <text x="480" y="276" font-family="monospace" font-size="17" text-anchor="middle" fill="#4d4d4d">Stop and ask for hardware action only when LED flash / sensor wiring is actually needed.</text>
+</svg>

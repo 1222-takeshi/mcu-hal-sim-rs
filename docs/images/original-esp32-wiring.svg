@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="560" viewBox="0 0 960 560" role="img" aria-labelledby="title desc">
+  <title id="title">Original ESP32 Bring-up Wiring</title>
+  <desc id="desc">Wiring diagram for an original ESP32 dev board with an LED on GPIO2 and an optional I2C device on GPIO21 and GPIO22.</desc>
+  <rect width="960" height="560" fill="#f6f2e8"/>
+  <rect x="40" y="60" width="360" height="420" rx="24" fill="#19323c"/>
+  <text x="220" y="105" font-family="monospace" font-size="28" text-anchor="middle" fill="#f6f2e8">ESP32 Dev Board</text>
+  <text x="220" y="135" font-family="monospace" font-size="16" text-anchor="middle" fill="#d9e2e8">common DevKitC / WROOM-32 assumption</text>
+
+  <rect x="80" y="170" width="120" height="36" rx="8" fill="#2c5364"/>
+  <text x="140" y="194" font-family="monospace" font-size="18" text-anchor="middle" fill="#ffffff">GPIO2</text>
+  <rect x="80" y="250" width="120" height="36" rx="8" fill="#2c5364"/>
+  <text x="140" y="274" font-family="monospace" font-size="18" text-anchor="middle" fill="#ffffff">GPIO21 / SDA</text>
+  <rect x="80" y="330" width="120" height="36" rx="8" fill="#2c5364"/>
+  <text x="140" y="354" font-family="monospace" font-size="18" text-anchor="middle" fill="#ffffff">GPIO22 / SCL</text>
+  <rect x="240" y="250" width="120" height="36" rx="8" fill="#2c5364"/>
+  <text x="300" y="274" font-family="monospace" font-size="18" text-anchor="middle" fill="#ffffff">3V3</text>
+  <rect x="240" y="330" width="120" height="36" rx="8" fill="#2c5364"/>
+  <text x="300" y="354" font-family="monospace" font-size="18" text-anchor="middle" fill="#ffffff">GND</text>
+
+  <rect x="570" y="90" width="250" height="130" rx="20" fill="#fffdf8" stroke="#d66a2a" stroke-width="3"/>
+  <text x="695" y="125" font-family="monospace" font-size="24" text-anchor="middle" fill="#6b2d12">LED bring-up</text>
+  <text x="695" y="160" font-family="monospace" font-size="18" text-anchor="middle" fill="#4d4d4d">GPIO2 - resistor - LED - GND</text>
+  <circle cx="740" cy="190" r="18" fill="#ffd84d" stroke="#d66a2a" stroke-width="3"/>
+  <rect x="640" y="180" width="50" height="20" rx="6" fill="#f0c36d" stroke="#8a5d12" stroke-width="2"/>
+  <text x="665" y="194" font-family="monospace" font-size="13" text-anchor="middle" fill="#523000">220-330R</text>
+
+  <rect x="520" y="290" width="330" height="170" rx="20" fill="#fffdf8" stroke="#2f7c54" stroke-width="3"/>
+  <text x="685" y="325" font-family="monospace" font-size="24" text-anchor="middle" fill="#175c39">Optional I2C device</text>
+  <text x="685" y="355" font-family="monospace" font-size="18" text-anchor="middle" fill="#4d4d4d">needs 7-bit address 0x48 for current app</text>
+  <rect x="555" y="385" width="70" height="28" rx="8" fill="#e5f4ea"/>
+  <text x="590" y="404" font-family="monospace" font-size="16" text-anchor="middle" fill="#175c39">SDA</text>
+  <rect x="650" y="385" width="70" height="28" rx="8" fill="#e5f4ea"/>
+  <text x="685" y="404" font-family="monospace" font-size="16" text-anchor="middle" fill="#175c39">SCL</text>
+  <rect x="745" y="385" width="70" height="28" rx="8" fill="#e5f4ea"/>
+  <text x="780" y="404" font-family="monospace" font-size="16" text-anchor="middle" fill="#175c39">3V3</text>
+  <rect x="650" y="425" width="70" height="28" rx="8" fill="#e5f4ea"/>
+  <text x="685" y="444" font-family="monospace" font-size="16" text-anchor="middle" fill="#175c39">GND</text>
+  <text x="685" y="485" font-family="monospace" font-size="15" text-anchor="middle" fill="#4d4d4d">add 4.7k pull-ups if your module does not have them</text>
+
+  <line x1="200" y1="188" x2="640" y2="188" stroke="#d66a2a" stroke-width="6"/>
+  <line x1="690" y1="188" x2="722" y2="188" stroke="#d66a2a" stroke-width="6"/>
+  <line x1="758" y1="188" x2="820" y2="188" stroke="#d66a2a" stroke-width="6"/>
+
+  <line x1="200" y1="268" x2="555" y2="399" stroke="#2f7c54" stroke-width="6"/>
+  <line x1="200" y1="348" x2="650" y2="399" stroke="#3d8fb8" stroke-width="6"/>
+  <line x1="360" y1="268" x2="745" y2="399" stroke="#c05621" stroke-width="6"/>
+  <line x1="360" y1="348" x2="650" y2="439" stroke="#444444" stroke-width="6"/>
+
+  <text x="870" y="198" font-family="monospace" font-size="14" fill="#6b2d12">LED anode</text>
+  <text x="845" y="433" font-family="monospace" font-size="14" fill="#175c39">sensor GND</text>
+  <text x="844" y="389" font-family="monospace" font-size="14" fill="#175c39">sensor VCC</text>
+
+  <text x="40" y="530" font-family="monospace" font-size="16" fill="#4d4d4d">Use LED-only first. Enable real I2C later with a 0x48 device.</text>
+</svg>
