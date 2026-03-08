@@ -13,3 +13,7 @@ path = "lib.rs"
 [[bin]]
 name = "platform-pc-sim"
 path = "main.rs"
+
+[[bin]]
+name = "climate-display-sim"
+path = "climate_display_sim.rs"

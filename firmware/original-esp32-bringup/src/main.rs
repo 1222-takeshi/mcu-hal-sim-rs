@@ -27,6 +27,10 @@ const I2C_SDA_GPIO: u8 = 21;
 const I2C_SCL_GPIO: u8 = 22;
 const APP_I2C_ADDRESS: u8 = 0x48;
 
+fn every_nth(value: u32, period: u32) -> bool {
+    period != 0 && value % period == 0
+}
+
 #[cfg(not(feature = "real-i2c"))]
 struct NoopI2c;
 
@@ -161,7 +165,7 @@ fn main() -> ! {
         }
         loop_count += 1;
 
-        if loop_count.is_multiple_of(100) {
+        if every_nth(loop_count, 100) {
             println!("heartbeat tick = {}", loop_count);
         }
 

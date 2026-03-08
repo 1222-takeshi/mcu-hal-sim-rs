@@ -7,6 +7,8 @@ original ESP32 向けの最小ファームウェア雛形です。
 `Cargo.toml` に空の `[workspace]` を持たせているのは、ルート workspace から独立して
 `cargo build` / `cargo run` できるようにするためです。
 
+`M5StickC` を使う場合は、この crate より [../m5stickc-bringup/README.md](../m5stickc-bringup/README.md) を優先してください。M5StickC は LED / Button / onboard I2C デバイスが board 固有なので、generic DevKitC 前提のこの bring-up より専用診断の方が切り分けしやすいです。
+
 ![Original ESP32 wiring](../../docs/images/original-esp32-wiring.svg)
 
 ## 前提

@@ -9,5 +9,8 @@
 //! 接続するラッパーを提供します。将来の実機対応では
 //! `esp-hal` の型をこれらのアダプタへ流し込む想定です。
 
+pub mod bme280;
 pub mod gpio;
 pub mod i2c;
+pub mod lcd1602;
+pub mod shared_i2c;

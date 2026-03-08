@@ -40,6 +40,10 @@
 - HAL trait（`hal-api`）とアプリロジック（`core-app`）、プラットフォーム固有実装（`platform-*`）の依存方向を崩さない提案を行うこと。
 - GitHub 連携の push / PR / Issue に関するコード例や手順を提案する場合は、`git` / `gh` を直接叩くのではなく、`scripts/gh-workflow.sh push|pr|issue` を利用する形を優先すること。
 - ESP32 実機 bring-up や `espflash` の手順を提案する場合は、macOS を含む native host を前提にし、Windows 固有の `COMx` だけを前提にしないこと。macOS / Linux の serial device path を考慮し、WSL2 + Windows `espflash.exe` は代替経路として提案すること。
+- マルチエージェント前提で提案する場合、メイン担当は常に `orchestrator` として扱い、要件整理・分担・レビュー・統合を担当させること。
+- サブ agent には所有範囲を明示し、同じファイルを複数 agent に触らせない提案を優先すること。
+- サブ agent の成果物は、メインの `orchestrator` が必ずレビューしてから統合する前提で手順やコード例を提案すること。
+- この運用は他プロジェクトにも適用可能な標準パターンとして扱い、プロジェクトごとに `orchestrator` / `worker` / `reviewer` の責務分離を明示すること。
 
 ## 共通開発ルール
 

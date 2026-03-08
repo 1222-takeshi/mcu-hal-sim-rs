@@ -65,6 +65,8 @@ use hal_api::error::{GpioError, I2cError};
 use hal_api::gpio::OutputPin;
 use hal_api::i2c::I2cBus;
 
+pub mod climate_display;
+
 #[cfg(test)]
 extern crate std;
 

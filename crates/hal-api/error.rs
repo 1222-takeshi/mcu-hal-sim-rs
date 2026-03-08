@@ -87,3 +87,27 @@ pub enum I2cError {
     /// ```
     Timeout,
 }
+
+/// センサ読み取りに関連するエラー
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SensorError {
+    /// 通信または下位層のバスエラー
+    BusError,
+    /// センサが測定中で結果がまだ確定していない
+    Busy,
+    /// 取得した値が不正
+    InvalidReading,
+    /// 初期化未完了
+    NotInitialized,
+}
+
+/// 文字表示デバイスに関連するエラー
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DisplayError {
+    /// 通信または下位層のバスエラー
+    BusError,
+    /// 表示内容が不正
+    InvalidContent,
+    /// 初期化未完了
+    NotInitialized,
+}
