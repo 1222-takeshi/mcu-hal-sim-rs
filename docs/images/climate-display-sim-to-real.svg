@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="520" viewBox="0 0 960 520" fill="none">
+  <rect width="960" height="520" fill="#f7f1e3"/>
+  <rect x="40" y="40" width="880" height="440" rx="28" fill="#fffaf0" stroke="#2f2a24" stroke-width="3"/>
+  <text x="70" y="92" fill="#2f2a24" font-family="Georgia, serif" font-size="30" font-weight="700">Climate Display Sim-to-Real Flow</text>
+
+  <rect x="72" y="140" width="232" height="292" rx="22" fill="#d9efe3" stroke="#2f2a24" stroke-width="3"/>
+  <text x="104" y="184" fill="#1f3d2f" font-family="Georgia, serif" font-size="28" font-weight="700">PC Simulator</text>
+  <text x="98" y="224" fill="#2f2a24" font-family="monospace" font-size="20">platform-pc-sim</text>
+  <rect x="104" y="258" width="168" height="108" rx="16" fill="#233a2f"/>
+  <rect x="116" y="270" width="144" height="84" rx="10" fill="#99d36d" stroke="#c6f29c" stroke-width="2"/>
+  <text x="128" y="304" fill="#173019" font-family="monospace" font-size="18">Temp    24.8C</text>
+  <text x="128" y="334" fill="#173019" font-family="monospace" font-size="18">Hum     43.2%</text>
+  <text x="104" y="398" fill="#2f2a24" font-family="sans-serif" font-size="18">ASCII LCD view + mock sensor</text>
+
+  <rect x="364" y="126" width="232" height="320" rx="22" fill="#f8ddc0" stroke="#2f2a24" stroke-width="3"/>
+  <text x="400" y="170" fill="#6c3a15" font-family="Georgia, serif" font-size="28" font-weight="700">Shared App</text>
+  <text x="394" y="212" fill="#2f2a24" font-family="monospace" font-size="20">core_app::</text>
+  <text x="394" y="242" fill="#2f2a24" font-family="monospace" font-size="20">ClimateDisplayApp</text>
+  <rect x="396" y="278" width="168" height="118" rx="16" fill="#fffaf0" stroke="#6c3a15" stroke-width="2"/>
+  <text x="414" y="316" fill="#2f2a24" font-family="sans-serif" font-size="18">EnvSensor</text>
+  <text x="414" y="348" fill="#2f2a24" font-family="sans-serif" font-size="18">TextDisplay16x2</text>
+  <text x="414" y="380" fill="#2f2a24" font-family="sans-serif" font-size="18">same formatting logic</text>
+
+  <rect x="656" y="140" width="232" height="292" rx="22" fill="#d8e7f7" stroke="#2f2a24" stroke-width="3"/>
+  <text x="706" y="184" fill="#1e3554" font-family="Georgia, serif" font-size="28" font-weight="700">ESP32</text>
+  <text x="684" y="224" fill="#2f2a24" font-family="monospace" font-size="20">platform-esp32</text>
+  <rect x="688" y="258" width="168" height="108" rx="16" fill="#2c3340"/>
+  <rect x="700" y="270" width="144" height="84" rx="10" fill="#f1d96b" stroke="#fff2b2" stroke-width="2"/>
+  <text x="714" y="304" fill="#4b3c00" font-family="monospace" font-size="18">Temp    24.8C</text>
+  <text x="714" y="334" fill="#4b3c00" font-family="monospace" font-size="18">Hum     43.2%</text>
+  <text x="670" y="398" fill="#2f2a24" font-family="sans-serif" font-size="18">BME280 + LCD1602 backpack</text>
+
+  <path d="M304 286H364" stroke="#2f2a24" stroke-width="4" stroke-linecap="round"/>
+  <path d="M596 286H656" stroke="#2f2a24" stroke-width="4" stroke-linecap="round"/>
+  <path d="M346 270L364 286L346 302" stroke="#2f2a24" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M638 270L656 286L638 302" stroke="#2f2a24" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -1,0 +1,26 @@
+[package]
+name = "original-esp32-climate-display"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+core-app = { path = "../../crates/core-app" }
+hal-api = { path = "../../crates/hal-api" }
+platform-esp32 = { path = "../../crates/platform-esp32" }
+embedded-hal = "1.0"
+esp-backtrace = { version = "0.18.0", features = ["panic-handler", "println", "esp32"] }
+esp-bootloader-esp-idf = { version = "0.4.0", features = ["esp32"] }
+esp-hal = { version = "1.0.0", features = ["esp32"] }
+esp-println = { version = "0.16.0", features = ["esp32"] }
+
+[profile.release]
+debug = true
+debug-assertions = true
+lto = "fat"
+codegen-units = 1
+
+[patch.crates-io]
+esp-rom-sys = { path = "../../vendor/esp-rom-sys" }

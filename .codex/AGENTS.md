@@ -300,6 +300,13 @@ git stash pop
   - PR の説明文にはテストの実行方法（例: `cargo test` / `cargo run -p platform-pc-sim` など）を必ず明記する。
   - GitHub 連携の `git push` / Pull Request / Issue 作成などの操作は、原則として `scripts/gh-workflow.sh` (`push` / `pr` / `issue` サブコマンド) を経由して行う。
   - 実機 bring-up や `espflash` 実行手順を提案するときは、ホスト OS として macOS も必ず考慮する。Windows の `COMx` だけを前提にせず、macOS / Linux の native serial device path 前提の案内を優先し、WSL2 + Windows 経由は代替経路として扱う。
+  - マルチエージェントで作業する場合、メインの Codex は常に `orchestrator` として振る舞う。
+  - `orchestrator` の責務は、要件整理、分担設計、サブ agent への責務割り当て、進捗監視、成果物レビュー、競合解消、最終統合、検証、PR 作成までを含む。
+  - サブ agent は指定された所有範囲の実装・調査だけを担当し、設計変更の最終決定権は持たない。
+  - サブ agent が実装した内容は、そのまま採用せず、必ずメインの `orchestrator` がレビューしてから統合する。
+  - 分担時は「どの agent がどのファイル/ディレクトリを触るか」を明示し、同じファイルを複数 agent に触らせない。
+  - レビュー担当 agent を別に立てる場合でも、最終レビュー責任者は常にメインの `orchestrator` とする。
+  - この運用は本プロジェクト固有ではなく、他プロジェクトでも再利用する標準運用として扱う。
 - 機能面での最初の目標:
   - `hal-api` クレートで GPIO / I2C の基本的な trait（例: `OutputPin` / `InputPin` / `I2cBus` など）を定義する。
   - `core-app` クレートで HAL を使うための `App` 構造体を定義する。ジェネリクスで HAL 実装を受け取り、`tick()` メソッドで 1 ステップ分の処理を行う。
