@@ -7,29 +7,28 @@
 
 - プロジェクト名: `mcu-hal-sim-rs`
 - 目的:
-  - ESP32 / Arduino Nano / Raspberry Pi Pico などのマイコン向けアプリケーションを Rust で開発する。
-  - アプリのロジックを MCU 非依存の HAL trait 経由で記述し、PC 上の疑似エミュレータで動作確認できるようにする。
-  - 将来的には同じ Rust コードベースから ESP32 実機向けバイナリもビルド可能とする。
+  - マイコン向けアプリのロジックを MCU 非依存の HAL trait 経由で記述し、PC 上の simulator と original ESP32 実機で再利用できるようにする。
+  - この repo は基盤 repo として扱い、board 固有の実験場ではなく sim-to-real 経路の維持を主目的とする。
+  - 実際の個別アプリは別 repo で開発し、共通化すべき抽象だけをこの repo に還流する。
 - 優先ターゲット:
   - 最初の実機ターゲットは ESP32。
-  - Arduino Nano / Raspberry Pi Pico は後から対応。
-  - 当面は WiFi / Bluetooth などの無線機能は対象外とし、GPIO / I2C / SPI / ADC など基本的な周辺機能に集中する。
+  - 現在の本線シナリオは original ESP32 + `BME280` + `LCD1602`。
+  - M5StickC は補助診断 board として扱い、本番ターゲットにはしない。
+  - 当面は WiFi / Bluetooth / camera などの board 固有機能は対象外とし、GPIO / I2C / `EnvSensor` / `TextDisplay16x2` に集中する。
 - 使用言語 / 開発環境:
   - 使用言語は Rust。
   - ホスト環境は macOS（Apple Silicon） / Windows / Ubuntu Linux を想定。
   - まずはホスト向けバイナリ（PC シミュレータ）を優先的に開発する。
 - アーキテクチャ方針:
-  - Cargo workspace を用いて以下の構成をとる想定。
-  - `crates/hal-api`: MCU 非依存の HAL trait を定義するクレート（まずは GPIO / I2C、その後 SPI / ADC / Timer などを追加）。
-  - `crates/core-app`: アプリ本体のロジックを定義するクレート。HAL の trait のみに依存し、具体的なハードウェア実装には依存しない。
-  - `crates/platform-pc-sim`: PC 上で動作する疑似エミュレータ用クレート。`hal-api` の trait を実装したモック HAL を提供し、CLI アプリとして `core-app` を動かす。
-  - `crates/platform-esp32`（将来追加）: ESP32 実機向けの HAL 実装用クレート。ESP32 向け HAL ライブラリ（例: esp-hal 系）を利用して `hal-api` の trait を満たすラッパーを提供する。
-  - `examples/`: LED 点滅や I2C センサ読み取りなどのサンプルアプリを配置。
-- 最初の機能目標:
-  - `hal-api` クレートで GPIO / I2C の基本的な trait（例: `OutputPin` / `InputPin` / `I2cBus`）を定義する。
-  - `core-app` クレートで HAL を利用する `App` 構造体を定義し、ジェネリクスで HAL 実装を受け取り、`tick()` メソッドで 1 ステップ分の処理を行う。
-  - `platform-pc-sim` クレートで HAL のモック実装を作成し、CLI アプリとして `App` を動かす（GPIO 操作や I2C アクセスは標準出力へのログ出力のみでもよい）。
-  - その後、`platform-esp32` クレートを追加し、ESP32 向け HAL を用いて `hal-api` の trait を満たす実装を提供する（最初はシリアルログ出力と GPIO / I2C が動けば十分とし、WiFi / Bluetooth は当面対象外）。
+  - Cargo workspace を用いて `hal-api` / `core-app` / `platform-pc-sim` / `platform-esp32` を分離する。
+  - `hal-api`: GPIO / I2C / sensor / display の再利用可能な抽象を置く。
+  - `core-app`: HAL trait のみに依存する共通ロジックを置く。
+  - `platform-pc-sim`: host 上で同じアプリを検証する simulator とモックを置く。
+  - `platform-esp32`: original ESP32 向け adapter と、本線シナリオに必要な driver を置く。
+  - `firmware/*`: bring-up や board diagnostics の薄い実行層を置く。
+- 追加判断基準:
+  - board 固有機能は、`hal-api` / `core-app` / sim-to-real 経路を改善できる場合だけこの repo に追加する。
+  - `esp32cam` のような camera 中心の案件は、まず別 repo で進め、共通抽象が必要になった時点で最小限を本 repo に戻す。
 
 ## プロジェクト固有の開発ルール
 
@@ -44,6 +43,7 @@
 - サブ agent には所有範囲を明示し、同じファイルを複数 agent に触らせない提案を優先すること。
 - サブ agent の成果物は、メインの `orchestrator` が必ずレビューしてから統合する前提で手順やコード例を提案すること。
 - この運用は他プロジェクトにも適用可能な標準パターンとして扱い、プロジェクトごとに `orchestrator` / `worker` / `reviewer` の責務分離を明示すること。
+- `esp32cam` や board 固有 UI のようにプロダクト都合が強い話題は、原則として別 repo を先に提案し、この repo には汎用抽象だけを戻すように誘導すること。
 
 ## 共通開発ルール
 
