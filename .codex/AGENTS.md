@@ -275,24 +275,25 @@ git stash pop
 ### プロジェクト: mcu-hal-sim-rs
 
 - 目的:
-  - ESP32 / Arduino Nano / Raspberry Pi Pico などのマイコン向けアプリケーションを Rust で開発する。
-  - アプリのロジックは MCU 非依存の HAL trait 経由で記述し、PC 上の疑似エミュレータで動作確認できるようにする。
-  - 将来的に同じ Rust コードベースから ESP32 実機向けバイナリもビルドできるようにする。
+  - マイコン向け Rust アプリを MCU 非依存の HAL trait で記述し、PC simulator と original ESP32 実機で再利用できるようにする。
+  - この repo は基盤 repo として扱い、sim-to-real 経路の成立と維持を主目的とする。
+  - 個別アプリや board 固有要件は別 repo で開発し、共通化すべき抽象だけを本 repo に還流する。
 - 優先ターゲット:
   - 最初の実機ターゲットは ESP32。
-  - Arduino Nano / Raspberry Pi Pico への対応は後から追加。
-  - 当面は WiFi / Bluetooth などの無線機能は対象外とし、GPIO / I2C / SPI / ADC など基本的な周辺機能に集中する。
+  - 現在の本線シナリオは original ESP32 + `BME280` + `LCD1602`。
+  - `M5StickC` は補助診断 board として扱い、本番経路には含めない。
+  - 当面は WiFi / Bluetooth / camera のような board 固有機能は対象外とし、GPIO / I2C / sensor / display に集中する。
 - 使用言語 / 開発環境:
   - 使用言語は Rust。
   - ホスト環境は macOS（Apple Silicon） / Windows / Ubuntu Linux を想定。
   - まずはホスト向けバイナリ（PC シミュレータ）を優先的に開発する。
 - アーキテクチャ方針:
-  - Cargo workspace を用いて以下のような構成をとる。
-  - `crates/hal-api`: MCU 非依存の HAL trait を定義するクレート。最初は GPIO / I2C を対象とし、将来的に SPI / ADC / Timer などを追加する。
-  - `crates/core-app`: アプリ本体のロジックを定義するクレート。HAL の trait（GPIO / I2C など）だけに依存し、具体的なハードウェア実装には依存しない。
-  - `crates/platform-pc-sim`: PC 上で動作する疑似エミュレータ用クレート。`hal-api` の trait を実装したモック HAL を提供し、CLI アプリとして `core-app` を動かす。
-  - `crates/platform-esp32`（後から追加）: ESP32 実機向けの HAL 実装用クレート。Rust 向けの ESP32 HAL（例: esp-hal 系など）を利用して、`hal-api` の trait を満たすラッパーを提供する。
-  - `examples/`: LED 点滅、I2C センサの簡易読み取りなどのサンプルアプリを配置する。
+  - Cargo workspace を用いて `hal-api` / `core-app` / `platform-pc-sim` / `platform-esp32` を分離する。
+  - `hal-api`: GPIO / I2C / sensor / display の再利用可能な抽象を置く。
+  - `core-app`: HAL trait のみに依存する共通アプリロジックを置く。
+  - `platform-pc-sim`: host 上で同じロジックを検証する simulator を置く。
+  - `platform-esp32`: original ESP32 向け adapter と本線シナリオ向け driver を置く。
+  - `firmware/*`: bring-up や board diagnostics の薄い実行層を置く。
 - コーディングルール / 運用:
   - コードはできるだけシンプルで読みやすく保つ。
   - 1 回の変更は小さめの単位で行い、それに対応するコミットも細かく分ける。
@@ -300,6 +301,8 @@ git stash pop
   - PR の説明文にはテストの実行方法（例: `cargo test` / `cargo run -p platform-pc-sim` など）を必ず明記する。
   - GitHub 連携の `git push` / Pull Request / Issue 作成などの操作は、原則として `scripts/gh-workflow.sh` (`push` / `pr` / `issue` サブコマンド) を経由して行う。
   - 実機 bring-up や `espflash` 実行手順を提案するときは、ホスト OS として macOS も必ず考慮する。Windows の `COMx` だけを前提にせず、macOS / Linux の native serial device path 前提の案内を優先し、WSL2 + Windows 経由は代替経路として扱う。
+  - 新しい board / sensor / display を本 repo に追加するのは、`hal-api` / `core-app` / sim-to-real 経路の再利用性を上げる場合に限る。
+  - `esp32cam` のような camera 中心の案件は、まず別 repo で進め、共通抽象が必要だと確認できてから本 repo に最小限を還流する。
   - マルチエージェントで作業する場合、メインの Codex は常に `orchestrator` として振る舞う。
   - `orchestrator` の責務は、要件整理、分担設計、サブ agent への責務割り当て、進捗監視、成果物レビュー、競合解消、最終統合、検証、PR 作成までを含む。
   - サブ agent は指定された所有範囲の実装・調査だけを担当し、設計変更の最終決定権は持たない。
@@ -308,11 +311,10 @@ git stash pop
   - レビュー担当 agent を別に立てる場合でも、最終レビュー責任者は常にメインの `orchestrator` とする。
   - この運用は本プロジェクト固有ではなく、他プロジェクトでも再利用する標準運用として扱う。
 - 機能面での最初の目標:
-  - `hal-api` クレートで GPIO / I2C の基本的な trait（例: `OutputPin` / `InputPin` / `I2cBus` など）を定義する。
-  - `core-app` クレートで HAL を使うための `App` 構造体を定義する。ジェネリクスで HAL 実装を受け取り、`tick()` メソッドで 1 ステップ分の処理を行う。
-  - 最初の実装では LED の ON/OFF 切り替えやダミー I2C 読み取りなど、簡単な処理から始める。
-  - `platform-pc-sim` クレートで HAL のモック実装を作成し、CLI アプリとして `App` を動かす。GPIO 操作や I2C アクセスは標準出力へのログ出力のみでもよい。
-  - その後、ESP32 実機向けの `platform-esp32` クレートを追加し、ESP32 向け HAL ライブラリを用いて `hal-api` の trait を満たす実装を用意する。最初はシリアルログ出力と GPIO / I2C が動けば十分とし、WiFi / Bluetooth は当面対象外とする。
+  - 本線は `ClimateDisplayApp` を PC simulator と original ESP32 実機の両方で動かせる状態を維持すること。
+  - `hal-api` には再利用可能な GPIO / I2C / sensor / display 抽象だけを置く。
+  - `core-app` には board 非依存のアプリロジックだけを置く。
+  - board 固有の bring-up や diagnostics は `firmware/*` に閉じ込める。
 
 ---
 

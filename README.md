@@ -2,7 +2,15 @@
 
 [![CI](https://github.com/1222-takeshi/mcu-hal-sim-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/1222-takeshi/mcu-hal-sim-rs/actions/workflows/ci.yml)
 
-マイコン向けRustアプリケーションを、**ハードウェア抽象化層（HAL）**を通じてプラットフォーム非依存に記述し、PC上のシミュレータで動作確認できるプロジェクトです。
+マイコン向け Rust アプリケーションを、**ハードウェア抽象化層（HAL）**を通じてプラットフォーム非依存に記述し、PC 上のシミュレータで動作確認したうえで original ESP32 実機へ持っていくための基盤プロジェクトです。
+
+## 🎯 スコープ
+
+- 本リポジトリの主目的は、`platform-pc-sim -> core-app -> platform-esp32 -> original ESP32` の **sim-to-real 経路を成立させること** です。
+- 現在の本線シナリオは **original ESP32 + BME280 + LCD1602** です。
+- `M5StickC` は本番ターゲットではなく、USB / button / onboard I2C を素早く切り分けるための **補助診断ボード** として扱います。
+- board 固有機能を増やす遊び場にはせず、別のマイコンアプリ開発は原則として **別リポジトリ** で行い、本リポジトリには再利用可能な抽象・ドライバ・sim-to-real 改善だけを還流します。
+- 新しい board / sensor / display を本リポジトリに追加するのは、`hal-api` または `core-app` の再利用性を高める場合に限ります。
 
 ## ✨ 特徴
 
@@ -11,12 +19,12 @@
 - **🧪 テスト駆動開発**: 87個のテストでコードの品質を保証
 - **🔧 CI/CD自動化**: GitHub Actionsで自動ビルド・テスト・Lint
 - **📦 `no_std` 準備**: `hal-api` と `core-app` はホスト依存を持たない構成
-- **⚙️ original ESP32 準備**: `platform-esp32` は `embedded-hal` v1.0 経由で実機HALを受けられる構成
+- **⚙️ original ESP32 実装**: `platform-esp32` は `embedded-hal` v1.0 経由で実機 HAL を受けられる構成
 - **🧰 実機雛形あり**: `firmware/original-esp32-bringup` から LED only / real I2C の両方を試せる
 - **🖥️ LCD simulation UI**: `climate-display-sim` で 16x2 表示を terminal 上にそのまま確認できる
 - **🌡️ Sim-to-real 経路**: `ClimateDisplayApp` を PC simulator と original ESP32 実機で再利用
-- **🎛️ 診断用 board あり**: `firmware/m5stickc-bringup` で M5StickC の Button / PMU / RTC / IMU を切り分け可能
-- **🚀 将来の拡張性**: ESP32、Arduino Nano、Raspberry Pi Picoなどへの対応を予定
+- **🎛️ 補助診断 board**: `firmware/m5stickc-bringup` で M5StickC の Button / PMU / RTC / IMU を切り分け可能
+- **📦 別 repo 連携前提**: 実アプリは別リポジトリで育て、共通化すべき抽象だけを本 repo に戻す運用を前提化
 
 ## 📐 アーキテクチャ
 
@@ -41,7 +49,7 @@
         ┌────────┴────────┐
         │                 │
 ┌───────▼──────┐  ┌──────▼────────────────┐
-│ PC Simulator │  │ ESP32 (original 準備中) │
+│ PC Simulator │  │ ESP32 (original)      │
 │ platform-    │  │ platform-     │
 │ pc-sim       │  │ esp32         │
 │ - MockPin    │  │ - Esp32Pin    │
@@ -51,6 +59,16 @@
 
 この基本構造に加えて、`hal-api::sensor::EnvSensor` と `hal-api::display::TextDisplay16x2` を使う
 `ClimateDisplayApp` を追加し、PC simulator と original ESP32 実機の両方で同じ表示ロジックを動かせるようにしています。
+
+## 🧭 運用方針
+
+- 本リポジトリは **基盤 repo** として扱います。
+- 実際のマイコン向けアプリケーションは別 repo で作り、必要に応じてこの repo を `git` 依存または path 依存で利用します。
+- 別 repo から本 repo へ戻す変更は、次のいずれかを満たすものに限定します。
+  - `hal-api` の抽象を汎用化できる
+  - `core-app` の再利用性を上げられる
+  - `platform-pc-sim` と `platform-esp32` の sim-to-real 経路を改善できる
+- board 固有の UI、camera、通信機能のように他案件へ波及しにくい実装は、まず別 repo で検証する方針です。
 
 ## 🚀 クイックスタート
 
@@ -356,17 +374,14 @@ mcu-hal-sim-rs/
 
 開発ガイドライン、TDD原則、コーディング規約などの詳細は [CONTRIBUTING.md](./CONTRIBUTING.md) を参照してください。
 
-## 📅 ロードマップ
+## 📅 次にやること
 
-- [x] **Week 1**: PCシミュレータの完成
-- [x] **Week 2**: テスト基盤の整備（57テスト）
-- [x] **Week 3**: CI/CD環境の構築
-- [x] **Week 4**: ドキュメント充実
-- [ ] **Week 5**: 統合テスト・カバレッジ向上（進行中）
-- [ ] **Week 6**: no_std対応・ESP32準備
-- [ ] **Week 7-8**: ESP32実機対応（オプション）
+- [ ] 本リポジトリのスコープを維持しながら、`README` / `PLAN` / AI コンテキストを継続的に同期する
+- [ ] `ClimateDisplayApp` の回帰テストを増やし、sim-to-real の本線を壊れにくくする
+- [ ] original ESP32 の本線シナリオを安定面として保ち、別 repo から共通化が必要になったときだけ本 repo に還流する
+- [ ] camera や board 固有機能のような案件は、まず別 repo で実装し、共通抽象が必要になった時点で `hal-api` / `platform-*` へ戻す
 
-詳細は [CHANGELOG.md](./CHANGELOG.md) と [開発計画](https://github.com/1222-takeshi/mcu-hal-sim-rs/blob/main/.claude/plans/hazy-drifting-frost.md) を参照してください。
+詳細は [CHANGELOG.md](./CHANGELOG.md) と [PLAN.md](./PLAN.md) を参照してください。
 
 ## 📄 ライセンス
 
