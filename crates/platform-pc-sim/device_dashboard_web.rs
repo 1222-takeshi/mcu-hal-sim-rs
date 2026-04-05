@@ -20,6 +20,8 @@ use platform_pc_sim::web_dashboard::{
     I2cPanelState, ImuPanelState, MotorChannelState, MotorDriverPanelState, ServoPanelState,
     WiringPanelState,
 };
+use platform_pc_sim::wiring_config::WiringConfig;
+use platform_pc_sim::wiring_svg::wiring_svg;
 use reference_drivers::bme280::{Bme280Sensor, BME280_ADDRESS_PRIMARY};
 use reference_drivers::hc_sr04::HcSr04Sensor;
 use reference_drivers::lcd1602::{Lcd1602Display, LCD1602_ADDRESS_PRIMARY};
@@ -417,6 +419,20 @@ fn main() {
                     "application/json; charset=utf-8",
                     &payload,
                 );
+            }
+            "/api/wiring" => {
+                let payload = WiringConfig::from_board(rig.board).to_json();
+                respond(
+                    &mut stream,
+                    "200 OK",
+                    "application/json; charset=utf-8",
+                    &payload,
+                );
+            }
+            "/api/wiring/svg" => {
+                let cfg = WiringConfig::from_board(rig.board);
+                let svg = wiring_svg(&cfg);
+                respond(&mut stream, "200 OK", "image/svg+xml; charset=utf-8", &svg);
             }
             _ => respond(
                 &mut stream,

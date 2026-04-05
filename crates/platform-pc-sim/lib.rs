@@ -15,3 +15,5 @@ pub mod mock_hal;
 pub mod mpu6050_mock;
 pub mod virtual_i2c;
 pub mod web_dashboard;
+pub mod wiring_config;
+pub mod wiring_svg;

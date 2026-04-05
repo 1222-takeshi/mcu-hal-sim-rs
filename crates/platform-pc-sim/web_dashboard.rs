@@ -643,13 +643,16 @@ pub fn dashboard_html() -> &'static str {
       </article>
 
       <!-- Wiring -->
-      <article class="panel card span-4">
-        <h2>Wiring</h2>
-        <div class="wiring" id="wiring-view"></div>
+      <article class="panel card span-8">
+        <h2>Wiring Diagram</h2>
+        <div id="wiring-svg-wrap" style="width:100%;overflow-x:auto;min-height:180px"></div>
+        <div class="footer" style="margin-top:6px">
+          Attached: <span id="wiring-devices" style="font-family:monospace">--</span>
+        </div>
       </article>
 
       <!-- I2C Activity -->
-      <article class="panel card span-8">
+      <article class="panel card span-4">
         <h2>I2C Activity</h2>
         <ul class="ops" id="i2c-ops"></ul>
       </article>
@@ -795,6 +798,19 @@ pub fn dashboard_html() -> &'static str {
         tilt > 700 ? "#ef5350" : tilt > 300 ? "#ffca28" : "#4fc3f7");
     }
 
+    // ── Wiring diagram (loaded once at startup, then refreshed every 5s) ──
+    async function loadWiringDiagram() {
+      try {
+        const r = await fetch("/api/wiring/svg");
+        if (!r.ok) return;
+        const svg = await r.text();
+        const wrap = $("wiring-svg-wrap");
+        if (wrap) wrap.innerHTML = svg;
+      } catch(_) {}
+    }
+    loadWiringDiagram();
+    setInterval(loadWiringDiagram, 5000);
+
     // ── Main refresh ──
     let paused = false;
     async function refresh() {
@@ -830,7 +846,8 @@ pub fn dashboard_html() -> &'static str {
         $("motor-left").textContent  = s.motor_driver.left.direction  + " " + s.motor_driver.left.duty_percent  + "%";
         $("motor-right").textContent = s.motor_driver.right.direction + " " + s.motor_driver.right.duty_percent + "%";
 
-        $("wiring-view").textContent = s.wiring.diagram_lines.join("\n");
+        const devEl = $("wiring-devices");
+        if (devEl) devEl.textContent = s.wiring.attached_devices.join(", ") || "--";
 
         const ops = $("i2c-ops");
         ops.innerHTML = "";
@@ -933,6 +950,10 @@ mod tests {
         // status bar
         assert!(html.contains("sdot"));
         assert!(html.contains("stext"));
+        // wiring SVG diagram
+        assert!(html.contains("/api/wiring/svg"));
+        assert!(html.contains("wiring-svg-wrap"));
+        assert!(html.contains("loadWiringDiagram"));
     }
 
     #[test]
