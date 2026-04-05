@@ -161,7 +161,7 @@ fn json_string(value: &str) -> String {
 }
 
 pub fn dashboard_html() -> &'static str {
-    r#"<!doctype html>
+    r##"<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -170,29 +170,83 @@ pub fn dashboard_html() -> &'static str {
   <style>
     :root {
       --bg: #f6f1e7;
-      --paper: rgba(255, 252, 247, 0.88);
+      --paper: rgba(255,252,247,0.88);
       --ink: #1c2b28;
       --muted: #6c756f;
       --accent: #0f7c6b;
       --accent-2: #d95f3d;
-      --line: rgba(28, 43, 40, 0.12);
-      --shadow: 0 24px 80px rgba(33, 41, 38, 0.12);
+      --line: rgba(28,43,40,0.12);
+      --shadow: 0 24px 80px rgba(33,41,38,0.12);
+      --status-ok: #0f7c6b;
+      --status-err: #d95f3d;
+      --spark: #0f7c6b;
+      --grad1: rgba(15,124,107,0.18);
+      --grad2: rgba(217,95,61,0.12);
+      --grad3: #faf5eb;
+    }
+    .dark {
+      --bg: #0e1614;
+      --paper: rgba(20,30,28,0.92);
+      --ink: #dde8e4;
+      --muted: #7a9990;
+      --accent: #3dcfb8;
+      --accent-2: #f07850;
+      --line: rgba(221,232,228,0.1);
+      --shadow: 0 24px 80px rgba(0,0,0,0.4);
+      --status-ok: #3dcfb8;
+      --status-err: #f07850;
+      --spark: #3dcfb8;
+      --grad1: rgba(61,207,184,0.1);
+      --grad2: rgba(240,120,80,0.08);
+      --grad3: #0a1210;
     }
     * { box-sizing: border-box; }
+    html { transition: color 0.25s, background 0.25s; }
     body {
       margin: 0;
       font-family: "IBM Plex Sans", "Avenir Next", sans-serif;
       color: var(--ink);
       background:
-        radial-gradient(circle at top left, rgba(15,124,107,0.18), transparent 28rem),
-        radial-gradient(circle at top right, rgba(217,95,61,0.12), transparent 24rem),
-        linear-gradient(180deg, #faf5eb 0%, var(--bg) 100%);
+        radial-gradient(circle at top left, var(--grad1), transparent 28rem),
+        radial-gradient(circle at top right, var(--grad2), transparent 24rem),
+        linear-gradient(180deg, var(--grad3) 0%, var(--bg) 100%);
       min-height: 100vh;
     }
     .shell {
       width: min(1220px, calc(100vw - 32px));
-      margin: 24px auto 40px;
+      margin: 0 auto 40px;
     }
+    /* ── Status bar ── */
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 2px;
+      font-size: 13px;
+      flex-wrap: wrap;
+    }
+    .sdot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--muted);
+      flex-shrink: 0;
+      transition: background 0.3s, box-shadow 0.3s;
+    }
+    .sdot.ok  { background: var(--status-ok);  box-shadow: 0 0 6px var(--status-ok); }
+    .sdot.err { background: var(--status-err); box-shadow: 0 0 6px var(--status-err); }
+    .stext { color: var(--muted); }
+    .serr  { color: var(--status-err); font-family: monospace; font-size: 12px;
+             max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ctrls { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+    select, .btn {
+      font-family: inherit; font-size: 13px;
+      border: 1px solid var(--line); border-radius: 8px;
+      padding: 5px 10px;
+      background: var(--paper); color: var(--ink);
+      cursor: pointer; transition: background 0.2s;
+    }
+    select:hover, .btn:hover { background: rgba(15,124,107,0.1); }
+    /* ── Hero ── */
     .hero {
       display: grid;
       grid-template-columns: 2fr 1fr;
@@ -206,161 +260,105 @@ pub fn dashboard_html() -> &'static str {
       box-shadow: var(--shadow);
       backdrop-filter: blur(18px);
     }
-    .hero-main {
-      padding: 24px 24px 18px;
-      position: relative;
-      overflow: hidden;
-    }
+    .hero-main { padding: 24px 24px 18px; position: relative; overflow: hidden; }
     .hero-main::after {
-      content: "";
-      position: absolute;
-      inset: auto -12% -40% auto;
-      width: 220px;
-      height: 220px;
+      content: ""; position: absolute; inset: auto -12% -40% auto;
+      width: 220px; height: 220px;
       background: radial-gradient(circle, rgba(15,124,107,0.18), transparent 65%);
       pointer-events: none;
     }
     .kicker {
-      font-size: 12px;
-      letter-spacing: 0.18em;
-      text-transform: uppercase;
-      color: var(--accent);
-      margin-bottom: 10px;
+      font-size: 12px; letter-spacing: 0.18em;
+      text-transform: uppercase; color: var(--accent); margin-bottom: 10px;
     }
     .hero-title {
-      font-family: "Iowan Old Style", "Palatino Linotype", serif;
-      font-size: clamp(34px, 5vw, 58px);
-      line-height: 0.95;
-      margin: 0 0 10px;
+      font-family: "Iowan Old Style","Palatino Linotype",serif;
+      font-size: clamp(34px,5vw,58px); line-height: 0.95; margin: 0 0 10px;
     }
-    .hero-sub {
-      color: var(--muted);
-      max-width: 42rem;
-      line-height: 1.5;
-    }
-    .hero-meta {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      margin-top: 18px;
-    }
+    .hero-sub { color: var(--muted); max-width: 42rem; line-height: 1.5; }
+    .hero-meta { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
     .chip {
-      padding: 8px 12px;
-      border-radius: 999px;
-      background: rgba(15,124,107,0.08);
-      color: var(--ink);
-      font-size: 13px;
+      padding: 8px 12px; border-radius: 999px;
+      background: rgba(15,124,107,0.08); color: var(--ink); font-size: 13px;
     }
-    .hero-side {
-      padding: 20px;
-      display: grid;
-      align-content: space-between;
-    }
-    .hero-side .label {
-      color: var(--muted);
-      font-size: 13px;
-      margin-bottom: 6px;
-    }
-    .hero-side .value {
-      font-family: "Iowan Old Style", serif;
-      font-size: 36px;
-      margin-bottom: 14px;
-    }
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(12, 1fr);
-      gap: 16px;
-    }
-    .card {
-      padding: 18px;
-      min-height: 180px;
-    }
-    .span-4 { grid-column: span 4; }
-    .span-6 { grid-column: span 6; }
-    .span-8 { grid-column: span 8; }
+    .hero-side { padding: 20px; display: grid; align-content: space-between; }
+    .hero-side .label { color: var(--muted); font-size: 13px; margin-bottom: 6px; }
+    .hero-side .big   { font-family: "Iowan Old Style",serif; font-size: 36px; margin-bottom: 14px; }
+    /* ── Grid ── */
+    .grid { display: grid; grid-template-columns: repeat(12,1fr); gap: 16px; }
+    .card { padding: 18px; min-height: 180px; }
+    .span-4  { grid-column: span 4; }
+    .span-6  { grid-column: span 6; }
+    .span-8  { grid-column: span 8; }
     .span-12 { grid-column: span 12; }
-    h2 {
-      margin: 0 0 12px;
-      font-size: 18px;
-    }
-    .metric-row {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 10px;
-    }
-    .metric {
-      padding: 12px;
-      border-radius: 16px;
-      background: rgba(28,43,40,0.04);
-    }
+    h2 { margin: 0 0 12px; font-size: 18px; }
+    /* ── Metric ── */
+    .metric-row { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; }
+    .metric { padding: 12px; border-radius: 16px; background: rgba(28,43,40,0.04); }
     .metric .name {
-      color: var(--muted);
-      font-size: 12px;
-      margin-bottom: 6px;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
+      color: var(--muted); font-size: 12px; margin-bottom: 4px;
+      text-transform: uppercase; letter-spacing: 0.08em;
     }
-    .metric .value {
-      font-size: 24px;
-      font-weight: 700;
+    .metric .val { font-size: 22px; font-weight: 700; }
+    /* ── Sparkline ── */
+    .spark-wrap { margin-top: 8px; }
+    svg.spark {
+      display: block; width: 100%; height: 34px; overflow: visible;
     }
+    svg.spark polyline {
+      fill: none; stroke: var(--spark); stroke-width: 1.8;
+      stroke-linejoin: round; stroke-linecap: round;
+    }
+    /* ── LCD ── */
     .lcd {
-      display: inline-block;
-      padding: 16px 18px;
-      border-radius: 18px;
-      background: linear-gradient(180deg, #9bc39f 0%, #84b18a 100%);
-      color: #112315;
-      font-family: "IBM Plex Mono", "Menlo", monospace;
-      font-size: 18px;
-      box-shadow: inset 0 0 0 1px rgba(17,35,21,0.16);
+      display: inline-block; padding: 16px 18px; border-radius: 18px;
+      background: linear-gradient(180deg,#9bc39f 0%,#84b18a 100%);
+      color: #112315; font-family: "IBM Plex Mono","Menlo",monospace;
+      font-size: 18px; box-shadow: inset 0 0 0 1px rgba(17,35,21,0.16);
     }
     .lcd-line { white-space: pre; }
-    .wiring {
-      font-family: "IBM Plex Mono", monospace;
-      white-space: pre-wrap;
-      line-height: 1.45;
-      font-size: 14px;
-    }
-    .ops {
-      margin: 0;
-      padding: 0;
-      list-style: none;
-      font-family: "IBM Plex Mono", monospace;
-      font-size: 13px;
-    }
-    .ops li {
-      padding: 8px 0;
-      border-bottom: 1px solid var(--line);
-    }
-    .axis {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 8px;
-    }
-    .axis div {
-      padding: 10px;
-      border-radius: 14px;
-      background: rgba(217,95,61,0.07);
-    }
-    .motor {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 12px;
-    }
-    .footer {
-      margin-top: 18px;
-      color: var(--muted);
-      font-size: 13px;
-    }
+    /* ── Wiring / I2C ── */
+    .wiring { font-family: "IBM Plex Mono",monospace; white-space: pre-wrap; line-height: 1.45; font-size: 13px; }
+    .ops { margin: 0; padding: 0; list-style: none; font-family: "IBM Plex Mono",monospace; font-size: 13px; }
+    .ops li { padding: 8px 0; border-bottom: 1px solid var(--line); }
+    /* ── IMU axes ── */
+    .axis { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; }
+    .axis div { padding: 10px; border-radius: 14px; background: rgba(217,95,61,0.07); }
+    /* ── Motor ── */
+    .motor { display: grid; grid-template-columns: repeat(2,1fr); gap: 12px; }
+    /* ── Footer ── */
+    .footer { margin-top: 18px; color: var(--muted); font-size: 13px; }
+    /* ── Responsive ── */
     @media (max-width: 980px) {
-      .hero, .grid { grid-template-columns: 1fr; }
-      .span-4, .span-6, .span-8, .span-12 { grid-column: span 1; }
-      .metric-row, .motor, .axis { grid-template-columns: 1fr; }
+      .hero,.grid { grid-template-columns: 1fr; }
+      .span-4,.span-6,.span-8,.span-12 { grid-column: span 1; }
+      .metric-row,.motor,.axis { grid-template-columns: 1fr; }
     }
   </style>
 </head>
 <body>
   <main class="shell">
+
+    <!-- Status / control bar -->
+    <div class="status-bar">
+      <span class="sdot" id="sdot"></span>
+      <span class="stext" id="stext">connecting&#x2026;</span>
+      <span class="serr"  id="serr"></span>
+      <div class="ctrls">
+        <label for="isel" style="color:var(--muted)">Refresh</label>
+        <select id="isel">
+          <option value="250">250 ms</option>
+          <option value="500" selected>500 ms</option>
+          <option value="1000">1 s</option>
+          <option value="2000">2 s</option>
+          <option value="5000">5 s</option>
+        </select>
+        <button class="btn" id="pbtn">&#x23F8; Pause</button>
+        <button class="btn" id="tbtn">&#x1F319; Dark</button>
+      </div>
+    </div>
+
+    <!-- Hero -->
     <section class="hero">
       <article class="panel hero-main">
         <div class="kicker">mcu-hal-sim-rs</div>
@@ -378,23 +376,52 @@ pub fn dashboard_html() -> &'static str {
       <aside class="panel hero-side">
         <div>
           <div class="label">Distance</div>
-          <div class="value" id="distance-value">-- mm</div>
+          <div class="big" id="distance-value">-- mm</div>
           <div class="label">Servo</div>
-          <div class="value" id="servo-value">-- deg</div>
+          <div class="big" id="servo-value">-- deg</div>
         </div>
         <div class="label">Live polling from <code>/api/state</code></div>
       </aside>
     </section>
 
+    <!-- Grid -->
     <section class="grid">
+
+      <!-- Climate -->
       <article class="panel card span-6">
         <h2>Climate</h2>
         <div class="metric-row">
-          <div class="metric"><div class="name">Temp</div><div class="value" id="temp-value">--</div></div>
-          <div class="metric"><div class="name">Humidity</div><div class="value" id="hum-value">--</div></div>
-          <div class="metric"><div class="name">Pressure</div><div class="value" id="press-value">--</div></div>
+          <div class="metric">
+            <div class="name">Temp</div>
+            <div class="val" id="temp-value">--</div>
+            <div class="spark-wrap">
+              <svg class="spark" id="spark-temp" viewBox="0 0 100 30" preserveAspectRatio="none">
+                <polyline points=""/>
+              </svg>
+            </div>
+          </div>
+          <div class="metric">
+            <div class="name">Humidity</div>
+            <div class="val" id="hum-value">--</div>
+            <div class="spark-wrap">
+              <svg class="spark" id="spark-hum" viewBox="0 0 100 30" preserveAspectRatio="none">
+                <polyline points=""/>
+              </svg>
+            </div>
+          </div>
+          <div class="metric">
+            <div class="name">Pressure</div>
+            <div class="val" id="press-value">--</div>
+            <div class="spark-wrap">
+              <svg class="spark" id="spark-press" viewBox="0 0 100 30" preserveAspectRatio="none">
+                <polyline points=""/>
+              </svg>
+            </div>
+          </div>
         </div>
       </article>
+
+      <!-- LCD -->
       <article class="panel card span-6">
         <h2>LCD</h2>
         <div class="lcd">
@@ -404,103 +431,216 @@ pub fn dashboard_html() -> &'static str {
         <div class="footer">Physical LCD frame decoded from backpack traffic.</div>
       </article>
 
+      <!-- HC-SR04 -->
       <article class="panel card span-4">
         <h2>HC-SR04</h2>
         <div class="metric">
           <div class="name" id="distance-sensor-name">Distance Sensor</div>
-          <div class="value" id="distance-metric">-- mm</div>
+          <div class="val" id="distance-metric">-- mm</div>
+          <div class="spark-wrap">
+            <svg class="spark" id="spark-dist" viewBox="0 0 100 30" preserveAspectRatio="none">
+              <polyline points=""/>
+            </svg>
+          </div>
         </div>
       </article>
+
+      <!-- MPU6050 -->
       <article class="panel card span-4">
         <h2>MPU6050</h2>
         <div class="axis">
-          <div><div class="name">Accel X</div><div class="value" id="accel-x">--</div></div>
-          <div><div class="name">Accel Y</div><div class="value" id="accel-y">--</div></div>
-          <div><div class="name">Accel Z</div><div class="value" id="accel-z">--</div></div>
-          <div><div class="name">Gyro X</div><div class="value" id="gyro-x">--</div></div>
-          <div><div class="name">Gyro Y</div><div class="value" id="gyro-y">--</div></div>
-          <div><div class="name">Gyro Z</div><div class="value" id="gyro-z">--</div></div>
+          <div><div class="name">Accel X</div><div class="val" id="accel-x">--</div></div>
+          <div><div class="name">Accel Y</div><div class="val" id="accel-y">--</div></div>
+          <div><div class="name">Accel Z</div><div class="val" id="accel-z">--</div></div>
+          <div><div class="name">Gyro X</div><div class="val" id="gyro-x">--</div></div>
+          <div><div class="name">Gyro Y</div><div class="val" id="gyro-y">--</div></div>
+          <div><div class="name">Gyro Z</div><div class="val" id="gyro-z">--</div></div>
+        </div>
+        <div class="spark-wrap" style="margin-top:10px">
+          <div class="name" style="color:var(--muted);font-size:11px;margin-bottom:3px">Accel Z (mg)</div>
+          <svg class="spark" id="spark-accelz" viewBox="0 0 100 30" preserveAspectRatio="none">
+            <polyline points=""/>
+          </svg>
         </div>
       </article>
+
+      <!-- Motor Driver -->
       <article class="panel card span-4">
         <h2>Motor Driver</h2>
         <div class="motor">
           <div class="metric">
-            <div class="name">Left Channel</div>
-            <div class="value" id="motor-left">--</div>
+            <div class="name">Left</div>
+            <div class="val" id="motor-left">--</div>
           </div>
           <div class="metric">
-            <div class="name">Right Channel</div>
-            <div class="value" id="motor-right">--</div>
+            <div class="name">Right</div>
+            <div class="val" id="motor-right">--</div>
           </div>
         </div>
       </article>
 
+      <!-- Wiring -->
       <article class="panel card span-4">
         <h2>Wiring</h2>
         <div class="wiring" id="wiring-view"></div>
       </article>
+
+      <!-- I2C Activity -->
       <article class="panel card span-8">
         <h2>I2C Activity</h2>
         <ul class="ops" id="i2c-ops"></ul>
       </article>
+
     </section>
   </main>
 
   <script>
-    const fmt = (value, suffix = "") => value == null ? "--" : `${value}${suffix}`;
-    const lcdLines = ["lcd-line-1", "lcd-line-2"].map(id => document.getElementById(id));
+    // ── History ring buffers ──
+    const HIST = 60;
+    const hist = { temp:[], hum:[], press:[], dist:[], accelz:[] };
+    function push(key, v) {
+      if (v == null) return;
+      hist[key].push(v);
+      if (hist[key].length > HIST) hist[key].shift();
+    }
+
+    // ── SVG sparkline ──
+    function sparkline(id, data) {
+      if (data.length < 2) return;
+      const svg = document.getElementById(id);
+      if (!svg) return;
+      const W = 100, H = 30, PAD = 0.1;
+      const lo = Math.min(...data), hi = Math.max(...data);
+      const range = hi - lo || 1;
+      const pts = data.map((v, i) => {
+        const x = (i / (data.length - 1)) * W;
+        const y = H - PAD * H - ((v - lo) / range) * H * (1 - 2 * PAD);
+        return x.toFixed(1) + "," + y.toFixed(1);
+      }).join(" ");
+      svg.querySelector("polyline").setAttribute("points", pts);
+    }
+
+    // ── Status bar ──
+    let lastOkMs = null, errCount = 0;
+    function setOk() {
+      const now = Date.now();
+      const ago = lastOkMs ? (now - lastOkMs) + " ms ago" : "just now";
+      lastOkMs = now; errCount = 0;
+      document.getElementById("sdot").className = "sdot ok";
+      document.getElementById("stext").textContent = "Online \u00B7 updated " + ago;
+      document.getElementById("serr").textContent = "";
+    }
+    function setErr(msg) {
+      errCount++;
+      document.getElementById("sdot").className = "sdot err";
+      document.getElementById("stext").textContent = "Error \u00D7" + errCount;
+      document.getElementById("serr").textContent = msg || "";
+    }
+
+    // ── DOM helpers ──
+    const $ = id => document.getElementById(id);
+    const fmt = (v, sfx) => v == null ? "--" : v + sfx;
+    const lcdLines = ["lcd-line-1","lcd-line-2"].map(id => $(id));
+
+    // ── Main refresh ──
+    let paused = false;
     async function refresh() {
-      const response = await fetch("/api/state");
-      const state = await response.json();
+      if (paused) return;
+      try {
+        const r = await fetch("/api/state");
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        const s = await r.json();
 
-      document.getElementById("board-name").textContent = state.board_name;
-      document.getElementById("mcu-name").textContent = state.mcu_name;
-      document.getElementById("tick-chip").textContent = `tick=${state.tick}`;
-      document.getElementById("i2c-chip").textContent = `i2c ops=${state.i2c.operation_count}`;
+        $("board-name").textContent = s.board_name;
+        $("mcu-name").textContent   = s.mcu_name;
+        $("tick-chip").textContent  = "tick=" + s.tick;
+        $("i2c-chip").textContent   = "i2c ops=" + s.i2c.operation_count;
 
-      document.getElementById("temp-value").textContent = fmt(state.climate.temperature_c, " C");
-      document.getElementById("hum-value").textContent = fmt(state.climate.humidity_percent, " %");
-      document.getElementById("press-value").textContent = fmt(state.climate.pressure_pa, " Pa");
+        $("temp-value").textContent  = fmt(s.climate.temperature_c,    " \u00B0C");
+        $("hum-value").textContent   = fmt(s.climate.humidity_percent, " %");
+        $("press-value").textContent = fmt(s.climate.pressure_pa,      " Pa");
+        lcdLines[0].textContent = s.climate.physical_lcd_frame[0];
+        lcdLines[1].textContent = s.climate.physical_lcd_frame[1];
 
-      lcdLines[0].textContent = state.climate.physical_lcd_frame[0];
-      lcdLines[1].textContent = state.climate.physical_lcd_frame[1];
+        $("distance-value").textContent       = fmt(s.distance.distance_mm, " mm");
+        $("distance-metric").textContent      = fmt(s.distance.distance_mm, " mm");
+        $("distance-sensor-name").textContent = s.distance.sensor_name;
+        $("servo-value").textContent          = s.servo.angle_degrees + " deg";
 
-      document.getElementById("distance-value").textContent = fmt(state.distance.distance_mm, " mm");
-      document.getElementById("distance-metric").textContent = fmt(state.distance.distance_mm, " mm");
-      document.getElementById("distance-sensor-name").textContent = state.distance.sensor_name;
-      document.getElementById("servo-value").textContent = `${state.servo.angle_degrees} deg`;
+        $("accel-x").textContent = s.imu.accel_mg[0]  + " mg";
+        $("accel-y").textContent = s.imu.accel_mg[1]  + " mg";
+        $("accel-z").textContent = s.imu.accel_mg[2]  + " mg";
+        $("gyro-x").textContent  = s.imu.gyro_mdps[0] + " mdps";
+        $("gyro-y").textContent  = s.imu.gyro_mdps[1] + " mdps";
+        $("gyro-z").textContent  = s.imu.gyro_mdps[2] + " mdps";
 
-      document.getElementById("accel-x").textContent = `${state.imu.accel_mg[0]} mg`;
-      document.getElementById("accel-y").textContent = `${state.imu.accel_mg[1]} mg`;
-      document.getElementById("accel-z").textContent = `${state.imu.accel_mg[2]} mg`;
-      document.getElementById("gyro-x").textContent = `${state.imu.gyro_mdps[0]} mdps`;
-      document.getElementById("gyro-y").textContent = `${state.imu.gyro_mdps[1]} mdps`;
-      document.getElementById("gyro-z").textContent = `${state.imu.gyro_mdps[2]} mdps`;
+        $("motor-left").textContent  = s.motor_driver.left.direction  + " " + s.motor_driver.left.duty_percent  + "%";
+        $("motor-right").textContent = s.motor_driver.right.direction + " " + s.motor_driver.right.duty_percent + "%";
 
-      document.getElementById("motor-left").textContent =
-        `${state.motor_driver.left.direction} ${state.motor_driver.left.duty_percent}%`;
-      document.getElementById("motor-right").textContent =
-        `${state.motor_driver.right.direction} ${state.motor_driver.right.duty_percent}%`;
+        $("wiring-view").textContent = s.wiring.diagram_lines.join("\n");
 
-      document.getElementById("wiring-view").textContent =
-        state.wiring.diagram_lines.join("\n");
+        const ops = $("i2c-ops");
+        ops.innerHTML = "";
+        for (const line of s.i2c.recent_operations) {
+          const li = document.createElement("li");
+          li.textContent = line;
+          ops.appendChild(li);
+        }
 
-      const ops = document.getElementById("i2c-ops");
-      ops.innerHTML = "";
-      for (const line of state.i2c.recent_operations) {
-        const li = document.createElement("li");
-        li.textContent = line;
-        ops.appendChild(li);
+        // history + sparklines
+        push("temp",   s.climate.temperature_c);
+        push("hum",    s.climate.humidity_percent);
+        push("press",  s.climate.pressure_pa);
+        push("dist",   s.distance.distance_mm);
+        push("accelz", s.imu.accel_mg[2]);
+        sparkline("spark-temp",   hist.temp);
+        sparkline("spark-hum",    hist.hum);
+        sparkline("spark-press",  hist.press);
+        sparkline("spark-dist",   hist.dist);
+        sparkline("spark-accelz", hist.accelz);
+
+        setOk();
+      } catch(e) {
+        setErr(e.message);
       }
     }
 
+    // ── Interval control ──
+    let timerId = null;
+    function startTimer(ms) {
+      clearInterval(timerId);
+      timerId = setInterval(refresh, ms);
+    }
+    $("isel").addEventListener("change", e => startTimer(+e.target.value));
+
+    // ── Pause/resume ──
+    $("pbtn").addEventListener("click", () => {
+      paused = !paused;
+      $("pbtn").innerHTML = paused ? "&#x25B6; Resume" : "&#x23F8; Pause";
+      if (paused) {
+        $("sdot").className = "sdot";
+        $("stext").textContent = "Paused";
+      }
+    });
+
+    // ── Dark mode ──
+    function applyTheme(dark) {
+      document.documentElement.classList.toggle("dark", dark);
+      $("tbtn").innerHTML = dark ? "&#x2600; Light" : "&#x1F319; Dark";
+      try { localStorage.setItem("dash-theme", dark ? "dark" : "light"); } catch(_) {}
+    }
+    $("tbtn").addEventListener("click", () =>
+      applyTheme(!document.documentElement.classList.contains("dark"))
+    );
+    try { applyTheme(localStorage.getItem("dash-theme") === "dark"); } catch(_) {}
+
+    // ── Boot ──
     refresh();
-    setInterval(refresh, 500);
+    startTimer(500);
   </script>
 </body>
 </html>
-"#
+"##
 }
 
 #[cfg(test)]
@@ -512,6 +652,26 @@ mod tests {
         let html = dashboard_html();
         assert!(html.contains("/api/state"));
         assert!(html.contains("Device Dashboard"));
+    }
+
+    #[test]
+    fn html_contains_dashboard_features() {
+        let html = dashboard_html();
+        // sparkline SVGs
+        assert!(html.contains("spark-temp"));
+        assert!(html.contains("spark-hum"));
+        assert!(html.contains("spark-press"));
+        assert!(html.contains("spark-dist"));
+        assert!(html.contains("spark-accelz"));
+        // dark mode
+        assert!(html.contains("dash-theme"));
+        assert!(html.contains("tbtn"));
+        // pause/interval controls
+        assert!(html.contains("pbtn"));
+        assert!(html.contains("isel"));
+        // status bar
+        assert!(html.contains("sdot"));
+        assert!(html.contains("stext"));
     }
 
     #[test]
