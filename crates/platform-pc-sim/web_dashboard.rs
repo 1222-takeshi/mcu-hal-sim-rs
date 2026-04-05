@@ -341,6 +341,25 @@ pub fn dashboard_html() -> &'static str {
     }
     /* ── Footer ── */
     .footer { margin-top: 18px; color: var(--muted); font-size: 13px; }
+    /* ── E2E Test Runner ── */
+    .test-run-btn {
+      font-family: inherit; font-size: 13px;
+      border: 1px solid var(--line); border-radius: 8px;
+      padding: 6px 14px; background: rgba(15,124,107,0.1); color: var(--ink);
+      cursor: pointer; transition: background 0.2s; margin-bottom: 10px;
+    }
+    .test-run-btn:hover  { background: rgba(15,124,107,0.22); }
+    .test-run-btn:disabled { opacity: 0.45; cursor: default; }
+    #test-output {
+      background: #0d1117; color: #c9d1d9;
+      font-family: "IBM Plex Mono","Menlo",monospace; font-size: 0.73rem;
+      height: 220px; overflow-y: auto; padding: 8px 10px;
+      border-radius: 10px; border: 1px solid var(--line);
+    }
+    #test-output .tpass { color: #4caf50; }
+    #test-output .tfail { color: #f44336; }
+    #test-output .twarn { color: #ffa726; }
+    #test-output .tdone { color: #7e57c2; font-weight: bold; }
     /* ── Responsive ── */
     @media (max-width: 980px) {
       .hero,.grid { grid-template-columns: 1fr; }
@@ -657,6 +676,13 @@ pub fn dashboard_html() -> &'static str {
         <ul class="ops" id="i2c-ops"></ul>
       </article>
 
+      <!-- E2E Test Runner -->
+      <article class="panel card span-12">
+        <h2>&#x1F9EA; E2E Test Runner</h2>
+        <button class="test-run-btn" id="run-tests-btn" onclick="runTests()">&#x25B6; Run Tests (cargo test --workspace)</button>
+        <div id="test-output"></div>
+      </article>
+
     </section>
   </main>
 
@@ -883,6 +909,54 @@ pub fn dashboard_html() -> &'static str {
       }
     }
 
+    // ── E2E Test Runner ──
+    function runTests() {
+      const out = $("test-output");
+      out.innerHTML = "";
+      const btn = $("run-tests-btn");
+      btn.disabled = true;
+      btn.textContent = "Running\u2026";
+
+      const addLine = (text, cls) => {
+        const div = document.createElement("div");
+        div.textContent = text;
+        if (cls) div.className = cls;
+        out.appendChild(div);
+        out.scrollTop = out.scrollHeight;
+      };
+
+      const es = new EventSource("/api/test/stream");
+      es.onmessage = (e) => {
+        const line = e.data;
+        if (line.startsWith("[DONE]")) {
+          es.close();
+          btn.disabled = false;
+          btn.textContent = "\u25B6 Run Tests (cargo test --workspace)";
+          const ok = line.includes("exit=0");
+          addLine(ok ? "\u2714 All tests passed" : "\u2718 Tests finished with failures", ok ? "tpass" : "tfail");
+          addLine(line, "tdone");
+          return;
+        }
+        if (line.startsWith("[ERROR]")) { addLine(line, "tfail"); return; }
+        const lower = line.toLowerCase();
+        if (/\bFAILED\b/.test(line) || /^error/.test(lower)) {
+          addLine(line, "tfail");
+        } else if (/\.\.\. ok$/.test(line) || /^test result: ok/.test(lower)) {
+          addLine(line, "tpass");
+        } else if (/^warning/.test(lower)) {
+          addLine(line, "twarn");
+        } else {
+          addLine(line, "");
+        }
+      };
+      es.onerror = () => {
+        es.close();
+        btn.disabled = false;
+        btn.textContent = "\u25B6 Run Tests (cargo test --workspace)";
+        addLine("[ERROR] connection lost", "tfail");
+      };
+    }
+
     // ── Interval control ──
     let timerId = null;
     function startTimer(ms) {
@@ -954,6 +1028,11 @@ mod tests {
         assert!(html.contains("/api/wiring/svg"));
         assert!(html.contains("wiring-svg-wrap"));
         assert!(html.contains("loadWiringDiagram"));
+        // E2E test runner
+        assert!(html.contains("/api/test/stream"));
+        assert!(html.contains("run-tests-btn"));
+        assert!(html.contains("runTests"));
+        assert!(html.contains("test-output"));
     }
 
     #[test]
