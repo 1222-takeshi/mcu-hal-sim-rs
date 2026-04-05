@@ -95,8 +95,7 @@ where
         let period = self.config.sample_period_ticks.max(1);
         if self.tick_count % period == 0 {
             let reading = self.imu.read_imu().map_err(ImuLoggerError::Sensor)?;
-            self.motion_detected =
-                detect_motion(&reading, self.config.motion_threshold_mg);
+            self.motion_detected = detect_motion(&reading, self.config.motion_threshold_mg);
             if self.log.is_full() {
                 self.log.remove(0);
             }
@@ -132,8 +131,7 @@ where
 /// 具体的には `|mag² - 1g²| > threshold * 2 * 1000` を使う。
 fn detect_motion(reading: &ImuReading, threshold_mg: u16) -> bool {
     let [ax, ay, az] = reading.accel_mg;
-    let mag_sq: i64 =
-        ax as i64 * ax as i64 + ay as i64 * ay as i64 + az as i64 * az as i64;
+    let mag_sq: i64 = ax as i64 * ax as i64 + ay as i64 * ay as i64 + az as i64 * az as i64;
     let one_g_sq: i64 = 1_000_000;
     let diff = (mag_sq - one_g_sq).unsigned_abs();
     diff > threshold_mg as u64 * 2_000
@@ -244,7 +242,10 @@ mod tests {
             },
         );
         app.tick().unwrap();
-        assert!(!app.motion_detected(), "small tilt should not trigger motion");
+        assert!(
+            !app.motion_detected(),
+            "small tilt should not trigger motion"
+        );
     }
 
     #[test]
