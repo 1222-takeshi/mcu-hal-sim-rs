@@ -45,7 +45,13 @@ cargo run --release
 - `ClimateDisplayApp` の tick ループ
 - 温度 / 湿度の 16x2 表示更新
 
-シリアルログでは `climate-display heartbeat tick = 100` のような生存確認が出ます。
+シリアルログでは次のような refresh telemetry が出ます。
+
+```text
+climate refresh tick=10 temp_cc=2481 hum_cp=4315 line1="Temp    24.8C   " line2="Hum     43.2%   "
+```
+
+この出力は simulator 側の expected frame と比較しやすいようにしています。
 
 ## この branch での確認範囲
 
@@ -59,5 +65,5 @@ cargo run --release
 ## 既知の前提
 
 - LCD backpack のビット割り当ては、一般的な `0x27` ボードの既定値を前提にしています
-- もし文字化けや初期化失敗が出る場合は、`platform-esp32::lcd1602::BackpackMapping` を実機に合わせて変更してください
+- もし文字化けや初期化失敗が出る場合は、`platform-esp32::lcd1602::Lcd1602Config` の `mapping` を実機に合わせて変更してください
 - この環境では `cargo build --release` は linker 不足で完走しない場合があります。その場合でも `cargo check --release` で型検査までは確認できます

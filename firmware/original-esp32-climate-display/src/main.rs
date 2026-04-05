@@ -6,15 +6,18 @@ use core::cell::RefCell;
 use core_app::climate_display::{ClimateDisplayApp, ClimateDisplayConfig};
 use embedded_hal::delay::DelayNs;
 use esp_backtrace as _;
+use hal_api::display::TextFrame16x2;
 use esp_hal::{
     i2c::master::{Config as I2cConfig, I2c},
     main,
     time::{Duration, Instant},
 };
 use esp_println::println;
-use platform_esp32::bme280::{BME280_ADDRESS_PRIMARY, BME280_ADDRESS_SECONDARY, Bme280Sensor};
+use platform_esp32::bme280::{
+    BME280_ADDRESS_PRIMARY, BME280_ADDRESS_SECONDARY, Bme280Config, Bme280Sensor,
+};
 use platform_esp32::i2c::Esp32I2c;
-use platform_esp32::lcd1602::{LCD1602_ADDRESS_PRIMARY, Lcd1602Display};
+use platform_esp32::lcd1602::{LCD1602_ADDRESS_PRIMARY, Lcd1602Config, Lcd1602Display};
 use platform_esp32::shared_i2c::SharedI2cBus;
 
 esp_bootloader_esp_idf::esp_app_desc!();
@@ -28,6 +31,15 @@ const BME280_CHIP_ID_VALUE: u8 = 0x60;
 
 fn every_nth(value: u32, period: u32) -> bool {
     period != 0 && value % period == 0
+}
+
+fn should_log_refresh(tick: u32, config: ClimateDisplayConfig) -> bool {
+    (config.refresh_on_first_tick && tick == 1)
+        || every_nth(tick, config.refresh_period_ticks.max(1))
+}
+
+fn frame_line(frame: &TextFrame16x2, row: usize) -> &str {
+    core::str::from_utf8(frame.line(row)).unwrap_or("????????????????")
 }
 
 #[derive(Default, Clone, Copy)]
@@ -98,20 +110,27 @@ fn main() -> ! {
     let mut i2c = Esp32I2c::new(i2c);
     let bme280_address = detect_bme280_address(&mut i2c);
     let shared_bus = RefCell::new(i2c);
+    let app_config = ClimateDisplayConfig {
+        refresh_period_ticks: REFRESH_PERIOD_TICKS,
+        refresh_on_first_tick: true,
+    };
 
-    let sensor = Bme280Sensor::new_with_address(SharedI2cBus::new(&shared_bus), bme280_address);
-    let display = Lcd1602Display::new_with_address(
+    let sensor = Bme280Sensor::new_with_config(
         SharedI2cBus::new(&shared_bus),
-        MonotonicDelay,
-        LCD1602_ADDRESS_PRIMARY,
-    );
-    let mut app = ClimateDisplayApp::new_with_config(
-        sensor,
-        display,
-        ClimateDisplayConfig {
-            refresh_period_ticks: REFRESH_PERIOD_TICKS,
+        Bme280Config {
+            address: bme280_address,
+            ..Bme280Config::default()
         },
     );
+    let display = Lcd1602Display::new_with_config(
+        SharedI2cBus::new(&shared_bus),
+        MonotonicDelay,
+        Lcd1602Config {
+            address: LCD1602_ADDRESS_PRIMARY,
+            ..Lcd1602Config::default()
+        },
+    );
+    let mut app = ClimateDisplayApp::new_with_config(sensor, display, app_config);
 
     println!("original ESP32 climate display started");
     println!(
@@ -130,8 +149,20 @@ fn main() -> ! {
         match app.tick() {
             Ok(()) => {
                 tick += 1;
-                if every_nth(tick, REFRESH_PERIOD_TICKS) {
-                    println!("climate refresh tick = {}", tick);
+                if should_log_refresh(tick, app_config) {
+                    match (app.last_reading(), app.last_frame()) {
+                        (Some(reading), Some(frame)) => {
+                            println!(
+                                "climate refresh tick={} temp_cc={} hum_cp={} line1=\"{}\" line2=\"{}\"",
+                                tick,
+                                reading.temperature_centi_celsius,
+                                reading.humidity_centi_percent,
+                                frame_line(&frame, 0),
+                                frame_line(&frame, 1)
+                            );
+                        }
+                        _ => println!("climate refresh tick={} frame unavailable", tick),
+                    }
                 }
             }
             Err(error) => {
