@@ -9,9 +9,7 @@ use hal_api::actuator::{DualMotorDriver, MotorCommand, MotorDirection, ServoMoto
 use hal_api::distance::DistanceSensor;
 use hal_api::imu::ImuSensor;
 use platform_pc_sim::bme280_mock::{demo_raw_samples, MockBme280Device};
-use platform_pc_sim::component_sim::{
-    MockDualMotorDriver, MockServoMotor,
-};
+use platform_pc_sim::component_sim::{MockDualMotorDriver, MockServoMotor};
 use platform_pc_sim::dashboard::BoardProfile;
 use platform_pc_sim::hc_sr04_mock::{demo_echo_pulses_us, MockHcSr04Device};
 use platform_pc_sim::lcd1602_mock::MockLcd1602Device;
@@ -239,10 +237,7 @@ fn addr_to_device_name(addr: &str) -> &'static str {
     }
 }
 
-fn build_wiring_diagram(
-    board: BoardProfile,
-    attached_devices: &[String],
-) -> Vec<String> {
+fn build_wiring_diagram(board: BoardProfile, attached_devices: &[String]) -> Vec<String> {
     let mut lines: Vec<String> = Vec::new();
     let sda_prefix = format!("{} SDA ", board.sda_pin());
     let cont = " ".repeat(sda_prefix.len());
@@ -272,12 +267,30 @@ fn build_wiring_diagram(
     lines.push(String::new());
 
     lines.push("── Motor Driver (L298N-style) ───────────────────".to_string());
-    lines.push(format!("{} ENA  --- Motor-A enable (PWM)", board.motor_ena_pin()));
-    lines.push(format!("{} IN1  --- Motor-A direction 1", board.motor_in1_pin()));
-    lines.push(format!("{} IN2  --- Motor-A direction 2", board.motor_in2_pin()));
-    lines.push(format!("{} ENB  --- Motor-B enable (PWM)", board.motor_enb_pin()));
-    lines.push(format!("{} IN3  --- Motor-B direction 1", board.motor_in3_pin()));
-    lines.push(format!("{} IN4  --- Motor-B direction 2", board.motor_in4_pin()));
+    lines.push(format!(
+        "{} ENA  --- Motor-A enable (PWM)",
+        board.motor_ena_pin()
+    ));
+    lines.push(format!(
+        "{} IN1  --- Motor-A direction 1",
+        board.motor_in1_pin()
+    ));
+    lines.push(format!(
+        "{} IN2  --- Motor-A direction 2",
+        board.motor_in2_pin()
+    ));
+    lines.push(format!(
+        "{} ENB  --- Motor-B enable (PWM)",
+        board.motor_enb_pin()
+    ));
+    lines.push(format!(
+        "{} IN3  --- Motor-B direction 1",
+        board.motor_in3_pin()
+    ));
+    lines.push(format!(
+        "{} IN4  --- Motor-B direction 2",
+        board.motor_in4_pin()
+    ));
 
     lines
 }
@@ -350,7 +363,7 @@ fn format_operation(operation: &VirtualI2cOperation) -> String {
 fn respond(stream: &mut TcpStream, status: &str, content_type: &str, body: &str) {
     let response = format!(
         "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-        body.as_bytes().len(),
+        body.len(),
         body
     );
     let _ = stream.write_all(response.as_bytes());
@@ -390,7 +403,12 @@ fn main() {
             .unwrap_or("/");
 
         match path {
-            "/" => respond(&mut stream, "200 OK", "text/html; charset=utf-8", dashboard_html()),
+            "/" => respond(
+                &mut stream,
+                "200 OK",
+                "text/html; charset=utf-8",
+                dashboard_html(),
+            ),
             "/api/state" => {
                 let payload = state_to_json(&rig.step());
                 respond(

@@ -1,7 +1,7 @@
 use hal_api::imu::ImuSensor;
+use platform_esp32::mpu6050::{Mpu6050Sensor, MPU6050_ADDRESS_PRIMARY};
 use platform_pc_sim::mpu6050_mock::{demo_raw_frames, MockMpu6050Device};
 use platform_pc_sim::virtual_i2c::VirtualI2cBus;
-use platform_esp32::mpu6050::{Mpu6050Sensor, MPU6050_ADDRESS_PRIMARY};
 
 #[test]
 fn esp32_mpu6050_driver_runs_against_host_side_mock_device() {

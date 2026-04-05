@@ -524,7 +524,10 @@ mod tests {
                 temperature_c: Some(24.8),
                 humidity_percent: Some(43.2),
                 pressure_pa: Some(101_325),
-                app_frame: ["Temp    24.8C   ".to_string(), "Hum     43.2%   ".to_string()],
+                app_frame: [
+                    "Temp    24.8C   ".to_string(),
+                    "Hum     43.2%   ".to_string(),
+                ],
                 physical_lcd_frame: [
                     "Temp    24.8C   ".to_string(),
                     "Hum     43.2%   ".to_string(),

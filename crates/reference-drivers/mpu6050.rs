@@ -198,12 +198,12 @@ fn map_sensor_error(error: I2cError) -> SensorError {
 mod tests {
     use super::*;
     extern crate std;
-    use hal_api::error::I2cError;
     use self::std::cell::RefCell;
     use self::std::collections::BTreeMap;
     use self::std::rc::Rc;
     use self::std::vec;
     use self::std::vec::Vec;
+    use hal_api::error::I2cError;
 
     #[derive(Clone, Default)]
     struct RecordingI2c {
@@ -258,7 +258,10 @@ mod tests {
         ) -> Result<(), Self::Error> {
             let register = *bytes.first().ok_or(I2cError::BusError)?;
             let state = self.state.borrow();
-            let value = state.registers.get(&register).ok_or(I2cError::InvalidAddress)?;
+            let value = state
+                .registers
+                .get(&register)
+                .ok_or(I2cError::InvalidAddress)?;
             if value.len() != buffer.len() {
                 return Err(I2cError::BusError);
             }
