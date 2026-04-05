@@ -66,6 +66,7 @@ use hal_api::gpio::OutputPin;
 use hal_api::i2c::I2cBus;
 
 pub mod climate_display;
+pub mod imu_logger;
 
 #[cfg(test)]
 extern crate std;

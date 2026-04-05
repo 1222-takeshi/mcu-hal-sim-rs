@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [0.2.0] - 2026-04-05
+
+sim-to-real スターターキット完成。ESP32 実機 toolchain 対応、web ダッシュボード強化、IMU ロギングアプリ追加。
+
 ### Added
 - `reference-drivers` を追加し、`BME280` / `LCD1602` の board 非依存 driver を `platform-esp32` から切り出した
 - `platform-avr` を追加し、AVR 系 board 向けの generic GPIO / I2C adapter と host integration test を用意した
@@ -32,6 +38,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `crates/platform-esp32/README.md` を追加し、original ESP32 向け toolchain と最小確認手順を整理した
 - `firmware/original-esp32-bringup` を追加し、LED only / real I2C の実機 bring-up 雛形を用意した
 - `docs/images/original-esp32-wiring.svg` と `docs/images/original-esp32-bringup-flow.svg` を追加した
+- **[#55]** web ダッシュボード (`device-dashboard-web`) に SVG スパークライン（温度・湿度・気圧・距離・加速度Z の直近60サンプル）を追加した
+- **[#55]** web ダッシュボードにダークモード（CSS カスタムプロパティ + `localStorage` 永続化）を追加した
+- **[#55]** web ダッシュボードに接続ステータスバー（オンライン/オフライン/エラードット + タイムスタンプ）を追加した
+- **[#55]** web ダッシュボードにリフレッシュ間隔セレクタ（250 ms〜5 s）と一時停止/再開ボタンを追加した
+- **[#55]** `core-app` に `ImuLoggerApp<IMU>` を追加した。`ImuSensor` trait のみに依存する `no_std` 対応アプリで、モーション検出とリングバッファログを備える
 
 ### Changed
 - `platform-esp32` は board adapter に集中し、`BME280` / `LCD1602` driver は `reference-drivers` から re-export する構成になった
@@ -48,7 +59,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `platform-esp32` の GPIO / I2C アダプタが `hal-api` のエラー型へ正規化するようになり、`core-app::App` と直接接続できるようになった
 
 ### Fixed
-- 今後修正されるバグ
+- `device-dashboard-web`: `body.as_bytes().len()` → `body.len()` (clippy lint)
 
 ---
 
