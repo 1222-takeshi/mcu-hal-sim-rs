@@ -2,7 +2,14 @@
 name = "hal-api"
 version = "0.1.0"
 edition = "2021"
+description = "Platform-agnostic HAL traits for MCU apps that move between simulator and real hardware"
+license = "MIT"
+repository = "https://github.com/1222-takeshi/mcu-hal-sim-rs"
+documentation = "https://docs.rs/hal-api"
+readme = "README.md"
+keywords = ["embedded", "hal", "mcu", "simulator", "no-std"]
+categories = ["embedded", "no-std", "hardware-support"]
+rust-version = "1.66"
 
 [lib]
 path = "lib.rs"
-
