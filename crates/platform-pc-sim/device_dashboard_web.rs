@@ -20,6 +20,8 @@ use platform_pc_sim::web_dashboard::{
     I2cPanelState, ImuPanelState, MotorChannelState, MotorDriverPanelState, ServoPanelState,
     WiringPanelState,
 };
+use platform_pc_sim::wiring_config::WiringConfig;
+use platform_pc_sim::wiring_svg::wiring_svg;
 use reference_drivers::bme280::{Bme280Sensor, BME280_ADDRESS_PRIMARY};
 use reference_drivers::hc_sr04::HcSr04Sensor;
 use reference_drivers::lcd1602::{Lcd1602Display, LCD1602_ADDRESS_PRIMARY};
@@ -369,6 +371,73 @@ fn respond(stream: &mut TcpStream, status: &str, content_type: &str, body: &str)
     let _ = stream.write_all(response.as_bytes());
 }
 
+/// Stream `cargo test --workspace` output as Server-Sent Events.
+///
+/// Blocks until the test process exits. Each stdout/stderr line is sent as
+/// `data: {line}\n\n`.  A final `data: [DONE] exit=N\n\n` closes the stream.
+fn handle_test_stream(stream: &mut TcpStream) {
+    use std::io::{BufRead, BufReader};
+    use std::process::{Command, Stdio};
+    use std::sync::mpsc;
+
+    let header = "HTTP/1.1 200 OK\r\n\
+        Content-Type: text/event-stream\r\n\
+        Cache-Control: no-cache\r\n\
+        Connection: keep-alive\r\n\
+        Access-Control-Allow-Origin: *\r\n\
+        \r\n";
+    if stream.write_all(header.as_bytes()).is_err() {
+        return;
+    }
+
+    let mut child = match Command::new("cargo")
+        .args(["test", "--workspace", "--color=never"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            let _ = stream.write_all(
+                format!("data: [ERROR] failed to spawn: {e}\n\ndata: [DONE] exit=1\n\n").as_bytes(),
+            );
+            return;
+        }
+    };
+
+    let (tx, rx) = mpsc::channel::<String>();
+    let tx_out = tx.clone();
+    let stdout = child.stdout.take().expect("stdout piped");
+    std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+            if tx_out.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    let tx_err = tx.clone();
+    let stderr = child.stderr.take().expect("stderr piped");
+    std::thread::spawn(move || {
+        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+            if tx_err.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    drop(tx);
+
+    for line in rx {
+        let msg = format!("data: {}\n\n", line.replace('\n', " "));
+        if stream.write_all(msg.as_bytes()).is_err() {
+            let _ = child.kill();
+            return;
+        }
+    }
+
+    let exit_code = child.wait().map(|s| s.code().unwrap_or(-1)).unwrap_or(-1);
+    let _ = stream.write_all(format!("data: [DONE] exit={exit_code}\n\n").as_bytes());
+}
+
 fn main() {
     let mut args = env::args().skip(1);
     let first = args.next();
@@ -417,6 +486,23 @@ fn main() {
                     "application/json; charset=utf-8",
                     &payload,
                 );
+            }
+            "/api/wiring" => {
+                let payload = WiringConfig::from_board(rig.board).to_json();
+                respond(
+                    &mut stream,
+                    "200 OK",
+                    "application/json; charset=utf-8",
+                    &payload,
+                );
+            }
+            "/api/wiring/svg" => {
+                let cfg = WiringConfig::from_board(rig.board);
+                let svg = wiring_svg(&cfg);
+                respond(&mut stream, "200 OK", "image/svg+xml; charset=utf-8", &svg);
+            }
+            "/api/test/stream" => {
+                handle_test_stream(&mut stream);
             }
             _ => respond(
                 &mut stream,
