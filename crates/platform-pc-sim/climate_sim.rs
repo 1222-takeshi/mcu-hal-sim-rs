@@ -6,6 +6,7 @@ use hal_api::error::{DisplayError, SensorError};
 use hal_api::sensor::{EnvReading, EnvSensor};
 use std::cell::RefCell;
 use std::fmt::Write as _;
+use std::io::Write as _;
 use std::rc::Rc;
 use std::string::String;
 use std::vec::Vec;
@@ -116,12 +117,16 @@ impl TextDisplay16x2 for TerminalDisplay16x2 {
     type Error = DisplayError;
 
     fn render(&mut self, frame: &TextFrame16x2) -> Result<(), Self::Error> {
+        let ascii = render_ascii_frame(frame);
         let mut state = self.state.borrow_mut();
         state.last_frame = Some(*frame);
         state.render_count += 1;
 
         if state.render_to_stdout {
-            print!("\x1B[2J\x1B[H{}", render_ascii_frame(frame));
+            let mut stdout = std::io::stdout();
+            let _ = stdout.write_all(b"\x1B[2J\x1B[H");
+            let _ = stdout.write_all(ascii.as_bytes());
+            let _ = stdout.flush();
         }
 
         Ok(())
@@ -163,6 +168,7 @@ pub fn build_demo_app(
         display,
         ClimateDisplayConfig {
             refresh_period_ticks: 5,
+            refresh_on_first_tick: true,
         },
     )
 }

@@ -16,6 +16,7 @@ fn main() {
         display,
         ClimateDisplayConfig {
             refresh_period_ticks: 5,
+            refresh_on_first_tick: true,
         },
     );
 
