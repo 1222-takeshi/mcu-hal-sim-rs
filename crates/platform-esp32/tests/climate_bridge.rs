@@ -105,6 +105,7 @@ fn climate_display_app_uses_shared_i2c_for_sensor_and_display() {
         display,
         ClimateDisplayConfig {
             refresh_period_ticks: 1,
+            refresh_on_first_tick: true,
         },
     );
 
