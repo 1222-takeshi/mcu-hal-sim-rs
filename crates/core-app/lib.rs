@@ -268,7 +268,6 @@ where
     ///     app.tick().unwrap();
     /// }
     /// ```
-    #[allow(clippy::manual_is_multiple_of)]
     pub fn tick(&mut self) -> Result<(), AppError> {
         self.tick_count += 1;
 
@@ -466,7 +465,7 @@ mod tests {
     fn test_led_state_alternates() {
         let pin = MockPin::new();
         let i2c = MockI2c::new();
-        let mut app = App::new(pin.clone(), i2c);
+        let mut app = App::new(pin, i2c);
 
         // 100tick: HIGH
         for _ in 0..100 {

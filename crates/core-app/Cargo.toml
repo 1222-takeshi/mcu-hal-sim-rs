@@ -2,9 +2,17 @@
 name = "core-app"
 version = "0.1.0"
 edition = "2021"
+description = "Reusable no_std application logic built on hal-api traits"
+license = "MIT"
+repository = "https://github.com/1222-takeshi/mcu-hal-sim-rs"
+documentation = "https://docs.rs/core-app"
+readme = "README.md"
+keywords = ["embedded", "application", "simulator", "no-std", "iot"]
+categories = ["embedded", "no-std"]
+rust-version = "1.66"
 
 [dependencies]
-hal-api = { path = "../hal-api" }
+hal-api = { version = "0.1.0", path = "../hal-api" }
 heapless = "0.8"
 
 [lib]
