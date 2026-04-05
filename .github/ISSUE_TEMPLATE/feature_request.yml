@@ -1,0 +1,48 @@
+name: Feature request
+description: request a new board, sensor, driver, or sim-to-real workflow improvement
+title: "feat: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        board / sensor を増やす提案は歓迎します。まずは「どこまでが board 固有で、どこからが共通化価値か」を書いてください。
+  - type: dropdown
+    id: request_type
+    attributes:
+      label: Request type
+      options:
+        - New board / MCU family
+        - New sensor
+        - New display
+        - Simulator improvement
+        - Tooling / CI / docs
+    validations:
+      required: true
+  - type: input
+    id: target_name
+    attributes:
+      label: Candidate target
+      placeholder: Arduino Nano, ESP32-CAM, Raspberry Pi Pico, Teensy 4.1, SHT31, SSD1306
+    validations:
+      required: true
+  - type: textarea
+    id: product_value
+    attributes:
+      label: Product value
+      placeholder: この追加で downstream project の何が速く / 安定して / 安くなるか
+    validations:
+      required: true
+  - type: textarea
+    id: oss_value
+    attributes:
+      label: OSS value
+      placeholder: 他の board / project でも再利用できる契約や driver か
+    validations:
+      required: true
+  - type: textarea
+    id: proposed_contract
+    attributes:
+      label: Proposed API / abstraction
+      placeholder: 追加したい trait / config / driver / firmware path
