@@ -32,8 +32,11 @@
 //! }
 //! ```
 
+pub mod actuator;
 pub mod display;
+pub mod distance;
 pub mod error;
 pub mod gpio;
 pub mod i2c;
+pub mod imu;
 pub mod sensor;

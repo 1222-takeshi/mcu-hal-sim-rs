@@ -111,3 +111,12 @@ pub enum DisplayError {
     /// 初期化未完了
     NotInitialized,
 }
+
+/// サーボやモータ出力に関連するエラー
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ActuatorError {
+    /// 指令値が範囲外
+    InvalidCommand,
+    /// 通信または下位層のハードウェアエラー
+    HardwareError,
+}
