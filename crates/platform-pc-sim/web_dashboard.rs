@@ -326,6 +326,19 @@ pub fn dashboard_html() -> &'static str {
     .axis div { padding: 10px; border-radius: 14px; background: rgba(217,95,61,0.07); }
     /* ── Motor ── */
     .motor { display: grid; grid-template-columns: repeat(2,1fr); gap: 12px; }
+    /* ── Hardware Simulation ── */
+    .hw-sim-grid {
+      display: grid;
+      grid-template-columns: repeat(4,1fr);
+      gap: 24px;
+      align-items: start;
+      justify-items: center;
+    }
+    .hw-item { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+    .hw-name {
+      font-size: 11px; color: var(--muted);
+      text-transform: uppercase; letter-spacing: .08em;
+    }
     /* ── Footer ── */
     .footer { margin-top: 18px; color: var(--muted); font-size: 13px; }
     /* ── Responsive ── */
@@ -333,6 +346,7 @@ pub fn dashboard_html() -> &'static str {
       .hero,.grid { grid-template-columns: 1fr; }
       .span-4,.span-6,.span-8,.span-12 { grid-column: span 1; }
       .metric-row,.motor,.axis { grid-template-columns: 1fr; }
+      .hw-sim-grid { grid-template-columns: repeat(2,1fr); }
     }
   </style>
 </head>
@@ -443,6 +457,31 @@ pub fn dashboard_html() -> &'static str {
             </svg>
           </div>
         </div>
+        <!-- Sonar beam visualization -->
+        <svg id="sonar-svg" viewBox="0 0 200 76" width="100%" height="76"
+             style="margin-top:12px;overflow:visible">
+          <rect x="2" y="23" width="28" height="30" rx="3" fill="#1e2a3a" stroke="#445"/>
+          <circle cx="10" cy="38" r="5.5" fill="#1a3a5a" stroke="#5599cc"/>
+          <circle cx="22" cy="38" r="5.5" fill="#1a3a5a" stroke="#5599cc"/>
+          <!-- Ping rings (SMIL animation) -->
+          <circle cx="35" cy="38" r="8" fill="none" stroke="#4fc3f7" stroke-width="1.5">
+            <animate attributeName="r" from="8" to="54" dur="2s" repeatCount="indefinite" begin="0s"/>
+            <animate attributeName="opacity" from="0.7" to="0" dur="2s" repeatCount="indefinite" begin="0s"/>
+          </circle>
+          <circle cx="35" cy="38" r="8" fill="none" stroke="#4fc3f7" stroke-width="1.2">
+            <animate attributeName="r" from="8" to="54" dur="2s" repeatCount="indefinite" begin="0.7s"/>
+            <animate attributeName="opacity" from="0.6" to="0" dur="2s" repeatCount="indefinite" begin="0.7s"/>
+          </circle>
+          <circle cx="35" cy="38" r="8" fill="none" stroke="#4fc3f7" stroke-width="0.8">
+            <animate attributeName="r" from="8" to="54" dur="2s" repeatCount="indefinite" begin="1.4s"/>
+            <animate attributeName="opacity" from="0.5" to="0" dur="2s" repeatCount="indefinite" begin="1.4s"/>
+          </circle>
+          <line x1="35" y1="38" id="sonar-beam" x2="135" y2="38"
+                stroke="#4fc3f7" stroke-width="1" stroke-dasharray="5 3" opacity="0.55"/>
+          <circle id="sonar-echo" cx="135" cy="38" r="5.5" fill="#66bb6a"/>
+          <text id="sonar-dist-lbl" x="110" y="14" text-anchor="middle"
+                fill="#888" font-size="10" font-family="system-ui">-- mm</text>
+        </svg>
       </article>
 
       <!-- MPU6050 -->
@@ -462,6 +501,19 @@ pub fn dashboard_html() -> &'static str {
             <polyline points=""/>
           </svg>
         </div>
+        <!-- Bubble level tilt indicator -->
+        <svg id="imu-level-svg" viewBox="0 0 100 100" width="88" height="88"
+             style="margin:8px auto 0;display:block">
+          <circle cx="50" cy="50" r="42" fill="rgba(0,0,0,0.15)" stroke="#445" stroke-width="1.5"/>
+          <circle cx="50" cy="50" r="28" fill="none" stroke="#334" stroke-width="1" stroke-dasharray="3 3"/>
+          <circle cx="50" cy="50" r="3.5" fill="none" stroke="#556" stroke-width="1.5"/>
+          <line x1="50" y1="13" x2="50" y2="87" stroke="#2a3a3a" stroke-width="1" stroke-dasharray="2 4"/>
+          <line x1="13" y1="50" x2="87" y2="50" stroke="#2a3a3a" stroke-width="1" stroke-dasharray="2 4"/>
+          <circle id="imu-bubble" cx="50" cy="50" r="9"
+                  fill="#4fc3f7" fill-opacity="0.65" stroke="#81d4fa" stroke-width="1.5"/>
+          <text x="90" y="53" fill="#445" font-size="8" font-family="system-ui">X</text>
+          <text x="44" y="9"  fill="#445" font-size="8" font-family="system-ui">Y</text>
+        </svg>
       </article>
 
       <!-- Motor Driver -->
@@ -476,6 +528,117 @@ pub fn dashboard_html() -> &'static str {
             <div class="name">Right</div>
             <div class="val" id="motor-right">--</div>
           </div>
+        </div>
+      </article>
+
+      <!-- Hardware Simulation -->
+      <article class="panel card span-12">
+        <h2>Hardware Simulation</h2>
+        <div class="hw-sim-grid">
+
+          <!-- LED -->
+          <div class="hw-item">
+            <div class="hw-name">&#x1F4A1; LED</div>
+            <svg id="led-svg" viewBox="0 0 80 100" width="80" height="100">
+              <defs>
+                <radialGradient id="led-gon" cx="38%" cy="35%" r="60%">
+                  <stop offset="0%" stop-color="#fff8a0"/>
+                  <stop offset="100%" stop-color="#ffcc00"/>
+                </radialGradient>
+                <radialGradient id="led-goff" cx="38%" cy="35%" r="60%">
+                  <stop offset="0%" stop-color="#4a3a10"/>
+                  <stop offset="100%" stop-color="#1a1200"/>
+                </radialGradient>
+                <filter id="led-glow" x="-100%" y="-100%" width="300%" height="300%">
+                  <feGaussianBlur in="SourceGraphic" stdDeviation="6" result="blur"/>
+                  <feMerge>
+                    <feMergeNode in="blur"/>
+                    <feMergeNode in="blur"/>
+                    <feMergeNode in="SourceGraphic"/>
+                  </feMerge>
+                </filter>
+              </defs>
+              <circle id="led-body" cx="40" cy="40" r="24"
+                      fill="url(#led-goff)" stroke="#666" stroke-width="1.5"/>
+              <ellipse id="led-hl" cx="34" cy="32" rx="7" ry="5"
+                       fill="white" fill-opacity="0"/>
+              <line x1="32" y1="64" x2="32" y2="80"
+                    stroke="#888" stroke-width="2.5" stroke-linecap="round"/>
+              <line x1="48" y1="64" x2="48" y2="80"
+                    stroke="#888" stroke-width="2.5" stroke-linecap="round"/>
+              <text x="27" y="92" fill="#666" font-size="11" font-family="monospace">+</text>
+              <text x="44" y="92" fill="#666" font-size="11" font-family="monospace">&#x2212;</text>
+              <text id="led-lbl" x="40" y="100" text-anchor="middle"
+                    fill="#666" font-size="9" font-family="system-ui">OFF</text>
+            </svg>
+          </div>
+
+          <!-- Servo -->
+          <div class="hw-item">
+            <div class="hw-name">&#x2699; Servo</div>
+            <svg id="servo-svg" viewBox="0 0 120 114" width="120" height="114">
+              <rect x="20" y="62" width="80" height="42" rx="6" fill="#1e2a3a" stroke="#445"/>
+              <rect x="9"  y="68" width="14" height="28" rx="3" fill="#1e2a3a" stroke="#445"/>
+              <rect x="97" y="68" width="14" height="28" rx="3" fill="#1e2a3a" stroke="#445"/>
+              <circle cx="16"  cy="82" r="3" fill="none" stroke="#445"/>
+              <circle cx="104" cy="82" r="3" fill="none" stroke="#445"/>
+              <circle cx="60"  cy="62" r="10" fill="#2e3d4d" stroke="#556"/>
+              <circle cx="60"  cy="62" r="4"  fill="#607890"/>
+              <!-- Arm rotates around shaft pivot (60, 62) -->
+              <g id="servo-arm" transform="rotate(0 60 62)">
+                <rect x="57.5" y="16" width="5" height="46" rx="2.5" fill="#4fc3f7"/>
+                <circle cx="60" cy="16" r="5.5" fill="#4fc3f7"/>
+                <circle cx="60" cy="62" r="3.5" fill="#81d4fa"/>
+              </g>
+              <text id="servo-lbl" x="60" y="112" text-anchor="middle"
+                    fill="#888" font-size="11" font-family="system-ui">90&#xB0;</text>
+            </svg>
+          </div>
+
+          <!-- Motor Left -->
+          <div class="hw-item">
+            <div class="hw-name">&#x1F504; Motor L</div>
+            <svg viewBox="0 0 90 104" width="90" height="104">
+              <circle cx="45" cy="45" r="36" fill="#111820" stroke="#334" stroke-width="1.5"/>
+              <g id="m-left-rotor">
+                <line x1="45" y1="16" x2="45" y2="74" stroke="#2a4a2a" stroke-width="2"/>
+                <line x1="16" y1="45" x2="74" y2="45" stroke="#2a4a2a" stroke-width="2"/>
+                <circle cx="45" cy="16" r="4.5" fill="#66bb6a"/>
+                <circle cx="74" cy="45" r="4.5" fill="#66bb6a"/>
+                <circle cx="45" cy="74" r="4.5" fill="#66bb6a"/>
+                <circle cx="16" cy="45" r="4.5" fill="#66bb6a"/>
+              </g>
+              <circle cx="45" cy="45" r="7"   fill="#334" stroke="#556"/>
+              <circle cx="45" cy="45" r="3"   fill="#778"/>
+              <rect x="9"  y="88" width="72" height="6" rx="3" fill="#1a2020"/>
+              <rect id="m-left-bar" x="9" y="88" width="0" height="6" rx="3" fill="#66bb6a"/>
+              <text id="m-left-lbl" x="45" y="103" text-anchor="middle"
+                    fill="#888" font-size="9" font-family="system-ui">--</text>
+            </svg>
+          </div>
+
+          <!-- Motor Right -->
+          <div class="hw-item">
+            <div class="hw-name">&#x1F504; Motor R</div>
+            <svg viewBox="0 0 90 104" width="90" height="104">
+              <circle cx="45" cy="45" r="36" fill="#111820" stroke="#334" stroke-width="1.5"/>
+              <g id="m-right-rotor">
+                <line x1="45" y1="16" x2="45" y2="74" stroke="#2a4a2a" stroke-width="2"/>
+                <line x1="16" y1="45" x2="74" y2="45" stroke="#2a4a2a" stroke-width="2"/>
+                <circle cx="45" cy="16" r="4.5" fill="#66bb6a"/>
+                <circle cx="74" cy="45" r="4.5" fill="#66bb6a"/>
+                <circle cx="45" cy="74" r="4.5" fill="#66bb6a"/>
+                <circle cx="16" cy="45" r="4.5" fill="#66bb6a"/>
+              </g>
+              <circle cx="45" cy="45" r="7"   fill="#334" stroke="#556"/>
+              <circle cx="45" cy="45" r="3"   fill="#778"/>
+              <rect x="9"  y="88" width="72" height="6" rx="3" fill="#1a2020"/>
+              <rect id="m-right-bar" x="9" y="88" width="0" height="6" rx="3" fill="#66bb6a"/>
+              <text id="m-right-lbl" x="45" y="103" text-anchor="middle"
+                    fill="#888" font-size="9" font-family="system-ui">--</text>
+            </svg>
+          </div>
+
         </div>
       </article>
 
@@ -542,6 +705,96 @@ pub fn dashboard_html() -> &'static str {
     const fmt = (v, sfx) => v == null ? "--" : v + sfx;
     const lcdLines = ["lcd-line-1","lcd-line-2"].map(id => $(id));
 
+    // ── Motor animation (requestAnimationFrame loop) ──
+    const mAngle = { left: 0, right: 0 };
+    const mState = {
+      left:  { run: false, spd: 0, dir: 1 },
+      right: { run: false, spd: 0, dir: 1 }
+    };
+    (function motorLoop() {
+      for (const side of ["left", "right"]) {
+        if (!mState[side].run) continue;
+        mAngle[side] = (mAngle[side] + mState[side].spd * mState[side].dir + 360) % 360;
+        const r = $("m-" + side + "-rotor");
+        if (r) r.setAttribute("transform",
+          "rotate(" + mAngle[side].toFixed(1) + " 45 45)");
+      }
+      requestAnimationFrame(motorLoop);
+    })();
+
+    // ── LED ──
+    function setLed(tick) {
+      const on = (tick % 100) < 50;
+      const body = $("led-body");
+      if (!body) return;
+      body.setAttribute("fill", on ? "url(#led-gon)" : "url(#led-goff)");
+      body.setAttribute("filter", on ? "url(#led-glow)" : "");
+      const hl = $("led-hl");
+      if (hl) hl.setAttribute("fill-opacity", on ? "0.38" : "0");
+      const lbl = $("led-lbl");
+      if (lbl) {
+        lbl.textContent = on ? "ON" : "OFF";
+        lbl.setAttribute("fill", on ? "#ffdd44" : "#666");
+      }
+    }
+
+    // ── Servo ──
+    function setServo(angleDeg) {
+      const arm = $("servo-arm");
+      if (arm) arm.setAttribute("transform",
+        "rotate(" + (angleDeg - 90) + " 60 62)");
+      const lbl = $("servo-lbl");
+      if (lbl) lbl.textContent = angleDeg + "\u00B0";
+    }
+
+    // ── Motor visual ──
+    function setMotorViz(side, dir, duty) {
+      const stopped = dir === "Brake" || dir === "Coast" || duty < 3;
+      mState[side].run = !stopped;
+      mState[side].spd = stopped ? 0 : (2 + duty * 0.1);
+      mState[side].dir = dir === "Reverse" ? -1 : 1;
+      const bar = $("m-" + side + "-bar");
+      if (bar) bar.setAttribute("width", String(Math.round(duty * 72 / 100)));
+      const lbl = $("m-" + side + "-lbl");
+      if (lbl) {
+        const icon = stopped
+          ? (dir === "Brake" ? "\u25A0" : "\u2014")
+          : (dir === "Reverse" ? "\u21BA" : "\u21BB");
+        lbl.textContent = icon + " " + (stopped ? dir : duty + "%");
+      }
+    }
+
+    // ── Sonar ──
+    function setSonar(distMm) {
+      const MAX = 600, X0 = 35, X1 = 188;
+      const d = distMm == null ? 300 : distMm;
+      const x = (X0 + (Math.min(d, MAX) / MAX) * (X1 - X0)).toFixed(0);
+      const beam = $("sonar-beam");
+      const echo = $("sonar-echo");
+      const txt  = $("sonar-dist-lbl");
+      if (beam) beam.setAttribute("x2", x);
+      if (echo) {
+        echo.setAttribute("cx", x);
+        echo.setAttribute("fill",
+          d < 200 ? "#ef5350" : d < 400 ? "#ffca28" : "#66bb6a");
+      }
+      if (txt) txt.textContent = distMm == null ? "-- mm" : distMm + " mm";
+    }
+
+    // ── IMU bubble level ──
+    function setImuLevel(ax, ay) {
+      const bubble = $("imu-bubble");
+      if (!bubble) return;
+      const s = 30 / 1000;
+      const bx = Math.max(14, Math.min(86, 50 + ax * s)).toFixed(1);
+      const by = Math.max(14, Math.min(86, 50 - ay * s)).toFixed(1);
+      bubble.setAttribute("cx", bx);
+      bubble.setAttribute("cy", by);
+      const tilt = Math.sqrt(ax * ax + ay * ay);
+      bubble.setAttribute("fill",
+        tilt > 700 ? "#ef5350" : tilt > 300 ? "#ffca28" : "#4fc3f7");
+    }
+
     // ── Main refresh ──
     let paused = false;
     async function refresh() {
@@ -598,6 +851,14 @@ pub fn dashboard_html() -> &'static str {
         sparkline("spark-press",  hist.press);
         sparkline("spark-dist",   hist.dist);
         sparkline("spark-accelz", hist.accelz);
+
+        // visual simulation
+        setLed(s.tick);
+        setServo(s.servo.angle_degrees);
+        setMotorViz("left",  s.motor_driver.left.direction,  s.motor_driver.left.duty_percent);
+        setMotorViz("right", s.motor_driver.right.direction, s.motor_driver.right.duty_percent);
+        setSonar(s.distance.distance_mm);
+        setImuLevel(s.imu.accel_mg[0], s.imu.accel_mg[1]);
 
         setOk();
       } catch(e) {
@@ -672,6 +933,29 @@ mod tests {
         // status bar
         assert!(html.contains("sdot"));
         assert!(html.contains("stext"));
+    }
+
+    #[test]
+    fn html_contains_visual_simulation() {
+        let html = dashboard_html();
+        // LED
+        assert!(html.contains("led-body"));
+        assert!(html.contains("led-glow"));
+        assert!(html.contains("setLed"));
+        // Servo
+        assert!(html.contains("servo-arm"));
+        assert!(html.contains("setServo"));
+        // Motors
+        assert!(html.contains("m-left-rotor"));
+        assert!(html.contains("m-right-rotor"));
+        assert!(html.contains("setMotorViz"));
+        // Sonar
+        assert!(html.contains("sonar-beam"));
+        assert!(html.contains("sonar-echo"));
+        assert!(html.contains("setSonar"));
+        // IMU bubble level
+        assert!(html.contains("imu-bubble"));
+        assert!(html.contains("setImuLevel"));
     }
 
     #[test]
