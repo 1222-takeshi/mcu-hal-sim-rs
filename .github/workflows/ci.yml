@@ -153,3 +153,6 @@ jobs:
 
       - name: Check platform-esp32 for no_std target
         run: cargo check -p platform-esp32 --lib --target $NO_STD_TARGET
+
+      - name: Check platform-avr for no_std target
+        run: cargo check -p platform-avr --lib --target $NO_STD_TARGET

@@ -3,7 +3,9 @@ resolver = "2"
 members = [
     "crates/hal-api",
     "crates/core-app",
+    "crates/reference-drivers",
     "crates/platform-pc-sim",
+    "crates/platform-avr",
     "crates/platform-esp32",
 ]
 
@@ -11,8 +13,12 @@ members = [
 name = "mcu-hal-sim-rs"
 version = "0.1.0"
 edition = "2021"
+publish = false
+license = "MIT"
+repository = "https://github.com/1222-takeshi/mcu-hal-sim-rs"
+readme = "README.md"
 
 [dependencies]
-hal-api = { path = "crates/hal-api" }
-core-app = { path = "crates/core-app" }
-platform-pc-sim = { path = "crates/platform-pc-sim" }
+hal-api = { version = "0.1.0", path = "crates/hal-api" }
+core-app = { version = "0.1.0", path = "crates/core-app" }
+platform-pc-sim = { version = "0.1.0", path = "crates/platform-pc-sim" }
