@@ -55,7 +55,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "platform-esp32"
+name = "platform-avr"
 version = "0.1.0"
 dependencies = [
  "core-app",
@@ -64,10 +64,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "platform-esp32"
+version = "0.1.0"
+dependencies = [
+ "core-app",
+ "embedded-hal",
+ "hal-api",
+ "reference-drivers",
+]
+
+[[package]]
 name = "platform-pc-sim"
 version = "0.1.0"
 dependencies = [
  "core-app",
+ "embedded-hal",
+ "hal-api",
+ "platform-esp32",
+ "reference-drivers",
+]
+
+[[package]]
+name = "reference-drivers"
+version = "0.1.0"
+dependencies = [
+ "embedded-hal",
  "hal-api",
 ]
 

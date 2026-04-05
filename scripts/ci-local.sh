@@ -174,7 +174,8 @@ if [ "$SKIP_NO_STD" = false ]; then
     else
         if cargo check -p hal-api --lib --target "${NO_STD_TARGET}" \
             && cargo check -p core-app --lib --target "${NO_STD_TARGET}" \
-            && cargo check -p platform-esp32 --lib --target "${NO_STD_TARGET}"; then
+            && cargo check -p platform-esp32 --lib --target "${NO_STD_TARGET}" \
+            && cargo check -p platform-avr --lib --target "${NO_STD_TARGET}"; then
             print_success "no_std target check passed"
         else
             print_failure "no_std target check failed"

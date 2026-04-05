@@ -2,8 +2,8 @@
 
 ## 概要
 
-`mcu-hal-sim-rs` は、マイコン向け Rust アプリを **PC simulator で検証し、そのまま original ESP32 実機へ持っていくための基盤 repo** です。
-主目的は board 固有機能を増やすことではなく、`hal-api` / `core-app` / `platform-*` の責務分離と sim-to-real 経路の成立を継続的に確認することです。
+`mcu-hal-sim-rs` は、マイコン向け Rust アプリを **PC simulator で検証し、そのまま実機へ持っていくための基盤 repo** です。
+現時点の reference path は original ESP32 ですが、将来的な `Arduino Nano` / `Raspberry Pi Pico` / `Teensy` / `ESP32-CAM` 展開を見据え、`hal-api` / `core-app` / `platform-*` の責務分離と sim-to-real 契約の固定を主目的にします。
 
 ## 現状（2026-03 時点）
 
@@ -21,6 +21,8 @@
   - USB / flash / LED / 汎用 I2C の切り分け
 - `firmware/m5stickc-bringup`
   - M5StickC を使った USB / button / onboard I2C の診断
+- `firmware/arduino-nano-bringup`
+  - classic Arduino Nano (`ATmega328P`) の LED / serial / I2C scan の切り分け
 
 ## この repo のスコープ
 
@@ -28,7 +30,7 @@
 
 - `hal-api` の汎用抽象
 - `core-app` の再利用可能なアプリロジック
-- `platform-pc-sim` と `platform-esp32` の sim-to-real 経路
+- `platform-pc-sim` / `platform-avr` / `platform-esp32` の sim-to-real 経路
 - original ESP32 を使った本線シナリオの維持
 - 再利用可能な sensor / display driver とそのテスト
 
@@ -42,15 +44,16 @@
 
 ## 開発方針
 
-### 1. 本線を安定面として維持する
+### 1. reference path を安定面として維持する
 
 - 主経路は `platform-pc-sim -> core-app -> platform-esp32 -> original ESP32 + BME280 + LCD1602`
 - M5StickC は補助診断ボードであり、本番経路には含めない
-- 新しい board を増やすより、既存経路の回帰しにくさを優先する
+- 新しい board を足すときも、まず既存 reference path を壊さないことを優先する
 
-### 2. 実アプリは別 repo で育てる
+### 2. 実アプリと board 固有の検証は外で育てる
 
 - 新しいマイコンアプリは別 repo で作る
+- board 固有の bring-up や camera のような強い周辺機能も、まず firmware / 別 repo で検証する
 - 本 repo は `git` 依存または path 依存で利用する
 - 別 repo で必要になった抽象だけを本 repo に戻す
 
@@ -62,6 +65,7 @@
 - `core-app` の再利用性を上げられる
 - `platform-pc-sim` と `platform-esp32` の差分を減らせる
 - sim-to-real の検証価値がある
+- 将来の別 board / sensor 追加で、そのまま contract として使い回せる
 
 ## 直近の優先タスク
 
@@ -70,17 +74,22 @@
 - `README` / `PLAN` / AI コンテキストを現状に揃え続ける
 - 本 repo が基盤 repo であることを明文化する
 
-### B. 本線の品質維持
+### B. 本線の品質維持と拡張しやすさの両立
 
 - `ClimateDisplayApp` の回帰テストを増やす
 - BME280 / LCD1602 / shared I2C の異常系を補強する
 - 実機確認済みの手順をドキュメントへ維持する
+- app / sensor / display 差分を config struct で表現し、board 固有差分を core へ漏らしにくくする
 
-### C. 別 repo 運用の開始
+### C. 拡張候補の評価
 
 - 次のマイコン案件は別 repo で開始する
 - その repo から本 repo を依存として利用する
 - 共通化が必要な時だけ本 repo に PR を戻す
+- `Arduino Nano` / `Raspberry Pi Pico` / `Teensy` / `ESP32-CAM` の候補は、reference path を壊さない単位で platform / firmware を試作する
+- sensor lineup は、まず `EnvSensor` に載るものから増やす
+- その中では、classic Arduino Nano を AVR 系の最初の bring-up 起点とする
+- `platform-avr` は generic adapter 層として維持し、board helper は必要になった時だけ追加する
 
 ## esp32cam の扱い
 

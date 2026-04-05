@@ -1,0 +1,19 @@
+[package]
+name = "reference-drivers"
+version = "0.1.0"
+edition = "2021"
+description = "Board-agnostic reference drivers for the sim-to-real path in mcu-hal-sim-rs"
+license = "MIT"
+repository = "https://github.com/1222-takeshi/mcu-hal-sim-rs"
+documentation = "https://docs.rs/reference-drivers"
+readme = "README.md"
+keywords = ["embedded", "bme280", "lcd1602", "i2c", "no-std"]
+categories = ["embedded", "no-std", "hardware-support"]
+rust-version = "1.66"
+
+[dependencies]
+embedded-hal = "1.0"
+hal-api = { version = "0.1.0", path = "../hal-api" }
+
+[lib]
+path = "lib.rs"

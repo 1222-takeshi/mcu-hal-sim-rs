@@ -2,13 +2,26 @@
 name = "platform-pc-sim"
 version = "0.1.0"
 edition = "2021"
+description = "PC simulator helpers and host-side mocks for mcu-hal-sim-rs"
+license = "MIT"
+repository = "https://github.com/1222-takeshi/mcu-hal-sim-rs"
+documentation = "https://docs.rs/platform-pc-sim"
+readme = "README.md"
+keywords = ["embedded", "simulator", "mock", "hal", "testing"]
+categories = ["embedded", "development-tools::testing"]
+rust-version = "1.66"
 
 [dependencies]
-hal-api = { path = "../hal-api" }
-core-app = { path = "../core-app" }
+hal-api = { version = "0.1.0", path = "../hal-api" }
+core-app = { version = "0.1.0", path = "../core-app" }
+embedded-hal = "1.0"
+reference-drivers = { version = "0.1.0", path = "../reference-drivers" }
 
 [lib]
 path = "lib.rs"
+
+[dev-dependencies]
+platform-esp32 = { version = "0.1.0", path = "../platform-esp32" }
 
 [[bin]]
 name = "platform-pc-sim"
@@ -17,3 +30,11 @@ path = "main.rs"
 [[bin]]
 name = "climate-display-sim"
 path = "climate_display_sim.rs"
+
+[[bin]]
+name = "climate-dashboard-sim"
+path = "climate_dashboard_sim.rs"
+
+[[bin]]
+name = "device-dashboard-web"
+path = "device_dashboard_web.rs"

@@ -10,8 +10,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `reference-drivers` を追加し、`BME280` / `LCD1602` の board 非依存 driver を `platform-esp32` から切り出した
+- `platform-avr` を追加し、AVR 系 board 向けの generic GPIO / I2C adapter と host integration test を用意した
+- `firmware/arduino-nano-bringup` を追加し、classic Arduino Nano 向け LED / serial / I2C scan の最小経路を用意した
+- `ClimateDisplayConfig` に初回 refresh 方針を追加し、app 側の observability 向け getter を公開した
+- `Bme280Config` と `Lcd1602Config` を追加し、sensor / display 差分を config struct へ閉じ込めた
+- `docs/porting-and-extension-guide.md` を追加し、board / sensor 拡張時の設計ルールを整理した
+- crate-level README（`hal-api`, `core-app`, `platform-pc-sim`）を追加した
+- GitHub Issue Template を追加し、bug report / feature request で board / sensor 拡張情報を揃えやすくした
 - `platform-pc-sim` にライブラリターゲットを追加し、`mock_hal` を examples と統合テストから再利用可能にした
 - `platform-pc-sim` に cross-crate の統合テストを追加し、`core-app` と PC シミュレータ用モックHALの組み合わせを検証できるようにした
+- `platform-pc-sim` に virtual I2C bus と `BME280` mock device を追加し、`platform-esp32::Bme280Sensor` を host 上で検証できるようにした
+- `platform-pc-sim` に `LCD1602` mock device と `climate-dashboard-sim` を追加し、sensor / LCD / I2C / wiring view を terminal 上で確認できるようにした
+- `hal-api` に distance / IMU / actuator の board 非依存 trait を追加し、`HC-SR04` / `MPU6050` / servo / DC motor / motor driver へ広げる基盤を追加した
+- `platform-pc-sim` に browser 向け `device-dashboard-web` を追加し、climate / distance / IMU / servo / motor driver を 1 画面で確認できるようにした
+- `reference-drivers` に `MPU6050` driver を追加し、`platform-pc-sim` に host-side `MPU6050` mock device と bridge test を追加した
+- `reference-drivers` に `HC-SR04` driver を追加し、`platform-pc-sim` に pulse/echo mock device と bridge test を追加した
 - CI に `hal-api` / `core-app` / `platform-esp32` の `no_std` ターゲットチェックを追加した
 - `platform-esp32` クレートを追加し、GPIO / I2C 向けの最小アダプタ骨組みを導入した
 - `.cargo/config.toml` に original ESP32 向け `cargo check-esp32` alias と `espflash` runner を追加した
@@ -20,6 +34,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `docs/images/original-esp32-wiring.svg` と `docs/images/original-esp32-bringup-flow.svg` を追加した
 
 ### Changed
+- `platform-esp32` は board adapter に集中し、`BME280` / `LCD1602` driver は `reference-drivers` から re-export する構成になった
+- `device-dashboard-web` は IMU を sequence ではなく `MPU6050` の virtual I2C mock + reference driver から読む構成になった
+- `device-dashboard-web` は distance を sequence ではなく `HC-SR04` の pulse/echo mock + reference driver から読む構成になった
+- `platform-pc-sim` の terminal renderer が broken pipe で panic しにくい実装になった
+- `firmware/original-esp32-climate-display` が rendered frame と sensor 値を serial log へ出すようになった
+- crate manifest に publish / docs.rs 前提の metadata を追加した
+- `README.md` と `platform-esp32` / firmware README を、reference path と将来の board / sensor 拡張を意識した説明へ更新した
 - `hal-api` と `core-app` を `no_std` 前提の構成に変更した
 - `basic_blink` と `i2c_read` examples が `platform-pc-sim` のモックHALを再利用するようにした
 - `PLAN.md` / `README.md` / `CLAUDE.md` を現状の実装フェーズとテスト数に合わせて更新した

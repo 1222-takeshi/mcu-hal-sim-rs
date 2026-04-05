@@ -1,0 +1,50 @@
+name: Bug report
+description: sim-to-real path, driver, documentation, or tooling bug
+title: "fix: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        再現性のある不具合報告をお願いします。可能なら simulator と実機の両方の観測結果を書いてください。
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - hal-api
+        - core-app
+        - platform-pc-sim
+        - platform-esp32
+        - firmware/original-esp32-climate-display
+        - firmware/original-esp32-bringup
+        - docs/tooling
+    validations:
+      required: true
+  - type: input
+    id: target
+    attributes:
+      label: Board / target
+      placeholder: original ESP32 / Raspberry Pi Pico / Arduino Nano / host simulator
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      placeholder: |
+        1. 実行したコマンド
+        2. 接続した sensor / display
+        3. 発生した現象
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Logs / screenshots / serial output
+      placeholder: simulator 出力、serial log、LCD 表示の写真など

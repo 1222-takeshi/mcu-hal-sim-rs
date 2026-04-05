@@ -12,12 +12,14 @@ extern crate std;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ClimateDisplayConfig {
     pub refresh_period_ticks: u32,
+    pub refresh_on_first_tick: bool,
 }
 
 impl Default for ClimateDisplayConfig {
     fn default() -> Self {
         Self {
             refresh_period_ticks: 100,
+            refresh_on_first_tick: true,
         }
     }
 }
@@ -90,26 +92,27 @@ where
 
     fn should_refresh(&self) -> bool {
         if self.tick_count == 1 {
-            return true;
+            return self.config.refresh_on_first_tick;
         }
 
         let period = self.config.refresh_period_ticks.max(1);
         self.tick_count.checked_rem(period) == Some(0)
     }
 
-    #[cfg(test)]
     pub fn tick_count(&self) -> u32 {
         self.tick_count
     }
 
-    #[cfg(test)]
     pub fn last_reading(&self) -> Option<EnvReading> {
         self.last_reading
     }
 
-    #[cfg(test)]
     pub fn last_frame(&self) -> Option<TextFrame16x2> {
         self.last_frame
+    }
+
+    pub fn config(&self) -> ClimateDisplayConfig {
+        self.config
     }
 }
 
@@ -212,6 +215,16 @@ mod tests {
         output
     }
 
+    fn frame_lines(frame: &TextFrame16x2) -> (String<17>, String<17>) {
+        (line_to_string(frame, 0), line_to_string(frame, 1))
+    }
+
+    fn heapless_string(value: &str) -> String<17> {
+        let mut output = String::<17>::new();
+        let _ = output.push_str(value);
+        output
+    }
+
     #[test]
     fn climate_display_app_renders_on_first_tick() {
         let sensor = TestSensor::new(EnvReading::new(2481, 4315, None));
@@ -237,6 +250,7 @@ mod tests {
             display,
             ClimateDisplayConfig {
                 refresh_period_ticks: 5,
+                refresh_on_first_tick: true,
             },
         );
 
@@ -274,6 +288,7 @@ mod tests {
             display,
             ClimateDisplayConfig {
                 refresh_period_ticks: 0,
+                refresh_on_first_tick: true,
             },
         );
 
@@ -315,5 +330,114 @@ mod tests {
 
         assert_eq!(line_to_string(&frame, 0), "Temp    24.8C   ");
         assert_eq!(line_to_string(&frame, 1), "Hum    100.0%   ");
+    }
+
+    #[test]
+    fn climate_display_app_can_skip_initial_refresh() {
+        let sensor = TestSensor::new(EnvReading::new(2481, 4315, None));
+        let sensor_observer = sensor.clone();
+        let display = TestDisplay::new();
+        let display_observer = display.clone();
+        let mut app = ClimateDisplayApp::new_with_config(
+            sensor,
+            display,
+            ClimateDisplayConfig {
+                refresh_period_ticks: 3,
+                refresh_on_first_tick: false,
+            },
+        );
+
+        for _ in 0..2 {
+            app.tick().unwrap();
+        }
+
+        assert_eq!(sensor_observer.read_count(), 0);
+        assert!(display_observer.frames().is_empty());
+
+        app.tick().unwrap();
+
+        assert_eq!(sensor_observer.read_count(), 1);
+        assert_eq!(display_observer.frames().len(), 1);
+    }
+
+    #[test]
+    fn climate_display_app_renders_expected_frame_sequence() {
+        let readings = [
+            EnvReading::new(2481, 4315, Some(101_325)),
+            EnvReading::new(-520, 8000, Some(101_280)),
+            EnvReading::new(12345, 9995, Some(100_980)),
+        ];
+        let sensor_state = Rc::new(RefCell::new(0usize));
+        let display = TestDisplay::new();
+        let display_observer = display.clone();
+
+        #[derive(Clone)]
+        struct SequenceSensor {
+            readings: [EnvReading; 3],
+            index: Rc<RefCell<usize>>,
+        }
+
+        impl EnvSensor for SequenceSensor {
+            type Error = SensorError;
+
+            fn read(&mut self) -> Result<EnvReading, Self::Error> {
+                let mut index = self.index.borrow_mut();
+                let reading = self.readings[*index];
+                if *index + 1 < self.readings.len() {
+                    *index += 1;
+                }
+                Ok(reading)
+            }
+        }
+
+        let sensor = SequenceSensor {
+            readings,
+            index: sensor_state,
+        };
+        let mut app = ClimateDisplayApp::new_with_config(
+            sensor,
+            display,
+            ClimateDisplayConfig {
+                refresh_period_ticks: 3,
+                refresh_on_first_tick: true,
+            },
+        );
+
+        for _ in 0..7 {
+            app.tick().unwrap();
+        }
+
+        let frames = display_observer.frames();
+        assert_eq!(frames.len(), 3);
+        assert_eq!(
+            frame_lines(&frames[0]),
+            (
+                heapless_string("Temp    24.8C   "),
+                heapless_string("Hum     43.2%   "),
+            )
+        );
+        assert_eq!(
+            frame_lines(&frames[1]),
+            (
+                heapless_string("Temp    -5.2C   "),
+                heapless_string("Hum     80.0%   "),
+            )
+        );
+        assert_eq!(
+            frame_lines(&frames[2]),
+            (
+                heapless_string("Temp   123.5C   "),
+                heapless_string("Hum    100.0%   "),
+            )
+        );
+        assert_eq!(app.last_frame(), Some(frames[2]));
+        assert_eq!(app.last_reading(), Some(readings[2]));
+        assert_eq!(
+            app.config(),
+            ClimateDisplayConfig {
+                refresh_period_ticks: 3,
+                refresh_on_first_tick: true,
+            }
+        );
     }
 }
