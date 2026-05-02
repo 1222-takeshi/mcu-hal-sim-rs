@@ -362,6 +362,17 @@ fn format_operation(operation: &VirtualI2cOperation) -> String {
     }
 }
 
+/// Extract the `"board"` string value from a minimal JSON object.
+///
+/// Handles `{"board":"arduino-nano"}` without pulling in a full JSON parser.
+fn parse_board_from_json(json: &str) -> Option<&str> {
+    let after_key = json.split("\"board\"").nth(1)?;
+    let after_colon = after_key.split(':').nth(1)?.trim_start();
+    let inner = after_colon.strip_prefix('"')?;
+    let end = inner.find('"')?;
+    Some(&inner[..end])
+}
+
 fn respond(stream: &mut TcpStream, status: &str, content_type: &str, body: &str) {
     let response = format!(
         "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
@@ -475,20 +486,23 @@ fn main() {
             continue;
         };
         let request = String::from_utf8_lossy(&request[..read_len]);
-        let path = request
-            .lines()
-            .next()
-            .and_then(|line| line.split_whitespace().nth(1))
-            .unwrap_or("/");
+        let first_line = request.lines().next().unwrap_or("GET / HTTP/1.1");
+        let mut parts = first_line.split_whitespace();
+        let method = parts.next().unwrap_or("GET");
+        let path = parts.next().unwrap_or("/");
+        let body = request
+            .find("\r\n\r\n")
+            .map(|pos| &request[pos + 4..])
+            .unwrap_or("");
 
-        match path {
-            "/" => respond(
+        match (method, path) {
+            (_, "/") => respond(
                 &mut stream,
                 "200 OK",
                 "text/html; charset=utf-8",
                 dashboard_html(),
             ),
-            "/api/state" => {
+            (_, "/api/state") => {
                 let payload = state_to_json(&rig.step());
                 respond(
                     &mut stream,
@@ -497,7 +511,12 @@ fn main() {
                     &payload,
                 );
             }
-            "/api/wiring" => {
+            ("POST", "/api/wiring") => {
+                if let Some(board_name) = parse_board_from_json(body) {
+                    let new_board = BoardProfile::from_arg(Some(board_name));
+                    rig = DeviceSimulationRig::new(new_board);
+                    println!("board changed to: {}", rig.board.name());
+                }
                 let payload = WiringConfig::from_board(rig.board).to_json();
                 respond(
                     &mut stream,
@@ -506,12 +525,21 @@ fn main() {
                     &payload,
                 );
             }
-            "/api/wiring/svg" => {
+            (_, "/api/wiring") => {
+                let payload = WiringConfig::from_board(rig.board).to_json();
+                respond(
+                    &mut stream,
+                    "200 OK",
+                    "application/json; charset=utf-8",
+                    &payload,
+                );
+            }
+            (_, "/api/wiring/svg") => {
                 let cfg = WiringConfig::from_board(rig.board);
                 let svg = wiring_svg(&cfg);
                 respond(&mut stream, "200 OK", "image/svg+xml; charset=utf-8", &svg);
             }
-            "/api/test/stream" => {
+            (_, "/api/test/stream") => {
                 handle_test_stream(&mut stream);
             }
             _ => respond(
@@ -560,5 +588,31 @@ mod tests {
         assert_eq!(left.direction, MotorDirection::Forward);
         assert_eq!(right.direction, MotorDirection::Forward);
         assert_eq!(left.duty_percent, right.duty_percent);
+    }
+
+    #[test]
+    fn parse_board_from_json_extracts_board_name() {
+        assert_eq!(
+            parse_board_from_json(r#"{"board":"arduino-nano"}"#),
+            Some("arduino-nano")
+        );
+    }
+
+    #[test]
+    fn parse_board_from_json_handles_esp32_value() {
+        assert_eq!(
+            parse_board_from_json(r#"{"board":"original-esp32"}"#),
+            Some("original-esp32")
+        );
+    }
+
+    #[test]
+    fn parse_board_from_json_returns_none_for_missing_key() {
+        assert_eq!(parse_board_from_json(r#"{"other":"value"}"#), None);
+    }
+
+    #[test]
+    fn parse_board_from_json_returns_none_for_empty_body() {
+        assert_eq!(parse_board_from_json(""), None);
     }
 }
