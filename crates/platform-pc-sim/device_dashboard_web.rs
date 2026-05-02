@@ -9,11 +9,12 @@ use hal_api::actuator::{DualMotorDriver, MotorCommand, MotorDirection, ServoMoto
 use hal_api::distance::DistanceSensor;
 use hal_api::imu::ImuSensor;
 use platform_pc_sim::bme280_mock::{demo_raw_samples, MockBme280Device};
-use platform_pc_sim::component_sim::{MockDualMotorDriver, MockServoMotor};
 use platform_pc_sim::dashboard::BoardProfile;
 use platform_pc_sim::hc_sr04_mock::{demo_echo_pulses_us, MockHcSr04Device};
 use platform_pc_sim::lcd1602_mock::MockLcd1602Device;
+use platform_pc_sim::mock_hal::MockPin;
 use platform_pc_sim::mpu6050_mock::{demo_raw_frames, MockMpu6050Device};
+use platform_pc_sim::pwm_mock::MockPwmOutput;
 use platform_pc_sim::virtual_i2c::{VirtualI2cBus, VirtualI2cOperation};
 use platform_pc_sim::web_dashboard::{
     dashboard_html, state_to_json, ClimatePanelState, DeviceDashboardState, DistancePanelState,
@@ -24,8 +25,10 @@ use platform_pc_sim::wiring_config::WiringConfig;
 use platform_pc_sim::wiring_svg::wiring_svg;
 use reference_drivers::bme280::{Bme280Sensor, BME280_ADDRESS_PRIMARY};
 use reference_drivers::hc_sr04::HcSr04Sensor;
+use reference_drivers::l298n::{L298nChannel, L298nDualDriver};
 use reference_drivers::lcd1602::{Lcd1602Display, LCD1602_ADDRESS_PRIMARY};
 use reference_drivers::mpu6050::{Mpu6050Sensor, MPU6050_ADDRESS_PRIMARY};
+use reference_drivers::servo::ServoDriver;
 
 const DEFAULT_PORT: u16 = 7878;
 
@@ -37,6 +40,10 @@ impl DelayNs for NoopDelay {
     fn delay_us(&mut self, _us: u32) {}
     fn delay_ms(&mut self, _ms: u32) {}
 }
+
+type ServoRig = ServoDriver<MockPwmOutput>;
+type MotorChannelRig = L298nChannel<MockPin, MockPin, MockPwmOutput>;
+type MotorDriverRig = L298nDualDriver<MotorChannelRig, MotorChannelRig>;
 
 struct DeviceSimulationRig {
     board: BoardProfile,
@@ -51,8 +58,8 @@ struct DeviceSimulationRig {
     imu_sensor: Mpu6050Sensor<VirtualI2cBus>,
     imu_frames: Vec<[u8; 14]>,
     imu_frame_index: usize,
-    servo: MockServoMotor,
-    motor_driver: MockDualMotorDriver,
+    servo: ServoRig,
+    motor_driver: MotorDriverRig,
     last_distance_mm: Option<u32>,
     last_imu: Option<hal_api::imu::ImuReading>,
 }
@@ -78,6 +85,12 @@ impl DeviceSimulationRig {
         let distance_sensor = HcSr04Sensor::new(MockHcSr04Device::looping(demo_echo_pulses_us()));
         let imu_sensor = Mpu6050Sensor::new(bus.clone());
 
+        let servo = ServoDriver::new(MockPwmOutput::new());
+        let motor_driver = L298nDualDriver::new(
+            L298nChannel::new(MockPin::new(0), MockPin::new(0), MockPwmOutput::new()),
+            L298nChannel::new(MockPin::new(0), MockPin::new(0), MockPwmOutput::new()),
+        );
+
         Self {
             board,
             bus,
@@ -91,8 +104,8 @@ impl DeviceSimulationRig {
             imu_sensor,
             imu_frames: demo_raw_frames(),
             imu_frame_index: 0,
-            servo: MockServoMotor::new(),
-            motor_driver: MockDualMotorDriver::new(),
+            servo,
+            motor_driver,
             last_distance_mm: None,
             last_imu: None,
         }
@@ -190,12 +203,12 @@ impl DeviceSimulationRig {
                     .map(|value| value as f32 / 100.0),
             },
             servo: ServoPanelState {
-                angle_degrees: self.servo.angle_degrees(),
+                angle_degrees: self.servo.current_angle(),
             },
             motor_driver: MotorDriverPanelState {
-                driver_name: "L298N-style dual H-bridge".to_string(),
-                left: channel_state(self.motor_driver.left_command()),
-                right: channel_state(self.motor_driver.right_command()),
+                driver_name: "L298N dual H-bridge".to_string(),
+                left: channel_state(self.motor_driver.channel_a().current_command()),
+                right: channel_state(self.motor_driver.channel_b().current_command()),
             },
             wiring: WiringPanelState {
                 sda_pin: self.board.sda_pin().to_string(),

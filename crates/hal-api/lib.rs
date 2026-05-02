@@ -39,4 +39,5 @@ pub mod error;
 pub mod gpio;
 pub mod i2c;
 pub mod imu;
+pub mod pwm;
 pub mod sensor;
