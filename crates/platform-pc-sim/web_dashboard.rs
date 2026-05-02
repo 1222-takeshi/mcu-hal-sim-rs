@@ -666,7 +666,13 @@ pub fn dashboard_html() -> &'static str {
 
       <!-- Wiring -->
       <article class="panel card span-8">
-        <h2>Wiring Diagram</h2>
+        <h2 style="display:flex;align-items:center;gap:12px">
+          Wiring Diagram
+          <select id="board-select" style="font-size:12px;background:#1a2a1a;color:#7bc47b;border:1px solid #3d7a3d;border-radius:4px;padding:2px 6px;cursor:pointer">
+            <option value="original-esp32">Original ESP32</option>
+            <option value="arduino-nano">Arduino Nano</option>
+          </select>
+        </h2>
         <div id="wiring-svg-wrap" style="width:100%;overflow-x:auto;min-height:180px"></div>
         <div class="footer" style="margin-top:6px">
           Attached: <span id="wiring-devices" style="font-family:monospace">--</span>
@@ -837,6 +843,18 @@ pub fn dashboard_html() -> &'static str {
         if (wrap) wrap.innerHTML = svg;
       } catch(_) {}
     }
+    async function changeBoard(boardName) {
+      try {
+        await fetch("/api/wiring", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ board: boardName }),
+        });
+        await loadWiringDiagram();
+      } catch(_) {}
+    }
+    const boardSel = $("board-select");
+    if (boardSel) boardSel.addEventListener("change", () => changeBoard(boardSel.value));
     loadWiringDiagram();
     setInterval(loadWiringDiagram, 5000);
 
