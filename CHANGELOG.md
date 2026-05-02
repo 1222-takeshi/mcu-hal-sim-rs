@@ -11,6 +11,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.0] - 2026-05-02
+
+ブラウザダッシュボードにビジュアルハードウェアシミュレータ・PCB風アニメーション配線ダイアグラム・E2Eテストランナーを追加。
+
+### Added
+- **[#56]** `platform-pc-sim` にビジュアルハードウェアシミュレータを追加
+  - LED グローアニメーション（tick%100 連動・SVG radial gradient + filter）
+  - サーボアーム SVG rotate アニメーション（`angle_degrees` 連動）
+  - モータ L/R rotor `requestAnimationFrame` 回転 + duty バー
+  - HC-SR04 ソナー SMIL ping リング + ビーム + エコードット
+  - IMU 水準器バブル（`accel_mg[0/1]` 連動）
+- **[#56]** `wiring_config.rs` を追加し、`WiringConfig` データモデル・`BoardProfile→WiringConfig` 変換・`to_json()` を実装
+- **[#56]** `wiring_svg.rs` を追加し、PCB スタイル SVG ジェネレーターを実装（CSS `stroke-dashoffset` アニメ：SDA=青、SCL=黄、VCC=赤、GND=灰、GPIO=橙）
+- **[#56]** `GET /api/wiring` エンドポイント（JSON 設定）と `GET /api/wiring/svg` エンドポイント（アニメーション SVG）を追加
+- **[#56]** E2E テストランナーパネルを追加。`GET /api/test/stream` SSE エンドポイントが `cargo test --workspace` をストリーミング、ブラウザパネルが pass=緑/fail=赤/warn=橙 で色分け表示
+
+### Fixed
+- **[#56]** `setMotorViz()` JS 関数のモーター方向文字列 PascalCase 比較（`"Brake"`/`"Reverse"`）を Rust 出力に合わせ lowercase に修正（モーター可視化が機能しないバグ）
+- **[#56]** HC-SR04 配線 SVG の GPIO ワイヤー起点が GND ピンだった問題を修正、専用 `P_GPIO` 定数を追加
+- **[#56]** `handle_test_stream()` に 5 分タイムアウトを追加（シングルスレッドサーバーの永久ブロック防止）
+- **[#56]** `wiring_config.rs::to_json()` と `web_dashboard.rs::json_string()` に JSON エスケープ処理を追加
+
+---
+
 ## [0.2.0] - 2026-04-05
 
 sim-to-real スターターキット完成。ESP32 実機 toolchain 対応、web ダッシュボード強化、IMU ロギングアプリ追加。
