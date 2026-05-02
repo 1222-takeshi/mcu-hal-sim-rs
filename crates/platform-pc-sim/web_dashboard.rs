@@ -840,6 +840,27 @@ pub fn dashboard_html() -> &'static str {
     loadWiringDiagram();
     setInterval(loadWiringDiagram, 5000);
 
+    // ── Reactive wiring flash: I2C activity → SDA/SCL glow ──
+    let lastI2cFirstOp = '';
+    function flashWires() {
+      const wrap = $("wiring-svg-wrap");
+      if (!wrap) return;
+      const wires = wrap.querySelectorAll('.w-sda, .w-scl');
+      if (!wires.length) return;
+      wires.forEach(el => {
+        el.style.transition = '';
+        el.style.filter = 'brightness(3) drop-shadow(0 0 4px white)';
+        el.style.strokeWidth = '4.5';
+      });
+      setTimeout(() => {
+        wires.forEach(el => {
+          el.style.transition = 'filter 0.4s ease-out, stroke-width 0.4s ease-out';
+          el.style.filter = '';
+          el.style.strokeWidth = '';
+        });
+      }, 180);
+    }
+
     // ── Main refresh ──
     let paused = false;
     async function refresh() {
@@ -905,6 +926,13 @@ pub fn dashboard_html() -> &'static str {
         setMotorViz("right", s.motor_driver.right.direction, s.motor_driver.right.duty_percent);
         setSonar(s.distance.distance_mm);
         setImuLevel(s.imu.accel_mg[0], s.imu.accel_mg[1]);
+
+        // flash SDA/SCL wires when a new I2C operation is detected
+        const curOp = s.i2c.recent_operations[0] || '';
+        if (curOp && curOp !== lastI2cFirstOp) {
+          flashWires();
+          lastI2cFirstOp = curOp;
+        }
 
         setOk();
       } catch(e) {
