@@ -11,6 +11,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.1] - 2026-05-02
+
+v0.3.0 のビジュアルシミュレータに対するリアクティブアニメーション・ボード切替 API・ドキュメント整備を追加。CI の no_std チェック対象に `reference-drivers` を追加。
+
+### Added
+- **[#57]** I2C 操作が発生するたびに配線ダイアグラムの SDA/SCL ラインが白く光るリアクティブアニメーションを追加（`flashWires()` JS 関数、`recent_operations[0]` 変化検知）
+- **[#58]** `POST /api/wiring` エンドポイントを追加し、JSON ボディでボードプロファイルを切り替えられるようにした（`{"board":"arduino-nano"}`）
+- **[#58]** Wiring Diagram パネルのヘッダーにボードセレクター `<select>` を追加（Original ESP32 / Arduino Nano）
+- **[#59]** README の「実行」セクションをパネル別確認ポイント表と API curl 例を含む v0.3.0 対応に更新
+- CI `no_std Check` ジョブに `reference-drivers` の `thumbv6m-none-eabi` ビルド検証を追加
+
+### Fixed
+- **[#58]** HTTP メソッド（GET/POST）をリクエスト行からパースするよう修正し、GET と POST を正しく区別するようにした
+
+---
+
 ## [0.3.0] - 2026-05-02
 
 ブラウザダッシュボードにビジュアルハードウェアシミュレータ・PCB風アニメーション配線ダイアグラム・E2Eテストランナーを追加。
