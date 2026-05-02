@@ -151,6 +151,9 @@ jobs:
       - name: Check core-app for no_std target
         run: cargo check -p core-app --lib --target $NO_STD_TARGET
 
+      - name: Check reference-drivers for no_std target
+        run: cargo check -p reference-drivers --lib --target $NO_STD_TARGET
+
       - name: Check platform-esp32 for no_std target
         run: cargo check -p platform-esp32 --lib --target $NO_STD_TARGET
 
