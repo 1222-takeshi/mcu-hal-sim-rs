@@ -84,6 +84,11 @@ pub struct WiringConfig {
 
 impl WiringConfig {
     /// Build the standard wiring config for a board profile.
+    ///
+    /// Returns a fixed simulator configuration: BME280 (0x77), MPU6050 (0x68),
+    /// LCD1602 (0x27) on I²C, and HC-SR04 on GPIO.  All four devices are always
+    /// present regardless of the profile; this matches the `DeviceSimulationRig`
+    /// setup used by the PC simulator.
     pub fn from_board(board: BoardProfile) -> Self {
         let devices = vec![
             DeviceSpec::i2c(DeviceKind::Bme280, 0x77),
@@ -123,9 +128,9 @@ impl WiringConfig {
                 match d.address {
                     Some(a) => format!(
                         r#"{{"kind":"{kind}","address":"0x{a:02X}","label":"{}"}}"#,
-                        d.label
+                        json_escape(&d.label)
                     ),
-                    None => format!(r#"{{"kind":"{kind}","label":"{}"}}"#, d.label),
+                    None => format!(r#"{{"kind":"{kind}","label":"{}"}}"#, json_escape(&d.label)),
                 }
             })
             .collect();
@@ -137,16 +142,35 @@ impl WiringConfig {
                 r#""devices":[{devs}]}}"#
             ),
             board = board_str,
-            sda = self.sda_pin,
-            scl = self.scl_pin,
-            vcc = self.power_pin,
-            gnd = self.ground_pin,
-            trig = self.trig_pin,
-            echo = self.echo_pin,
-            sv = self.servo_pin,
+            sda = json_escape(&self.sda_pin),
+            scl = json_escape(&self.scl_pin),
+            vcc = json_escape(&self.power_pin),
+            gnd = json_escape(&self.ground_pin),
+            trig = json_escape(&self.trig_pin),
+            echo = json_escape(&self.echo_pin),
+            sv = json_escape(&self.servo_pin),
             devs = devices.join(","),
         )
     }
+}
+
+/// Escape a string for embedding in a JSON value (no surrounding quotes added).
+fn json_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 4);
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => {
+                out.push_str(&format!("\\u{:04X}", c as u32));
+            }
+            _ => out.push(c),
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -169,6 +193,9 @@ mod tests {
         assert_eq!(cfg.sda_pin, "A4");
         assert_eq!(cfg.scl_pin, "A5");
         assert_eq!(cfg.power_pin, "5V");
+        assert_eq!(cfg.trig_pin, "D2");
+        assert_eq!(cfg.echo_pin, "D3");
+        assert_eq!(cfg.servo_pin, "D9");
     }
 
     #[test]

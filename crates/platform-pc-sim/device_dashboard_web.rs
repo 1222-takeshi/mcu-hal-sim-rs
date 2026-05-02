@@ -426,7 +426,17 @@ fn handle_test_stream(stream: &mut TcpStream) {
     });
     drop(tx);
 
+    let started = std::time::Instant::now();
+    let timeout = std::time::Duration::from_secs(300);
+
     for line in rx {
+        if started.elapsed() > timeout {
+            let _ = stream.write_all(
+                b"data: [ERROR] timeout: cargo test exceeded 5 minutes\n\ndata: [DONE] exit=1\n\n",
+            );
+            let _ = child.kill();
+            return;
+        }
         let msg = format!("data: {}\n\n", line.replace('\n', " "));
         if stream.write_all(msg.as_bytes()).is_err() {
             let _ = child.kill();

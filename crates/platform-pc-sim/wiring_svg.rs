@@ -32,6 +32,8 @@ const P_SDA: i32 = BOARD_Y + 52;
 const P_SCL: i32 = BOARD_Y + 96;
 const P_VCC: i32 = BOARD_Y + 152;
 const P_GND: i32 = BOARD_Y + 200;
+/// Midpoint between TRIG (gpio_y+8) and ECHO (gpio_y+22) label rows.
+const P_GPIO: i32 = BOARD_Y + 255;
 
 // Devices
 const DEV_X: i32 = 382;
@@ -85,6 +87,7 @@ fn render(out: &mut String, config: &WiringConfig) {
         (P_SCL, "dot-scl", format!("SCL/{}", config.scl_pin)),
         (P_VCC, "dot-vcc", config.power_pin.clone()),
         (P_GND, "dot-gnd", config.ground_pin.clone()),
+        (P_GPIO, "dot-gpio", format!("GPIO/{}", config.trig_pin)),
     ] {
         let _ = write!(
             out,
@@ -181,12 +184,13 @@ fn render(out: &mut String, config: &WiringConfig) {
                 );
             }
             ConnectionType::Gpio => {
-                // HC-SR04: show GPIO connection
+                // HC-SR04: wire from GPIO pin dot to device midpoint
                 let trig_pin = &config.trig_pin;
                 let echo_pin = &config.echo_pin;
                 let _ = write!(
                     out,
-                    r#"<path class="w-gpio" d="M {BOARD_R} {P_GND} C {cp} {P_GND} {cp} {mid_y} {DEV_X} {mid_y}"/>
+                    r#"<path class="w-gpio" d="M {BOARD_R} {P_GPIO} C {cp} {P_GPIO} {cp} {mid_y} {DEV_X} {mid_y}"/>
+<circle cx="{DEV_X}" cy="{mid_y}" r="3" class="dot-gpio"/>
 <text x="{}" y="{}" class="dev-sub">TRIG:{trig_pin} / ECHO:{echo_pin}</text>
 "#,
                     DEV_X + 8,

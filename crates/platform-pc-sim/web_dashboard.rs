@@ -153,6 +153,9 @@ fn json_string(value: &str) -> String {
             '\n' => output.push_str("\\n"),
             '\r' => output.push_str("\\r"),
             '\t' => output.push_str("\\t"),
+            c if (c as u32) < 0x20 => {
+                output.push_str(&format!("\\u{:04X}", c as u32));
+            }
             _ => output.push(character),
         }
     }
@@ -778,17 +781,17 @@ pub fn dashboard_html() -> &'static str {
 
     // ── Motor visual ──
     function setMotorViz(side, dir, duty) {
-      const stopped = dir === "Brake" || dir === "Coast" || duty < 3;
+      const stopped = dir === "brake" || dir === "coast" || duty < 3;
       mState[side].run = !stopped;
       mState[side].spd = stopped ? 0 : (2 + duty * 0.1);
-      mState[side].dir = dir === "Reverse" ? -1 : 1;
+      mState[side].dir = dir === "reverse" ? -1 : 1;
       const bar = $("m-" + side + "-bar");
       if (bar) bar.setAttribute("width", String(Math.round(duty * 72 / 100)));
       const lbl = $("m-" + side + "-lbl");
       if (lbl) {
         const icon = stopped
-          ? (dir === "Brake" ? "\u25A0" : "\u2014")
-          : (dir === "Reverse" ? "\u21BA" : "\u21BB");
+          ? (dir === "brake" ? "\u25A0" : "\u2014")
+          : (dir === "reverse" ? "\u21BA" : "\u21BB");
         lbl.textContent = icon + " " + (stopped ? dir : duty + "%");
       }
     }
