@@ -137,27 +137,12 @@ cargo run -p platform-pc-sim --bin climate-dashboard-sim
 # Nano profile で dashboard を実行
 cargo run -p platform-pc-sim --bin climate-dashboard-sim -- nano
 
-# browser GUI を起動
+# browser GUI を起動（デフォルト: ESP32 profile、port 7878）
 cargo run -p platform-pc-sim --bin device-dashboard-web
 
 # Nano profile + port 指定で browser GUI を起動
 cargo run -p platform-pc-sim --bin device-dashboard-web -- nano 7878
 ```
-
-`device-dashboard-web` を起動したら、browser で `http://127.0.0.1:7878` を開いてください。
-現時点では `BME280` と `MPU6050` は virtual I2C 上の mock device に対して実 driver を通して読み、
-`HC-SR04` は pulse/echo mock device に対して実 driver を通して読み、servo / dual motor driver は contract ベースの simulator で可視化しています。
-
-**期待される出力:**
-```
-=== PC Simulator Started ===
-[GPIO] Pin 13 set HIGH
-[GPIO] Pin 13 set LOW
-[I2C] Read from 0x48: 4 bytes
-...
-```
-
-Ctrl+Cで終了します。
 
 `climate-display-sim` では terminal 上に次のような 16x2 表示を描画します。
 
@@ -167,6 +152,49 @@ Ctrl+Cで終了します。
 |Hum     43.1%   |
 +----------------+
 ```
+
+### ブラウザ GUI 動作確認 (device-dashboard-web)
+
+```bash
+cargo run -p platform-pc-sim --bin device-dashboard-web
+# → http://127.0.0.1:7878 をブラウザで開く
+```
+
+起動後、以下のパネルで動作を確認できます。
+
+| パネル | 確認ポイント |
+|--------|------------|
+| **ヘッダー** | `Board: original ESP32 / tick=N` が 250 ms ごとに増える |
+| **Climate** | 温度・湿度・気圧の数値とスパークライン |
+| **LCD1602** | 2 行 16 文字の liquid crystal 風テキスト表示 |
+| **Distance** | HC-SR04 ソナーの扇形ビーム（近い=赤、遠い=緑） |
+| **IMU** | 加速度に連動する水準器バブル |
+| **LED** | tick に合わせて 100 tick ごとに輝く |
+| **Servo** | 距離に応じてアームが 0〜180° で動く |
+| **Motor L/R** | 距離 < 160 mm → Reverse、それ以外 → Forward で回転 |
+| **Wiring Diagram** | PCB 風 SVG。I2C 操作のたびに SDA/SCL ラインが白く光る |
+| **Board セレクター** | "Arduino Nano" に切り替えると配線 SVG のピン名が変わる |
+| **E2E Test Runner** | "▶ Run Tests" を押すと `cargo test --workspace` がリアルタイムにストリーミングされる |
+
+**API による確認:**
+
+```bash
+# 現在の状態 JSON
+curl http://127.0.0.1:7878/api/state | python3 -m json.tool
+
+# 配線設定 JSON (GET)
+curl http://127.0.0.1:7878/api/wiring | python3 -m json.tool
+
+# ボードプロファイル切り替え (POST)
+curl -X POST http://127.0.0.1:7878/api/wiring \
+     -H "Content-Type: application/json" \
+     -d '{"board":"arduino-nano"}' | python3 -m json.tool
+
+# 配線 SVG を取得してファイルに保存
+curl http://127.0.0.1:7878/api/wiring/svg -o wiring.svg
+```
+
+有効な board 値: `"original-esp32"` (デフォルト)、`"arduino-nano"`
 
 ### テスト
 
@@ -277,8 +305,10 @@ cargo run --release
   - 表示文言、更新周期、16x2 UI を host 上で最初に詰めるとき
 - `cargo run -p platform-pc-sim --bin climate-dashboard-sim`
   - wiring / LCD / I2C を terminal 上で速く確認したいとき
+- `cargo run -p platform-pc-sim --bin device-dashboard-web`
+  - 全センサ・アクチュエータのビジュアルシミュレータを browser で確認したいとき（v0.3.0〜）
 - `cargo run -p platform-pc-sim --bin device-dashboard-web -- nano 7878`
-  - `HC-SR04` / `MPU6050` / servo / motor driver を含む browser GUI を見たいとき
+  - Arduino Nano profile で同じ GUI を確認したいとき
 - `firmware/original-esp32-bringup`
   - USB / flash / basic GPIO / 汎用 I2C 疎通だけを切り分けたいとき
 - `firmware/original-esp32-climate-display`
