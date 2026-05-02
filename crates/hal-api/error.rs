@@ -120,3 +120,9 @@ pub enum ActuatorError {
     /// 通信または下位層のハードウェアエラー
     HardwareError,
 }
+
+impl From<GpioError> for ActuatorError {
+    fn from(_: GpioError) -> Self {
+        ActuatorError::HardwareError
+    }
+}

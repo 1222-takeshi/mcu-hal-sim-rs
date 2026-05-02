@@ -13,6 +13,7 @@ pub mod hc_sr04_mock;
 pub mod lcd1602_mock;
 pub mod mock_hal;
 pub mod mpu6050_mock;
+pub mod pwm_mock;
 pub mod virtual_i2c;
 pub mod web_dashboard;
 pub mod wiring_config;

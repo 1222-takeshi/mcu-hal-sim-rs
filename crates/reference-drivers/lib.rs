@@ -7,5 +7,7 @@
 
 pub mod bme280;
 pub mod hc_sr04;
+pub mod l298n;
 pub mod lcd1602;
 pub mod mpu6050;
+pub mod servo;
