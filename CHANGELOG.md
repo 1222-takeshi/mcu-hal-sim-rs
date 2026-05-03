@@ -11,6 +11,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.3] - 2026-05-03
+
+ESP32 向けアクチュエータ統合テストと README への ESP32 使用ガイドを追加。全アクチュエータが sim-to-real driver-backed 経路として検証済みになりました。
+
+### Added
+- **[#63]** `platform-esp32/tests/servo_motor_bridge.rs`: `Esp32PwmOutput` + `ServoDriver` / `L298nDualDriver` のエンドツーエンド統合テスト 6 件を追加
+  - `servo_driver_works_with_esp32_pwm_adapter`（0°/90°/180° → duty マッピング検証）
+  - `servo_driver_rejects_angle_beyond_180_via_esp32_adapter`（境界値チェック）
+  - `l298n_dual_driver_works_with_esp32_adapters`（2ch Forward/Reverse 指示）
+  - `l298n_channel_forward_drives_gpio_pins_correctly_via_esp32`（IN1=H, IN2=L, ENA duty=75%）
+  - `l298n_channel_brake_drives_both_pins_high_via_esp32`（Brake: IN1=H, IN2=H）
+  - `full_actuator_scenario_servo_tracks_distance_motor_responds_to_direction`（複合シナリオ）
+- **[#63]** README に「Servo / Motor を ESP32 で動かす (PwmOutput bridge)」セクションを追加
+  - `Esp32PwmOutput` / `L298nChannel` / `L298nDualDriver` の型組み方（擬似コード）
+  - duty 計算表（ServoDriver / Esp32PwmOutput / L298nChannel）
+
+---
+
 ## [0.3.2] - 2026-05-03
 
 Servo / Motor の reference driver 実装と ESP32 向け PWM アダプタを追加。すべてのアクチュエータが sim-to-real の driver-backed 経路になりました。
