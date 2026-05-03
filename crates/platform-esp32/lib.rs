@@ -15,8 +15,11 @@ pub mod delay;
 pub mod gpio;
 pub mod hc_sr04;
 pub mod i2c;
+pub mod l298n;
 pub mod lcd1602;
 pub mod mpu6050;
+pub mod pwm;
+pub mod servo;
 pub mod shared_i2c;
 
 pub use delay::Esp32Delay;
