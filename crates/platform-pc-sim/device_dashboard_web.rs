@@ -581,9 +581,7 @@ fn handle_connection(
     let path = parts.next().unwrap_or("/");
 
     // Check for WebSocket upgrade before HTTP routing.
-    let is_ws_upgrade = request
-        .to_ascii_lowercase()
-        .contains("upgrade: websocket");
+    let is_ws_upgrade = request.to_ascii_lowercase().contains("upgrade: websocket");
     if is_ws_upgrade && path == "/api/ws" {
         handle_websocket(stream, &request, ctx);
         return;
@@ -674,7 +672,9 @@ fn handle_websocket(mut stream: TcpStream, request_headers: &str, ctx: Arc<Serve
 
     const GUID: &str = "258EAFA5-E914-4789-0000-000000000000";
     let accept_input = format!("{ws_key}{GUID}");
-    let digest = sha1_smol::Sha1::from(accept_input.as_bytes()).digest().bytes();
+    let digest = sha1_smol::Sha1::from(accept_input.as_bytes())
+        .digest()
+        .bytes();
     use base64::Engine as _;
     let accept_value = base64::engine::general_purpose::STANDARD.encode(digest);
 
