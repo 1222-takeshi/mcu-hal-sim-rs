@@ -138,9 +138,15 @@ fn l298n_dual_driver_works_with_esp32_adapters() {
 
     driver.apply_channels(left, right).unwrap();
 
-    assert_eq!(driver.channel_a().current_command().direction, MotorDirection::Forward);
+    assert_eq!(
+        driver.channel_a().current_command().direction,
+        MotorDirection::Forward
+    );
     assert_eq!(driver.channel_a().current_command().duty_percent, 60);
-    assert_eq!(driver.channel_b().current_command().direction, MotorDirection::Reverse);
+    assert_eq!(
+        driver.channel_b().current_command().direction,
+        MotorDirection::Reverse
+    );
     assert_eq!(driver.channel_b().current_command().duty_percent, 40);
 }
 
@@ -159,7 +165,8 @@ fn l298n_channel_forward_drives_gpio_pins_correctly_via_esp32() {
 #[test]
 fn l298n_channel_brake_drives_both_pins_high_via_esp32() {
     let mut ch = make_channel();
-    ch.apply(MotorCommand::new(MotorDirection::Brake, 0)).unwrap();
+    ch.apply(MotorCommand::new(MotorDirection::Brake, 0))
+        .unwrap();
 
     assert!(ch.in1().inner().level);
     assert!(ch.in2().inner().level);
@@ -179,6 +186,12 @@ fn full_actuator_scenario_servo_tracks_distance_motor_responds_to_direction() {
     driver.apply_channels(cmd, cmd).unwrap();
 
     assert!(servo.current_angle() <= 180);
-    assert_eq!(driver.channel_a().current_command().direction, MotorDirection::Forward);
-    assert_eq!(driver.channel_b().current_command().direction, MotorDirection::Forward);
+    assert_eq!(
+        driver.channel_a().current_command().direction,
+        MotorDirection::Forward
+    );
+    assert_eq!(
+        driver.channel_b().current_command().direction,
+        MotorDirection::Forward
+    );
 }
