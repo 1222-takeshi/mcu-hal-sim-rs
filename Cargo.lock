@@ -3,6 +3,12 @@
 version = 3
 
 [[package]]
+name = "base64"
+version = "0.22.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
+
+[[package]]
 name = "byteorder"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -77,11 +83,13 @@ dependencies = [
 name = "platform-pc-sim"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "core-app",
  "embedded-hal",
  "hal-api",
  "platform-esp32",
  "reference-drivers",
+ "sha1_smol",
 ]
 
 [[package]]
@@ -91,6 +99,12 @@ dependencies = [
  "embedded-hal",
  "hal-api",
 ]
+
+[[package]]
+name = "sha1_smol"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbfa15b3dddfee50a0fff136974b3e1bde555604ba463834a7eb7deb6417705d"
 
 [[package]]
 name = "stable_deref_trait"
