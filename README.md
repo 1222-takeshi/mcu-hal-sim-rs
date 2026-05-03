@@ -287,6 +287,65 @@ cargo check --release
 cargo run --release
 ```
 
+### Servo / Motor を ESP32 で動かす (PwmOutput bridge)
+
+`ServoDriver` と `L298nDualDriver` は `hal_api::pwm::PwmOutput` / `hal_api::actuator::DriveMotor` に依存しており、
+ESP32 ではアダプタ `Esp32PwmOutput` を介して `embedded-hal::pwm::SetDutyCycle` チャンネルに繋ぐ設計になっています。
+
+```
+ServoDriver<Esp32PwmOutput<LeadcChannel>>
+L298nChannel<Esp32OutputPin<IN1>, Esp32OutputPin<IN2>, Esp32PwmOutput<EnaChannel>>
+L298nDualDriver<ChannelA, ChannelB>
+```
+
+#### 型の組み方（擬似コード）
+
+```rust ignore
+use hal_api::actuator::{DriveMotor, DualMotorDriver, MotorCommand, MotorDirection, ServoMotor};
+use hal_api::pwm::PwmOutput as _;
+use platform_esp32::{
+    gpio::Esp32OutputPin,
+    pwm::Esp32PwmOutput,
+    servo::ServoDriver,
+    l298n::{L298nChannel, L298nDualDriver},
+};
+
+// LEDC チャンネル（esp-hal の SetDutyCycle 実装）を Esp32PwmOutput でラップ
+let pwm = Esp32PwmOutput::new(ledc_channel); // embedded-hal SetDutyCycle
+let mut servo = ServoDriver::new(pwm);
+
+// 角度を指定（0–180°）
+servo.set_angle_degrees(90).unwrap(); // 7.5% duty
+
+// L298N dual motor driver
+let ch_a = L298nChannel::new(
+    Esp32OutputPin::new(in1_pin),
+    Esp32OutputPin::new(in2_pin),
+    Esp32PwmOutput::new(ena_pwm),
+);
+let ch_b = L298nChannel::new(
+    Esp32OutputPin::new(in3_pin),
+    Esp32OutputPin::new(in4_pin),
+    Esp32PwmOutput::new(enb_pwm),
+);
+let mut driver = L298nDualDriver::new(ch_a, ch_b);
+driver.apply_channels(
+    MotorCommand::new(MotorDirection::Forward, 60), // duty 60%
+    MotorCommand::new(MotorDirection::Reverse, 40),
+).unwrap();
+```
+
+#### duty 計算
+
+| 操作 | 数式 | 例 |
+|------|------|----|
+| `ServoDriver::set_angle_degrees(θ)` | duty = 5 + θ × 5 / 180 % | 0°→5%, 90°→7.5%, 180°→10% |
+| `Esp32PwmOutput::set_duty_percent(d)` | raw = d × max / 100 | max=1000, 7%→70 |
+| `L298nChannel::apply(cmd)` | IN1/IN2 GPIO + ENA duty | Forward=(H,L,60%) |
+
+**注意**: `esp-hal` の LEDC API は crate バージョンにより変わります。
+`Esp32PwmOutput::new(channel)` を呼ぶ前に `channel.set_duty_hz(50)` で 50 Hz を設定しておいてください。
+
 ### M5StickC を診断用 board として使う
 
 M5StickC は `core-app` の本番実行先というより、ESP32 系 board の I2C / button / USB 接続を
@@ -521,7 +580,7 @@ mcu-hal-sim-rs/
 - [ ] `ClimateDisplayApp` の reference path を保ちながら、新しい board / sensor の追加手順を標準化する
 - [ ] `Arduino Nano` の bring-up から `platform-avr` へ還流できる共通 contract を切り出す
 - [ ] `Raspberry Pi Pico` / `Teensy` / `ESP32-CAM` のような候補を、共通契約へ還元できる単位で検証する
-- [ ] servo / motor driver の host-side mock を実 driver bridge まで広げる
+- [x] servo / motor driver の host-side mock を実 driver bridge まで広げる（v0.3.1–v0.3.2）
 - [ ] browser dashboard を WebSocket / canvas / wiring editor まで育てる
 - [ ] `EnvSensor` 以外の sensor / actuator lineup も増やし、downstream repo が driver を差し替えやすい状態を作る
 - [ ] publish 対象 crate の release 導線を固める
