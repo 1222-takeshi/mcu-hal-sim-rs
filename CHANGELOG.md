@@ -11,6 +11,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.2] - 2026-05-03
+
+Servo / Motor の reference driver 実装と ESP32 向け PWM アダプタを追加。すべてのアクチュエータが sim-to-real の driver-backed 経路になりました。
+
+### Added
+- **[#61]** `hal-api/pwm.rs`: `PwmOutput` trait（`set_duty_percent 0–100%` / `duty_percent()`）を追加
+- **[#61]** `hal-api/error.rs`: `From<GpioError> for ActuatorError` 変換を追加
+- **[#61]** `reference-drivers/servo.rs`: `ServoDriver<P: PwmOutput>` を追加。0–180° を PWM デューティ比 5–10%（50Hz RC サーボ標準）に線形マッピング
+- **[#61]** `reference-drivers/l298n.rs`: `L298nChannel<D1, D2, P>` と `L298nDualDriver<A, B>` を追加。IN1/IN2 GPIO + ENA PWM で L298N 真理値表を実装
+- **[#61]** `platform-pc-sim/pwm_mock.rs`: `MockPwmOutput` を追加（デューティ比履歴・クローン共有状態）
+- **[#61]** `device_dashboard_web`: `MockServoMotor` → `ServoDriver<MockPwmOutput>`、`MockDualMotorDriver` → `L298nDualDriver<...>` に置き換え
+- `platform-esp32/pwm.rs`: `Esp32PwmOutput<P: SetDutyCycle>` を追加。`embedded-hal` v1.0 の PWM チャンネルを `PwmOutput` に橋渡し
+- `platform-esp32/servo.rs`, `platform-esp32/l298n.rs`: reference-drivers の `ServoDriver` と `L298nDualDriver` を re-export
+
+---
+
 ## [0.3.1] - 2026-05-02
 
 v0.3.0 のビジュアルシミュレータに対するリアクティブアニメーション・ボード切替 API・ドキュメント整備を追加。CI の no_std チェック対象に `reference-drivers` を追加。
