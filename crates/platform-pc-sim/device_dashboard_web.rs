@@ -1,7 +1,10 @@
 use core::str;
 use std::env;
-use std::io::{Read as _, Write as _};
+use std::io::{self, Read as _, Write as _};
 use std::net::{TcpListener, TcpStream};
+use std::sync::{mpsc, Arc, Mutex};
+use std::thread;
+use std::time::Duration;
 
 use core_app::climate_display::{ClimateDisplayApp, ClimateDisplayConfig};
 use embedded_hal::delay::DelayNs;
@@ -31,6 +34,31 @@ use reference_drivers::mpu6050::{Mpu6050Sensor, MPU6050_ADDRESS_PRIMARY};
 use reference_drivers::servo::ServoDriver;
 
 const DEFAULT_PORT: u16 = 7878;
+
+/// Shared server state passed to every connection-handler thread.
+struct ServerContext {
+    latest_json: Mutex<String>,
+    ws_clients: Mutex<Vec<mpsc::SyncSender<String>>>,
+    current_board: Mutex<BoardProfile>,
+}
+
+impl ServerContext {
+    fn new(board: BoardProfile) -> Arc<Self> {
+        Arc::new(Self {
+            latest_json: Mutex::new("{}".into()),
+            ws_clients: Mutex::new(vec![]),
+            current_board: Mutex::new(board),
+        })
+    }
+
+    fn push_state(&self, json: String) {
+        *self.latest_json.lock().unwrap() = json.clone();
+        self.ws_clients
+            .lock()
+            .unwrap()
+            .retain(|tx| tx.try_send(json.clone()).is_ok());
+    }
+}
 
 #[derive(Default)]
 struct NoopDelay;
@@ -484,85 +512,223 @@ fn main() {
         .unwrap_or(DEFAULT_PORT);
 
     let listener = TcpListener::bind(("127.0.0.1", port)).expect("server should bind");
+    listener
+        .set_nonblocking(true)
+        .expect("non-blocking should be supported");
+
+    let ctx = ServerContext::new(board);
+    let (board_tx, board_rx) = mpsc::channel::<BoardProfile>();
     let mut rig = DeviceSimulationRig::new(board);
+    let mut push_ticker: u32 = 0;
 
     println!("device dashboard server started");
     println!("open http://127.0.0.1:{port}");
     println!("board profile: {}", board.name());
+    println!("WebSocket endpoint: ws://127.0.0.1:{port}/api/ws");
 
-    for stream in listener.incoming() {
-        let Ok(mut stream) = stream else {
-            continue;
-        };
-        let mut request = [0u8; 1024];
-        let Ok(read_len) = stream.read(&mut request) else {
-            continue;
-        };
-        let request = String::from_utf8_lossy(&request[..read_len]);
-        let first_line = request.lines().next().unwrap_or("GET / HTTP/1.1");
-        let mut parts = first_line.split_whitespace();
-        let method = parts.next().unwrap_or("GET");
-        let path = parts.next().unwrap_or("/");
-        let body = request
-            .find("\r\n\r\n")
-            .map(|pos| &request[pos + 4..])
-            .unwrap_or("");
+    loop {
+        // Apply pending board change from a handler thread.
+        if let Ok(new_board) = board_rx.try_recv() {
+            rig = DeviceSimulationRig::new(new_board);
+            *ctx.current_board.lock().unwrap() = new_board;
+            println!("board changed to: {}", new_board.name());
+        }
 
-        match (method, path) {
-            (_, "/") => respond(
+        // Tick the simulation.
+        let state = rig.step();
+        push_ticker = push_ticker.wrapping_add(1);
+
+        // Push JSON to WebSocket clients every 10 ticks (~100 ms).
+        if push_ticker % 10 == 0 {
+            ctx.push_state(state_to_json(&state));
+        }
+
+        // Accept new TCP connections (non-blocking).
+        loop {
+            match listener.accept() {
+                Ok((stream, _)) => {
+                    let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+                    let ctx_clone = Arc::clone(&ctx);
+                    let board_tx_clone = board_tx.clone();
+                    thread::spawn(move || {
+                        handle_connection(stream, ctx_clone, board_tx_clone);
+                    });
+                }
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                Err(_) => break,
+            }
+        }
+
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn handle_connection(
+    mut stream: TcpStream,
+    ctx: Arc<ServerContext>,
+    board_tx: mpsc::Sender<BoardProfile>,
+) {
+    let mut request_buf = [0u8; 4096];
+    let Ok(read_len) = stream.read(&mut request_buf) else {
+        return;
+    };
+    let raw = &request_buf[..read_len];
+    let request = String::from_utf8_lossy(raw);
+
+    let first_line = request.lines().next().unwrap_or("GET / HTTP/1.1");
+    let mut parts = first_line.split_whitespace();
+    let method = parts.next().unwrap_or("GET");
+    let path = parts.next().unwrap_or("/");
+
+    // Check for WebSocket upgrade before HTTP routing.
+    let is_ws_upgrade = request
+        .to_ascii_lowercase()
+        .contains("upgrade: websocket");
+    if is_ws_upgrade && path == "/api/ws" {
+        handle_websocket(stream, &request, ctx);
+        return;
+    }
+
+    let body = request
+        .find("\r\n\r\n")
+        .map(|pos| &request[pos + 4..])
+        .unwrap_or("");
+
+    match (method, path) {
+        (_, "/") => respond(
+            &mut stream,
+            "200 OK",
+            "text/html; charset=utf-8",
+            dashboard_html(),
+        ),
+        (_, "/api/state") => {
+            let json = ctx.latest_json.lock().unwrap().clone();
+            respond(
                 &mut stream,
                 "200 OK",
-                "text/html; charset=utf-8",
-                dashboard_html(),
-            ),
-            (_, "/api/state") => {
-                let payload = state_to_json(&rig.step());
-                respond(
-                    &mut stream,
-                    "200 OK",
-                    "application/json; charset=utf-8",
-                    &payload,
-                );
+                "application/json; charset=utf-8",
+                &json,
+            );
+        }
+        ("POST", "/api/wiring") => {
+            if let Some(board_name) = parse_board_from_json(body) {
+                let new_board = BoardProfile::from_arg(Some(board_name));
+                let _ = board_tx.send(new_board);
+                // Give the main thread time to apply the change.
+                thread::sleep(Duration::from_millis(50));
             }
-            ("POST", "/api/wiring") => {
-                if let Some(board_name) = parse_board_from_json(body) {
-                    let new_board = BoardProfile::from_arg(Some(board_name));
-                    rig = DeviceSimulationRig::new(new_board);
-                    println!("board changed to: {}", rig.board.name());
-                }
-                let payload = WiringConfig::from_board(rig.board).to_json();
-                respond(
-                    &mut stream,
-                    "200 OK",
-                    "application/json; charset=utf-8",
-                    &payload,
-                );
-            }
-            (_, "/api/wiring") => {
-                let payload = WiringConfig::from_board(rig.board).to_json();
-                respond(
-                    &mut stream,
-                    "200 OK",
-                    "application/json; charset=utf-8",
-                    &payload,
-                );
-            }
-            (_, "/api/wiring/svg") => {
-                let cfg = WiringConfig::from_board(rig.board);
-                let svg = wiring_svg(&cfg);
-                respond(&mut stream, "200 OK", "image/svg+xml; charset=utf-8", &svg);
-            }
-            (_, "/api/test/stream") => {
-                handle_test_stream(&mut stream);
-            }
-            _ => respond(
+            let board = *ctx.current_board.lock().unwrap();
+            let payload = WiringConfig::from_board(board).to_json();
+            respond(
                 &mut stream,
-                "404 Not Found",
-                "text/plain; charset=utf-8",
-                "not found",
-            ),
+                "200 OK",
+                "application/json; charset=utf-8",
+                &payload,
+            );
+        }
+        (_, "/api/wiring") => {
+            let board = *ctx.current_board.lock().unwrap();
+            let payload = WiringConfig::from_board(board).to_json();
+            respond(
+                &mut stream,
+                "200 OK",
+                "application/json; charset=utf-8",
+                &payload,
+            );
+        }
+        (_, "/api/wiring/svg") => {
+            let board = *ctx.current_board.lock().unwrap();
+            let cfg = WiringConfig::from_board(board);
+            let svg = wiring_svg(&cfg);
+            respond(&mut stream, "200 OK", "image/svg+xml; charset=utf-8", &svg);
+        }
+        (_, "/api/test/stream") => {
+            handle_test_stream(&mut stream);
+        }
+        _ => respond(
+            &mut stream,
+            "404 Not Found",
+            "text/plain; charset=utf-8",
+            "not found",
+        ),
+    }
+}
+
+/// Upgrade the TCP stream to WebSocket, then stream JSON state updates to the client.
+///
+/// Implements a minimal RFC 6455 WebSocket server-side handshake and text-frame sender
+/// using only SHA-1 (via `sha1_smol`) and Base64 (`base64`) — no full WS library needed.
+fn handle_websocket(mut stream: TcpStream, request_headers: &str, ctx: Arc<ServerContext>) {
+    // ── Handshake ─────────────────────────────────────────────────────────────
+    let ws_key = request_headers
+        .lines()
+        .find_map(|line| {
+            let lower = line.to_ascii_lowercase();
+            if lower.starts_with("sec-websocket-key:") {
+                Some(line[line.find(':').unwrap() + 1..].trim().to_string())
+            } else {
+                None
+            }
+        })
+        .unwrap_or_default();
+
+    const GUID: &str = "258EAFA5-E914-4789-0000-000000000000";
+    let accept_input = format!("{ws_key}{GUID}");
+    let digest = sha1_smol::Sha1::from(accept_input.as_bytes()).digest().bytes();
+    use base64::Engine as _;
+    let accept_value = base64::engine::general_purpose::STANDARD.encode(digest);
+
+    let response = format!(
+        "HTTP/1.1 101 Switching Protocols\r\n\
+         Upgrade: websocket\r\n\
+         Connection: Upgrade\r\n\
+         Sec-WebSocket-Accept: {accept_value}\r\n\
+         \r\n"
+    );
+    if stream.write_all(response.as_bytes()).is_err() {
+        return;
+    }
+
+    // ── Register a push channel ────────────────────────────────────────────────
+    let initial = ctx.latest_json.lock().unwrap().clone();
+    let (tx, rx) = mpsc::sync_channel::<String>(32);
+    ctx.ws_clients.lock().unwrap().push(tx);
+
+    // Send the current state immediately so the client doesn't have to wait.
+    if ws_text_send(&mut stream, &initial).is_err() {
+        return;
+    }
+
+    // Forward state updates until the channel or stream is closed.
+    for json in rx {
+        if ws_text_send(&mut stream, &json).is_err() {
+            break;
         }
     }
+}
+
+/// Send a single unsegmented text frame (RFC 6455 §5.6, no masking on server side).
+fn ws_text_send(stream: &mut TcpStream, payload: &str) -> io::Result<()> {
+    let data = payload.as_bytes();
+    let len = data.len();
+
+    let mut header = Vec::with_capacity(10);
+    header.push(0x81u8); // FIN=1, opcode=0x1 (text)
+    if len < 126 {
+        header.push(len as u8);
+    } else if len < 65536 {
+        header.push(0x7E);
+        header.push((len >> 8) as u8);
+        header.push((len & 0xFF) as u8);
+    } else {
+        header.push(0x7F);
+        for shift in (0..8).rev() {
+            header.push(((len >> (shift * 8)) & 0xFF) as u8);
+        }
+    }
+    stream.write_all(&header)?;
+    stream.write_all(data)?;
+    stream.flush()
 }
 
 #[cfg(test)]

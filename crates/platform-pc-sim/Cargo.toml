@@ -16,6 +16,8 @@ hal-api = { version = "0.1.0", path = "../hal-api" }
 core-app = { version = "0.1.0", path = "../core-app" }
 embedded-hal = "1.0"
 reference-drivers = { version = "0.1.0", path = "../reference-drivers" }
+sha1_smol = "1.0"
+base64 = "0.22"
 
 [lib]
 path = "lib.rs"

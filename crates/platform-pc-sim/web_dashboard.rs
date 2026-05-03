@@ -401,7 +401,7 @@ pub fn dashboard_html() -> &'static str {
         <h1 class="hero-title" id="board-name">Device Dashboard</h1>
         <p class="hero-sub">
           Reference-path GUI for climate, distance, IMU, servo, and motor-driver simulation.
-          The page polls the host simulator and renders both abstract app state and physical-device state.
+          The page receives real-time push updates from the host simulator via WebSocket.
         </p>
         <div class="hero-meta">
           <span class="chip" id="mcu-name">MCU</span>
@@ -416,7 +416,7 @@ pub fn dashboard_html() -> &'static str {
           <div class="label">Servo</div>
           <div class="big" id="servo-value">-- deg</div>
         </div>
-        <div class="label">Live polling from <code>/api/state</code></div>
+        <div class="label">WebSocket live updates via <code>/api/ws</code></div>
       </aside>
     </section>
 
@@ -879,83 +879,76 @@ pub fn dashboard_html() -> &'static str {
       }, 180);
     }
 
-    // ── Main refresh ──
+    // ── Main render (called from WebSocket messages) ──
     let paused = false;
-    async function refresh() {
+    function renderState(s) {
       if (paused) return;
-      try {
-        const r = await fetch("/api/state");
-        if (!r.ok) throw new Error("HTTP " + r.status);
-        const s = await r.json();
 
-        $("board-name").textContent = s.board_name;
-        $("mcu-name").textContent   = s.mcu_name;
-        $("tick-chip").textContent  = "tick=" + s.tick;
-        $("i2c-chip").textContent   = "i2c ops=" + s.i2c.operation_count;
+      $("board-name").textContent = s.board_name;
+      $("mcu-name").textContent   = s.mcu_name;
+      $("tick-chip").textContent  = "tick=" + s.tick;
+      $("i2c-chip").textContent   = "i2c ops=" + s.i2c.operation_count;
 
-        $("temp-value").textContent  = fmt(s.climate.temperature_c,    " \u00B0C");
-        $("hum-value").textContent   = fmt(s.climate.humidity_percent, " %");
-        $("press-value").textContent = fmt(s.climate.pressure_pa,      " Pa");
-        lcdLines[0].textContent = s.climate.physical_lcd_frame[0];
-        lcdLines[1].textContent = s.climate.physical_lcd_frame[1];
+      $("temp-value").textContent  = fmt(s.climate.temperature_c,    " \u00B0C");
+      $("hum-value").textContent   = fmt(s.climate.humidity_percent, " %");
+      $("press-value").textContent = fmt(s.climate.pressure_pa,      " Pa");
+      lcdLines[0].textContent = s.climate.physical_lcd_frame[0];
+      lcdLines[1].textContent = s.climate.physical_lcd_frame[1];
 
-        $("distance-value").textContent       = fmt(s.distance.distance_mm, " mm");
-        $("distance-metric").textContent      = fmt(s.distance.distance_mm, " mm");
-        $("distance-sensor-name").textContent = s.distance.sensor_name;
-        $("servo-value").textContent          = s.servo.angle_degrees + " deg";
+      $("distance-value").textContent       = fmt(s.distance.distance_mm, " mm");
+      $("distance-metric").textContent      = fmt(s.distance.distance_mm, " mm");
+      $("distance-sensor-name").textContent = s.distance.sensor_name;
+      $("servo-value").textContent          = s.servo.angle_degrees + " deg";
 
-        $("accel-x").textContent = s.imu.accel_mg[0]  + " mg";
-        $("accel-y").textContent = s.imu.accel_mg[1]  + " mg";
-        $("accel-z").textContent = s.imu.accel_mg[2]  + " mg";
-        $("gyro-x").textContent  = s.imu.gyro_mdps[0] + " mdps";
-        $("gyro-y").textContent  = s.imu.gyro_mdps[1] + " mdps";
-        $("gyro-z").textContent  = s.imu.gyro_mdps[2] + " mdps";
+      $("accel-x").textContent = s.imu.accel_mg[0]  + " mg";
+      $("accel-y").textContent = s.imu.accel_mg[1]  + " mg";
+      $("accel-z").textContent = s.imu.accel_mg[2]  + " mg";
+      $("gyro-x").textContent  = s.imu.gyro_mdps[0] + " mdps";
+      $("gyro-y").textContent  = s.imu.gyro_mdps[1] + " mdps";
+      $("gyro-z").textContent  = s.imu.gyro_mdps[2] + " mdps";
 
-        $("motor-left").textContent  = s.motor_driver.left.direction  + " " + s.motor_driver.left.duty_percent  + "%";
-        $("motor-right").textContent = s.motor_driver.right.direction + " " + s.motor_driver.right.duty_percent + "%";
+      $("motor-left").textContent  = s.motor_driver.left.direction  + " " + s.motor_driver.left.duty_percent  + "%";
+      $("motor-right").textContent = s.motor_driver.right.direction + " " + s.motor_driver.right.duty_percent + "%";
 
-        const devEl = $("wiring-devices");
-        if (devEl) devEl.textContent = s.wiring.attached_devices.join(", ") || "--";
+      const devEl = $("wiring-devices");
+      if (devEl) devEl.textContent = s.wiring.attached_devices.join(", ") || "--";
 
-        const ops = $("i2c-ops");
-        ops.innerHTML = "";
-        for (const line of s.i2c.recent_operations) {
-          const li = document.createElement("li");
-          li.textContent = line;
-          ops.appendChild(li);
-        }
-
-        // history + sparklines
-        push("temp",   s.climate.temperature_c);
-        push("hum",    s.climate.humidity_percent);
-        push("press",  s.climate.pressure_pa);
-        push("dist",   s.distance.distance_mm);
-        push("accelz", s.imu.accel_mg[2]);
-        sparkline("spark-temp",   hist.temp);
-        sparkline("spark-hum",    hist.hum);
-        sparkline("spark-press",  hist.press);
-        sparkline("spark-dist",   hist.dist);
-        sparkline("spark-accelz", hist.accelz);
-
-        // visual simulation
-        setLed(s.tick);
-        setServo(s.servo.angle_degrees);
-        setMotorViz("left",  s.motor_driver.left.direction,  s.motor_driver.left.duty_percent);
-        setMotorViz("right", s.motor_driver.right.direction, s.motor_driver.right.duty_percent);
-        setSonar(s.distance.distance_mm);
-        setImuLevel(s.imu.accel_mg[0], s.imu.accel_mg[1]);
-
-        // flash SDA/SCL wires when a new I2C operation is detected
-        const curOp = s.i2c.recent_operations[0] || '';
-        if (curOp && curOp !== lastI2cFirstOp) {
-          flashWires();
-          lastI2cFirstOp = curOp;
-        }
-
-        setOk();
-      } catch(e) {
-        setErr(e.message);
+      const ops = $("i2c-ops");
+      ops.innerHTML = "";
+      for (const line of s.i2c.recent_operations) {
+        const li = document.createElement("li");
+        li.textContent = line;
+        ops.appendChild(li);
       }
+
+      // history + sparklines
+      push("temp",   s.climate.temperature_c);
+      push("hum",    s.climate.humidity_percent);
+      push("press",  s.climate.pressure_pa);
+      push("dist",   s.distance.distance_mm);
+      push("accelz", s.imu.accel_mg[2]);
+      sparkline("spark-temp",   hist.temp);
+      sparkline("spark-hum",    hist.hum);
+      sparkline("spark-press",  hist.press);
+      sparkline("spark-dist",   hist.dist);
+      sparkline("spark-accelz", hist.accelz);
+
+      // visual simulation
+      setLed(s.tick);
+      setServo(s.servo.angle_degrees);
+      setMotorViz("left",  s.motor_driver.left.direction,  s.motor_driver.left.duty_percent);
+      setMotorViz("right", s.motor_driver.right.direction, s.motor_driver.right.duty_percent);
+      setSonar(s.distance.distance_mm);
+      setImuLevel(s.imu.accel_mg[0], s.imu.accel_mg[1]);
+
+      // flash SDA/SCL wires when a new I2C operation is detected
+      const curOp = s.i2c.recent_operations[0] || '';
+      if (curOp && curOp !== lastI2cFirstOp) {
+        flashWires();
+        lastI2cFirstOp = curOp;
+      }
+
+      setOk();
     }
 
     // ── E2E Test Runner ──
@@ -1006,13 +999,40 @@ pub fn dashboard_html() -> &'static str {
       };
     }
 
-    // ── Interval control ──
-    let timerId = null;
-    function startTimer(ms) {
-      clearInterval(timerId);
-      timerId = setInterval(refresh, ms);
+    // ── Render throttle (client-side) ──
+    let renderIntervalMs = 500;
+    let lastRenderMs = 0;
+    $("isel").addEventListener("change", e => { renderIntervalMs = +e.target.value; });
+
+    // ── WebSocket with exponential-backoff reconnect ──
+    let wsRetryDelay = 500;
+    let wsRetryTimer = null;
+
+    function connectWs() {
+      clearTimeout(wsRetryTimer);
+      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const ws = new WebSocket(proto + '//' + location.host + '/api/ws');
+
+      ws.onopen = () => {
+        wsRetryDelay = 500;
+        setOk();
+      };
+
+      ws.onmessage = (e) => {
+        if (paused) return;
+        const now = Date.now();
+        if (now - lastRenderMs < renderIntervalMs) return;
+        lastRenderMs = now;
+        try { renderState(JSON.parse(e.data)); }
+        catch(err) { setErr(err.message); }
+      };
+
+      ws.onclose = ws.onerror = () => {
+        setErr('WebSocket reconnecting\u2026');
+        wsRetryTimer = setTimeout(connectWs, wsRetryDelay);
+        wsRetryDelay = Math.min(wsRetryDelay * 2, 10000);
+      };
     }
-    $("isel").addEventListener("change", e => startTimer(+e.target.value));
 
     // ── Pause/resume ──
     $("pbtn").addEventListener("click", () => {
@@ -1036,8 +1056,7 @@ pub fn dashboard_html() -> &'static str {
     try { applyTheme(localStorage.getItem("dash-theme") === "dark"); } catch(_) {}
 
     // ── Boot ──
-    refresh();
-    startTimer(500);
+    connectWs();
   </script>
 </body>
 </html>
@@ -1051,7 +1070,8 @@ mod tests {
     #[test]
     fn html_contains_api_endpoint() {
         let html = dashboard_html();
-        assert!(html.contains("/api/state"));
+        // The dashboard uses WebSocket (/api/ws); /api/state remains as HTTP fallback.
+        assert!(html.contains("/api/ws"));
         assert!(html.contains("Device Dashboard"));
     }
 
