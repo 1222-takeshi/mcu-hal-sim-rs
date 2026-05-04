@@ -11,7 +11,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.3.7] - 2026-05-04
+## [0.3.8] - 2026-05-04
+
+DS3231/SGP30/VL53L0X の ESP32 アダプターとブリッジテストを追加。sim-to-real 経路の完成。
+
+### Added
+- **[#86]** `platform-esp32`: `ds3231.rs` — DS3231 RTC re-export アダプター
+- **[#86]** `platform-esp32`: `sgp30.rs` — SGP30 ガスセンサ re-export アダプター
+- **[#86]** `platform-esp32`: `vl53l0x.rs` — VL53L0X ToF センサ re-export アダプター
+- **[#86]** `platform-esp32/tests/new_sensor_bridge2.rs` — 13 ブリッジテスト
+  - DS3231: datetime 読み取り, set_datetime BCD フレーム検証, バスエラー伝播
+  - SGP30: init+読み取り, init コマンド確認, init バスエラー伝播
+  - VL53L0X: 距離読み取り, モデル ID 検証失敗, ポーリングタイムアウト (Busy)
+- テスト数: 237 → 250
+
+---
+
+
 
 DS3231/SGP30/VL53L0X の PC シミュレータ統合。3 センサー向けモックデバイスとダッシュボードパネルを追加。
 
