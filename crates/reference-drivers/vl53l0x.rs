@@ -101,12 +101,7 @@ mod tests {
             buf[1] = self.distance_l;
             Ok(())
         }
-        fn write_read(
-            &mut self,
-            addr: u8,
-            write: &[u8],
-            buf: &mut [u8],
-        ) -> Result<(), I2cError> {
+        fn write_read(&mut self, addr: u8, write: &[u8], buf: &mut [u8]) -> Result<(), I2cError> {
             // モデルID確認リクエスト
             if write[0] == 0xC0 {
                 buf[0] = 0xEE; // valid model ID

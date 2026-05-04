@@ -60,7 +60,14 @@ impl<I2C: I2cBus<Error = I2cError>> RtcSensor for Ds3231Sensor<I2C> {
         let month = bcd_to_dec(buf[5] & 0x1F);
         let year_offset = bcd_to_dec(buf[6]);
 
-        Ok(RtcDateTime::new(year_offset, month, day, hour, minute, second))
+        Ok(RtcDateTime::new(
+            year_offset,
+            month,
+            day,
+            hour,
+            minute,
+            second,
+        ))
     }
 }
 
@@ -91,12 +98,7 @@ mod tests {
             buf.copy_from_slice(&self.regs[..buf.len()]);
             Ok(())
         }
-        fn write_read(
-            &mut self,
-            _addr: u8,
-            _write: &[u8],
-            buf: &mut [u8],
-        ) -> Result<(), I2cError> {
+        fn write_read(&mut self, _addr: u8, _write: &[u8], buf: &mut [u8]) -> Result<(), I2cError> {
             buf.copy_from_slice(&self.regs[..buf.len()]);
             Ok(())
         }
