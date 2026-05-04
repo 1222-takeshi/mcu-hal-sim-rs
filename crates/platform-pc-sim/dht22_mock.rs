@@ -86,6 +86,7 @@ impl Dht22RawDevice for MockDht22Device {
 }
 
 /// `EnvSensor` 直接実装（DRY: `Dht22Sensor<MockDht22Device>` を再利用）
+#[derive(Clone, Debug)]
 pub struct MockDht22EnvSensor {
     inner: Dht22Sensor<MockDht22Device>,
 }
