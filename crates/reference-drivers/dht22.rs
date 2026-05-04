@@ -12,10 +12,11 @@ use hal_api::sensor::{EnvReading, EnvSensor};
 /// 実装側は開始パルスの送出と 40bit データの受信を担当します。
 pub trait Dht22RawDevice {
     type Error;
-    /// 40 バイトの raw data を読み取ります（5 バイトの DHT22 プロトコル）。
+    /// 40 ビットの raw data を読み取ります（5 バイトの DHT22 プロトコル）。
     fn read_raw_bytes(&mut self) -> Result<[u8; 5], Self::Error>;
 }
 
+#[derive(Debug, Clone)]
 pub struct Dht22Sensor<DEV> {
     device: DEV,
 }

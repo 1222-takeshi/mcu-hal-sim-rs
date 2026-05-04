@@ -1,8 +1,8 @@
 //! Host-side DHT22 温湿度センサモック
 
 use hal_api::error::SensorError;
-use hal_api::sensor::{EnvReading, EnvSensor};
-use reference_drivers::dht22::Dht22RawDevice;
+use hal_api::sensor::EnvSensor;
+use reference_drivers::dht22::{Dht22RawDevice, Dht22Sensor};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::vec::Vec;
@@ -85,16 +85,16 @@ impl Dht22RawDevice for MockDht22Device {
     }
 }
 
-/// `EnvSensor` 直接実装（軽量版、VirtualI2cBus 不要）
+/// `EnvSensor` 直接実装（DRY: `Dht22Sensor<MockDht22Device>` を再利用）
 #[derive(Clone, Debug)]
 pub struct MockDht22EnvSensor {
-    inner: MockDht22Device,
+    inner: Dht22Sensor<MockDht22Device>,
 }
 
 impl MockDht22EnvSensor {
     pub fn fixed(temp_x10: i16, humidity_x10: u16) -> Self {
         Self {
-            inner: MockDht22Device::fixed(temp_x10, humidity_x10),
+            inner: Dht22Sensor::new(MockDht22Device::fixed(temp_x10, humidity_x10)),
         }
     }
 }
@@ -108,12 +108,8 @@ impl Default for MockDht22EnvSensor {
 impl EnvSensor for MockDht22EnvSensor {
     type Error = SensorError;
 
-    fn read(&mut self) -> Result<EnvReading, SensorError> {
-        let raw = self.inner.read_raw_bytes()?;
-        let hum_raw = u16::from_be_bytes([raw[0], raw[1]]) as u32;
-        let temp_raw = u16::from_be_bytes([raw[2] & 0x7F, raw[3]]) as i32;
-        let sign = if raw[2] & 0x80 != 0 { -1 } else { 1 };
-        Ok(EnvReading::new(sign * temp_raw * 10, hum_raw * 10, None))
+    fn read(&mut self) -> Result<hal_api::sensor::EnvReading, SensorError> {
+        self.inner.read()
     }
 }
 

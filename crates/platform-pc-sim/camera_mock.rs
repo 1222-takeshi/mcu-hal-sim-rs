@@ -29,7 +29,7 @@ impl MockCamera {
                 format,
                 sequence: 0,
                 capture_count: 0,
-                frame_size_bytes: width * height / 8, // approximate
+                frame_size_bytes: width * height / 8, // approximate 1bpp; real JPEG varies
             })),
         }
     }

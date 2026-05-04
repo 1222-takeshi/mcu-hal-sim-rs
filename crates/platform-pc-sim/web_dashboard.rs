@@ -1595,5 +1595,30 @@ mod tests {
         assert!(json.contains("\"board_name\":\"Arduino Nano\""));
         assert!(json.contains("\"sensor_name\":\"HC-SR04\""));
         assert!(json.contains("\"operation_count\":12"));
+        // Light and camera panel assertions
+        assert!(
+            json.contains("\"lux_x100\":5000"),
+            "light.lux_x100 missing in JSON"
+        );
+        assert!(
+            json.contains("\"sensor_name\":\"BH1750\""),
+            "light.sensor_name missing in JSON"
+        );
+        assert!(
+            json.contains("\"width\":320"),
+            "camera.width missing in JSON"
+        );
+        assert!(
+            json.contains("\"height\":240"),
+            "camera.height missing in JSON"
+        );
+        assert!(
+            json.contains("\"sequence\":1"),
+            "camera.sequence missing in JSON"
+        );
+        assert!(
+            json.contains("\"sensor_name\":\"ESP32-CAM\""),
+            "camera.sensor_name missing in JSON"
+        );
     }
 }

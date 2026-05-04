@@ -73,6 +73,7 @@ impl VirtualI2cDevice for MockBh1750Device {
         let lux_x100 = *state.lux_x100_sequence.get(state.next_index).unwrap_or(&0);
 
         // lux_x100 = raw * 500 / 6  →  raw = lux_x100 * 6 / 500
+        // Note: ~17% rounding error for lux_x100 < 500 (integer division)
         let raw = (lux_x100 * 6 / 500) as u16;
         let [hi, lo] = raw.to_be_bytes();
         buffer[0] = hi;
