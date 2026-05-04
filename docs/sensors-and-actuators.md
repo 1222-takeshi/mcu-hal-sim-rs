@@ -17,7 +17,7 @@ hal-api  →  reference-drivers  →  platform-pc-sim (mock)  →  platform-esp3
 |------|-----|
 | 通信方式 | I2C |
 | I2C アドレス | `0x77`（primary）/ `0x76`（secondary） |
-| HAL trait | `EnvSensor` → `EnvReading { temperature_centi_celsius, humidity_centi_percent, pressure_pa }` |
+| HAL trait | `EnvSensor` → `EnvReading { temperature_centi_celsius, humidity_centi_percent, pressure_pascal }` |
 | ダッシュボードパネル | **Climate** |
 | sim-to-real | ✅ 完全対応 |
 
@@ -25,7 +25,6 @@ hal-api  →  reference-drivers  →  platform-pc-sim (mock)  →  platform-esp3
 use platform_esp32::bme280::{Bme280Sensor, BME280_ADDRESS_PRIMARY};
 
 let mut sensor = Bme280Sensor::new(i2c_bus);
-sensor.initialize()?;
 let reading = sensor.read()?;
 println!("Temp: {:.1}°C", reading.temperature_centi_celsius as f32 / 100.0);
 ```
@@ -38,7 +37,7 @@ println!("Temp: {:.1}°C", reading.temperature_centi_celsius as f32 / 100.0);
 |------|-----|
 | 通信方式 | I2C |
 | I2C アドレス | `0x68`（primary）/ `0x69`（secondary） |
-| HAL trait | `ImuSensor` → `ImuReading { accel_mg[3], gyro_mdps[3], temperature_c }` |
+| HAL trait | `ImuSensor` → `ImuReading { accel_mg[3], gyro_mdps[3], temperature_centi_celsius: Option<i16> }` |
 | ダッシュボードパネル | **IMU** |
 | sim-to-real | ✅ 完全対応 |
 
@@ -47,7 +46,7 @@ use platform_esp32::mpu6050::{Mpu6050Sensor, MPU6050_ADDRESS_PRIMARY};
 
 let mut sensor = Mpu6050Sensor::new(i2c_bus);
 sensor.initialize()?;
-let reading = sensor.read()?;
+let reading = sensor.read_imu()?;
 println!("AccelZ: {} mg", reading.accel_mg[2]);
 ```
 
@@ -65,9 +64,11 @@ println!("AccelZ: {} mg", reading.accel_mg[2]);
 
 ```rust
 use platform_esp32::hc_sr04::HcSr04Sensor;
+use hal_api::distance::DistanceSensor;
 
-let mut sensor = HcSr04Sensor::new(trig_pin, echo_pin, delay);
-let reading = sensor.read()?;
+// device はプラットフォームの UltrasonicPulseDevice 実装（例: Esp32HcSr04Device）
+let mut sensor = HcSr04Sensor::new(device);
+let reading = sensor.read_distance()?;
 println!("Distance: {} mm", reading.distance_mm);
 ```
 
@@ -80,7 +81,7 @@ println!("Distance: {} mm", reading.distance_mm);
 | 通信方式 | I2C |
 | I2C アドレス | `0x23`（ADDR=LOW）/ `0x5C`（ADDR=HIGH） |
 | HAL trait | `LightSensor` → `LightReading { lux_x100: u32 }` |
-| 計算式 | `lux = raw / 1.2`（精度 1 lx、最大 65535 lx） |
+| 計算式 | `lux = raw / 1.2`（精度 1 lx、最大 約 54,600 lx） |
 | ダッシュボードパネル | **Light** |
 | sim-to-real | ✅ 完全対応 |
 
@@ -116,9 +117,9 @@ reading.lux_fractional()   // 小数部（lux_x100 % 100）
 use platform_esp32::dht22::{Esp32Dht22Sensor, Esp32Dht22RawDevice};
 use hal_api::sensor::EnvSensor;
 
-// Esp32Dht22RawDevice::read_raw_bytes() の実装が必要
+// Esp32Dht22Sensor<P, D> は型エイリアスのため、Dht22Sensor::new() で生成する
 let dev = Esp32Dht22RawDevice::new(gpio_pin, delay);
-let mut sensor = Esp32Dht22Sensor::new(dev);
+let mut sensor: Esp32Dht22Sensor<_, _> = Dht22Sensor::new(dev);
 let reading = sensor.read()?; // 実装後に利用可能
 ```
 
@@ -172,9 +173,9 @@ display.render(&frame)?;
 | 項目 | 値 |
 |------|-----|
 | 通信方式 | 内蔵（ESP32-S モジュール専用） |
-| HAL trait | `CameraCapture` → `FrameMetadata { width, height, format, frame_size_bytes, sequence }` |
+| HAL trait | `CameraCapture` → `FrameMetadata { width, height, format, size_bytes, sequence }` |
 | デフォルト解像度 | 320×240（QVGA） |
-| PixelFormat | `Jpeg` / `Rgb565` / `Yuv422` |
+| PixelFormat | `Jpeg` / `Rgb565` / `Grayscale` |
 | ダッシュボードパネル | **Camera** |
 | sim-to-real | ⚠️ メタデータのみ（ピクセルバッファなし） |
 
@@ -183,7 +184,7 @@ use reference_drivers::esp32_cam::Esp32CamSensor;
 use hal_api::camera::CameraCapture;
 
 let mut cam = Esp32CamSensor::default_qvga();
-let meta = cam.capture()?;
+let meta = cam.capture_frame()?;
 println!("Frame #{}: {}×{}", meta.sequence, meta.width, meta.height);
 ```
 
@@ -200,7 +201,7 @@ println!("Frame #{}: {}×{}", meta.sequence, meta.width, meta.height);
 |------|-----|
 | 通信方式 | PWM（1 ピン） |
 | HAL trait | `ServoMotor` → `set_angle_degrees(0–180)` |
-| Duty range | 500µs（0°）〜 2500µs（180°）、50Hz |
+| Duty range | 1000µs（0°）〜 2000µs（180°）、50Hz（デューティ比 5〜10%） |
 | ダッシュボードパネル | **Servo** |
 | sim-to-real | ✅ 完全対応 |
 
@@ -234,7 +235,7 @@ let ch_a = L298nChannel::new(in1_pin, in2_pin, ena_pwm);
 let ch_b = L298nChannel::new(in3_pin, in4_pin, enb_pwm);
 let mut driver = L298nDualDriver::new(ch_a, ch_b);
 
-driver.apply(
+driver.apply_channels(
     MotorCommand { direction: MotorDirection::Forward, duty_percent: 60 },
     MotorCommand { direction: MotorDirection::Forward, duty_percent: 60 },
 )?;
@@ -242,7 +243,7 @@ driver.apply(
 
 ---
 
-## LCD1602 — 16 文字 × 2 行 LCD ディスプレイ
+## 10. LCD1602 — 16 文字 × 2 行 LCD ディスプレイ
 
 | 項目 | 値 |
 |------|-----|
