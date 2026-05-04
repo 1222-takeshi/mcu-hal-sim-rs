@@ -11,6 +11,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.7] - 2026-05-04
+
+DS3231/SGP30/VL53L0X の PC シミュレータ統合。3 センサー向けモックデバイスとダッシュボードパネルを追加。
+
+### Added
+- **[#84]** `platform-pc-sim`: `ds3231_mock.rs` — `MockDs3231Device` BCD タイムスタンプ、サイクリング、set_datetime 記録
+- **[#84]** `platform-pc-sim`: `sgp30_mock.rs` — `MockSgp30Device` init→measure コマンドシーケンス、CO₂/VOC サイクリング値
+- **[#84]** `platform-pc-sim`: `vl53l0x_mock.rs` — `MockVl53l0xDevice` モデルID/割り込みステータス/距離レジスタ応答
+- **[#84]** `platform-pc-sim`: `GasPanelState`, `RtcPanelState`, `TofPanelState` パネル状態構造体
+- **[#84]** `platform-pc-sim`: ダッシュボード HTML パネル (SGP30/DS3231/VL53L0X) + JS アップデーター
+- **[#84]** `platform-pc-sim`: `DeviceKind::Ds3231/Sgp30/Vl53l0x` バリアント + `from_board()` 統合（11 デバイス）
+- テスト数: 61 → 237
+
+---
+
 ## [0.3.6] - 2026-05-04
 
 新センサードライバ 3 種（DS3231 RTC / SGP30 ガスセンサ / VL53L0X ToF）を追加。
