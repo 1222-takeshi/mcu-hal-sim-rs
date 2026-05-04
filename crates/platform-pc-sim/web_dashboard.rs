@@ -15,6 +15,8 @@ pub struct DeviceDashboardState {
     pub motor_driver: MotorDriverPanelState,
     pub wiring: WiringPanelState,
     pub i2c: I2cPanelState,
+    pub light: LightPanelState,
+    pub camera: CameraPanelState,
 }
 
 #[derive(Debug, Clone)]
@@ -74,11 +76,25 @@ pub struct I2cPanelState {
     pub recent_operations: Vec<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct LightPanelState {
+    pub lux_x100: u32,
+    pub sensor_name: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct CameraPanelState {
+    pub width: u32,
+    pub height: u32,
+    pub sequence: u32,
+    pub sensor_name: String,
+}
+
 pub fn state_to_json(state: &DeviceDashboardState) -> String {
     let mut output = String::new();
     let _ = write!(
         output,
-        "{{\"board_name\":{},\"mcu_name\":{},\"tick\":{},\"climate\":{{\"temperature_c\":{},\"humidity_percent\":{},\"pressure_pa\":{},\"app_frame\":[{},{}],\"physical_lcd_frame\":[{},{}]}},\"distance\":{{\"distance_mm\":{},\"sensor_name\":{}}},\"imu\":{{\"sensor_name\":{},\"accel_mg\":[{},{},{}],\"gyro_mdps\":[{},{},{}],\"temperature_c\":{}}},\"servo\":{{\"angle_degrees\":{}}},\"motor_driver\":{{\"driver_name\":{},\"left\":{{\"direction\":{},\"duty_percent\":{}}},\"right\":{{\"direction\":{},\"duty_percent\":{}}}}},\"wiring\":{{\"sda_pin\":{},\"scl_pin\":{},\"power_pin\":{},\"ground_pin\":{},\"attached_devices\":[{}],\"diagram_lines\":[{}]}},\"i2c\":{{\"operation_count\":{},\"recent_operations\":[{}]}}}}",
+        "{{\"board_name\":{},\"mcu_name\":{},\"tick\":{},\"climate\":{{\"temperature_c\":{},\"humidity_percent\":{},\"pressure_pa\":{},\"app_frame\":[{},{}],\"physical_lcd_frame\":[{},{}]}},\"distance\":{{\"distance_mm\":{},\"sensor_name\":{}}},\"imu\":{{\"sensor_name\":{},\"accel_mg\":[{},{},{}],\"gyro_mdps\":[{},{},{}],\"temperature_c\":{}}},\"servo\":{{\"angle_degrees\":{}}},\"motor_driver\":{{\"driver_name\":{},\"left\":{{\"direction\":{},\"duty_percent\":{}}},\"right\":{{\"direction\":{},\"duty_percent\":{}}}}},\"wiring\":{{\"sda_pin\":{},\"scl_pin\":{},\"power_pin\":{},\"ground_pin\":{},\"attached_devices\":[{}],\"diagram_lines\":[{}]}},\"i2c\":{{\"operation_count\":{},\"recent_operations\":[{}]}},\"light\":{{\"lux_x100\":{},\"lux\":{},\"sensor_name\":{}}},\"camera\":{{\"width\":{},\"height\":{},\"sequence\":{},\"sensor_name\":{}}}}}",
         json_string(&state.board_name),
         json_string(&state.mcu_name),
         state.tick,
@@ -113,6 +129,13 @@ pub fn state_to_json(state: &DeviceDashboardState) -> String {
         join_json_strings(&state.wiring.diagram_lines),
         state.i2c.operation_count,
         join_json_strings(&state.i2c.recent_operations),
+        state.light.lux_x100,
+        state.light.lux_x100 / 100,
+        json_string(&state.light.sensor_name),
+        state.camera.width,
+        state.camera.height,
+        state.camera.sequence,
+        json_string(&state.camera.sensor_name),
     );
     output
 }
@@ -563,6 +586,36 @@ pub fn dashboard_html() -> &'static str {
         </div>
       </article>
 
+      <!-- Light Sensor (BH1750) -->
+      <article class="panel card span-4">
+        <h2 id="light-sensor-name">BH1750</h2>
+        <div class="metric">
+          <div class="name">Illuminance</div>
+          <div class="val" id="light-lux">-- lx</div>
+        </div>
+        <div class="spark-wrap" style="margin-top:10px">
+          <div class="name" style="color:var(--muted);font-size:11px;margin-bottom:3px">Lux history</div>
+          <svg class="spark" id="spark-lux" viewBox="0 0 100 30" preserveAspectRatio="none">
+            <polyline points=""/>
+          </svg>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:6px" id="light-raw">raw lux×100: --</div>
+      </article>
+
+      <!-- Camera (ESP32-CAM) -->
+      <article class="panel card span-4">
+        <h2 id="camera-sensor-name">ESP32-CAM</h2>
+        <div class="metric">
+          <div class="name">Resolution</div>
+          <div class="val" id="camera-resolution">--×--</div>
+        </div>
+        <div class="metric">
+          <div class="name">Frame #</div>
+          <div class="val" id="camera-sequence">--</div>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:6px">Metadata only (no pixel buffer)</div>
+      </article>
+
       <!-- Hardware Simulation -->
       <article class="panel card span-12">
         <h2>Hardware Simulation</h2>
@@ -749,7 +802,7 @@ pub fn dashboard_html() -> &'static str {
   <script>
     // ── History ring buffers ──
     const HIST = 60;
-    const hist = { temp:[], hum:[], press:[], dist:[], accelz:[] };
+    const hist = { temp:[], hum:[], press:[], dist:[], accelz:[], lux:[] };
     function push(key, v) {
       if (v == null) return;
       hist[key].push(v);
@@ -961,6 +1014,25 @@ pub fn dashboard_html() -> &'static str {
       $("motor-left").textContent  = s.motor_driver.left.direction  + " " + s.motor_driver.left.duty_percent  + "%";
       $("motor-right").textContent = s.motor_driver.right.direction + " " + s.motor_driver.right.duty_percent + "%";
 
+      // Light sensor (BH1750)
+      if (s.light) {
+        const lux = (s.light.lux_x100 / 100).toFixed(2);
+        $("light-lux").textContent = lux + " lx";
+        $("light-raw").textContent = "raw lux\u00D7100: " + s.light.lux_x100;
+        const el = $("light-sensor-name");
+        if (el) el.textContent = s.light.sensor_name;
+        push("lux", s.light.lux_x100 / 100);
+        sparkline("spark-lux", hist.lux);
+      }
+
+      // Camera (ESP32-CAM)
+      if (s.camera) {
+        $("camera-resolution").textContent = s.camera.width + "\u00D7" + s.camera.height;
+        $("camera-sequence").textContent   = "#" + s.camera.sequence;
+        const el = $("camera-sensor-name");
+        if (el) el.textContent = s.camera.sensor_name;
+      }
+
       const devEl = $("wiring-devices");
       if (devEl) devEl.textContent = s.wiring.attached_devices.join(", ") || "--";
 
@@ -1111,12 +1183,16 @@ pub fn dashboard_html() -> &'static str {
     const WE_DEFS = {
       'ESP32':        { color:'#2196F3', ports:['3V3','GND','GPIO21(SDA)','GPIO22(SCL)','GPIO5(TRIG)','GPIO18(ECHO)','GPIO13(Servo)','GPIO25','GPIO26','GPIO27','GPIO32'] },
       'Arduino Nano': { color:'#1565C0', ports:['5V','3.3V','GND','A4(SDA)','A5(SCL)','D2(TRIG)','D3(ECHO)','D9(Servo)','D5','D6','D7','D10'] },
-      'BME280':  { color:'#4CAF50', ports:['VCC','GND','SDA','SCL'] },
-      'MPU6050': { color:'#9C27B0', ports:['VCC','GND','SDA','SCL'] },
-      'HC-SR04': { color:'#FF5722', ports:['VCC','GND','TRIG','ECHO'] },
-      'LCD1602': { color:'#00BCD4', ports:['VCC','GND','SDA','SCL'] },
-      'Servo':   { color:'#FF9800', ports:['VCC','GND','PWM'] },
-      'L298N':   { color:'#795548', ports:['12V','GND','IN1','IN2','ENA','IN3','IN4','ENB'] },
+      'BME280':   { color:'#4CAF50', ports:['VCC','GND','SDA','SCL'] },
+      'MPU6050':  { color:'#9C27B0', ports:['VCC','GND','SDA','SCL'] },
+      'HC-SR04':  { color:'#FF5722', ports:['VCC','GND','TRIG','ECHO'] },
+      'LCD1602':  { color:'#00BCD4', ports:['VCC','GND','SDA','SCL'] },
+      'Servo':    { color:'#FF9800', ports:['VCC','GND','PWM'] },
+      'L298N':    { color:'#795548', ports:['12V','GND','IN1','IN2','ENA','IN3','IN4','ENB'] },
+      'BH1750':   { color:'#FDD835', ports:['VCC','GND','SDA','SCL','ADDR'] },
+      'DHT22':    { color:'#26C6DA', ports:['VCC','GND','DATA'] },
+      'SSD1306':  { color:'#78909C', ports:['VCC','GND','SDA','SCL'] },
+      'ESP32-CAM':{ color:'#E91E63', ports:['5V','GND','U0TXD','U0RXD','GPIO0','GPIO4(FLASH)','VCC(3V3)'] },
     };
     const weS = { nodes:{}, edges:[], seq:1, pending:null };
 
@@ -1503,6 +1579,16 @@ mod tests {
             i2c: I2cPanelState {
                 operation_count: 12,
                 recent_operations: vec!["WRITE addr=0x27".to_string()],
+            },
+            light: LightPanelState {
+                lux_x100: 5000,
+                sensor_name: "BH1750".to_string(),
+            },
+            camera: CameraPanelState {
+                width: 320,
+                height: 240,
+                sequence: 1,
+                sensor_name: "ESP32-CAM".to_string(),
             },
         });
 
