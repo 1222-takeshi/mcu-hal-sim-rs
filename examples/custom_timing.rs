@@ -4,6 +4,7 @@
 //!
 //! このサンプルは、`App`を使わずに独自のタイミングロジックを実装する方法を示します。
 //! 複数の周期的タスクを異なる間隔で実行する例です。
+//! モック実装には `platform_pc_sim::mock_hal` を直接使用しています。
 //!
 //! ## 実行方法
 //!
@@ -15,100 +16,29 @@
 //!
 //! ```text
 //! === Custom Timing Example ===
-//! [Fast LED] Pin 10 set HIGH
-//! [Fast LED] Pin 10 set LOW
-//! [Slow LED] Pin 11 set HIGH
-//! [I2C] Read from sensor...
+//! [GPIO] Pin 10 set HIGH
+//! [GPIO] Pin 10 set LOW
+//! [GPIO] Pin 11 set HIGH
+//! [I2C] Read from 0x48: 4 bytes
 //! ...
 //! ```
 
+use hal_api::gpio::OutputPin;
+use hal_api::i2c::I2cBus;
+use platform_pc_sim::mock_hal::{MockI2c, MockPin};
 use std::thread;
 use std::time::Duration;
 
-mod mock_hal {
-    use hal_api::error::{GpioError, I2cError};
-    use hal_api::gpio::OutputPin;
-    use hal_api::i2c::I2cBus;
-
-    pub struct MockPin {
-        pin_number: u8,
-        state: bool,
-        label: &'static str,
-    }
-
-    impl MockPin {
-        pub fn new(pin_number: u8, label: &'static str) -> Self {
-            Self {
-                pin_number,
-                state: false,
-                label,
-            }
-        }
-    }
-
-    impl OutputPin for MockPin {
-        type Error = GpioError;
-
-        fn set_high(&mut self) -> Result<(), Self::Error> {
-            self.state = true;
-            println!("[{}] Pin {} set HIGH", self.label, self.pin_number);
-            Ok(())
-        }
-
-        fn set_low(&mut self) -> Result<(), Self::Error> {
-            self.state = false;
-            println!("[{}] Pin {} set LOW", self.label, self.pin_number);
-            Ok(())
-        }
-    }
-
-    pub struct MockI2c;
-
-    impl MockI2c {
-        pub fn new() -> Self {
-            Self
-        }
-    }
-
-    impl I2cBus for MockI2c {
-        type Error = I2cError;
-
-        fn write(&mut self, _addr: u8, _bytes: &[u8]) -> Result<(), Self::Error> {
-            Ok(())
-        }
-
-        fn read(&mut self, addr: u8, buffer: &mut [u8]) -> Result<(), Self::Error> {
-            println!("[I2C] Read from sensor 0x{:02X}...", addr);
-            buffer.fill(0xFF);
-            Ok(())
-        }
-
-        fn write_read(
-            &mut self,
-            addr: u8,
-            bytes: &[u8],
-            buffer: &mut [u8],
-        ) -> Result<(), Self::Error> {
-            self.write(addr, bytes)?;
-            self.read(addr, buffer)
-        }
-    }
-}
-
-use hal_api::gpio::OutputPin;
-use hal_api::i2c::I2cBus;
-use mock_hal::{MockI2c, MockPin};
-
 fn main() {
     println!("=== Custom Timing Example ===");
-    println!("Fast LED: 0.5s interval");
-    println!("Slow LED: 2s interval");
+    println!("Fast LED (pin 10): 0.5s interval");
+    println!("Slow LED (pin 11): 2s interval");
     println!("I2C sensor: 3s interval\n");
     println!("Press Ctrl+C to exit\n");
 
     // 2つのLEDピン
-    let mut fast_led = MockPin::new(10, "Fast LED");
-    let mut slow_led = MockPin::new(11, "Slow LED");
+    let mut fast_led = MockPin::new(10);
+    let mut slow_led = MockPin::new(11);
 
     // I2Cセンサ
     let mut i2c = MockI2c::new();
