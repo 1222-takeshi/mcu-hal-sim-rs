@@ -40,6 +40,8 @@ struct ServerContext {
     latest_json: Mutex<String>,
     ws_clients: Mutex<Vec<mpsc::SyncSender<String>>>,
     current_board: Mutex<BoardProfile>,
+    /// Last wiring-editor JSON submitted via POST /api/wiring/editor.
+    editor_json: Mutex<String>,
 }
 
 impl ServerContext {
@@ -48,6 +50,7 @@ impl ServerContext {
             latest_json: Mutex::new("{}".into()),
             ws_clients: Mutex::new(vec![]),
             current_board: Mutex::new(board),
+            editor_json: Mutex::new("{}".into()),
         })
     }
 
@@ -639,6 +642,24 @@ fn handle_connection(
             let cfg = WiringConfig::from_board(board);
             let svg = wiring_svg(&cfg);
             respond(&mut stream, "200 OK", "image/svg+xml; charset=utf-8", &svg);
+        }
+        ("POST", "/api/wiring/editor") => {
+            *ctx.editor_json.lock().unwrap() = body.to_string();
+            respond(
+                &mut stream,
+                "200 OK",
+                "application/json; charset=utf-8",
+                r#"{"ok":true}"#,
+            );
+        }
+        (_, "/api/wiring/editor") => {
+            let json = ctx.editor_json.lock().unwrap().clone();
+            respond(
+                &mut stream,
+                "200 OK",
+                "application/json; charset=utf-8",
+                &json,
+            );
         }
         (_, "/api/test/stream") => {
             handle_test_stream(&mut stream);

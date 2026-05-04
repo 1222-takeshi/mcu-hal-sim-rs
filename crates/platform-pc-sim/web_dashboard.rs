@@ -370,6 +370,16 @@ pub fn dashboard_html() -> &'static str {
       .metric-row,.motor,.axis { grid-template-columns: 1fr; }
       .hw-sim-grid { grid-template-columns: repeat(2,1fr); }
     }
+    /* ── Wiring Editor ── */
+    .we-chip { display:block; padding:5px 8px; border:1px solid; border-radius:6px; font-size:11px; font-weight:600; cursor:grab; text-align:center; user-select:none; transition:background .15s,opacity .15s; }
+    .we-chip:hover { opacity:.8; background:rgba(15,124,107,.08); }
+    .we-node { position:absolute; background:var(--paper); border:2px solid; border-radius:8px; min-width:110px; user-select:none; z-index:10; box-shadow:var(--shadow); }
+    .we-node-hdr { padding:3px 8px; border-radius:5px 5px 0 0; font-size:11px; font-weight:700; cursor:move; color:#fff; }
+    .we-port { display:flex; align-items:center; gap:5px; padding:2px 8px; font-size:10px; cursor:pointer; transition:background .12s; }
+    .we-port:hover { background:rgba(127,127,127,.12); }
+    .we-port.pend .we-dot { box-shadow:0 0 7px 2px #ff9800 !important; }
+    .we-dot { width:9px; height:9px; border-radius:50%; border:1.5px solid rgba(255,255,255,.45); flex-shrink:0; }
+    #we-canvas { background-image:radial-gradient(circle,rgba(127,127,127,.2) 1px,transparent 1px); background-size:20px 20px; }
   </style>
 </head>
 <body>
@@ -690,6 +700,30 @@ pub fn dashboard_html() -> &'static str {
         <h2>&#x1F9EA; E2E Test Runner</h2>
         <button class="test-run-btn" id="run-tests-btn" onclick="runTests()">&#x25B6; Run Tests (cargo test --workspace)</button>
         <div id="test-output"></div>
+      </article>
+
+      <!-- Wiring Editor -->
+      <article class="panel card span-12" style="padding:0;overflow:hidden">
+        <div style="padding:13px 20px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <h2 style="margin:0">&#x1F50C; Wiring Editor</h2>
+          <span style="font-size:12px;color:var(--muted)">Drag devices &#x2192; canvas &bull; click ports to wire &bull; click wire to delete</span>
+          <div style="margin-left:auto;display:flex;gap:6px">
+            <button class="btn" onclick="weExport()">&#x1F4BE; Export</button>
+            <button class="btn" onclick="weImport()">&#x1F4C2; Import</button>
+            <button class="btn" onclick="weClear()">&#x1F5D1; Clear</button>
+          </div>
+        </div>
+        <div style="display:flex;height:400px">
+          <div id="we-sidebar" style="width:132px;flex-shrink:0;border-right:1px solid var(--line);padding:8px;overflow-y:auto;display:flex;flex-direction:column;gap:5px">
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:2px">Library</div>
+          </div>
+          <div id="we-canvas" style="flex:1;position:relative;overflow:hidden"
+               ondragover="event.preventDefault()"
+               ondrop="weOnDrop(event)">
+            <svg id="we-svg" style="position:absolute;inset:0;width:100%;height:100%;overflow:visible"></svg>
+          </div>
+        </div>
+        <div id="we-status" style="padding:5px 14px;border-top:1px solid var(--line);font-size:11px;color:var(--muted)">Ready &#x2014; drag a device chip to the canvas to get started.</div>
       </article>
 
     </section>
@@ -1056,6 +1090,215 @@ pub fn dashboard_html() -> &'static str {
     try { applyTheme(localStorage.getItem("dash-theme") === "dark"); } catch(_) {}
 
     // ── Boot ──
+    // ── Wiring Editor ────────────────────────────────────────────────────────
+    const WE_DEFS = {
+      'MCU':     { color:'#2196F3', ports:['3.3V','GND','SDA','SCL','D2','D4','D5','D12'] },
+      'BME280':  { color:'#4CAF50', ports:['VCC','GND','SDA','SCL'] },
+      'MPU6050': { color:'#9C27B0', ports:['VCC','GND','SDA','SCL'] },
+      'HC-SR04': { color:'#FF5722', ports:['VCC','GND','TRIG','ECHO'] },
+      'LCD1602': { color:'#00BCD4', ports:['VCC','GND','SDA','SCL'] },
+      'Servo':   { color:'#FF9800', ports:['VCC','GND','PWM'] },
+      'L298N':   { color:'#795548', ports:['12V','GND','IN1','IN2','ENA','IN3','IN4','ENB'] },
+    };
+    const weS = { nodes:{}, edges:[], seq:1, pending:null };
+
+    (function weInit() {
+      const sb = document.getElementById('we-sidebar');
+      Object.entries(WE_DEFS).forEach(function([type, def]) {
+        const chip = document.createElement('div');
+        chip.className = 'we-chip';
+        chip.style.borderColor = def.color;
+        chip.style.color = def.color;
+        chip.textContent = type;
+        chip.draggable = true;
+        chip.addEventListener('dragstart', function(e) {
+          e.dataTransfer.setData('we-type', type);
+        });
+        sb.appendChild(chip);
+      });
+    })();
+
+    function weOnDrop(e) {
+      const type = e.dataTransfer.getData('we-type');
+      if (!type) return;
+      const rect = document.getElementById('we-canvas').getBoundingClientRect();
+      weAddNode(type, Math.max(0, e.clientX - rect.left - 55), Math.max(0, e.clientY - rect.top - 20));
+    }
+
+    function weBuildNodeEl(id, type, x, y) {
+      const def = WE_DEFS[type];
+      const el = document.createElement('div');
+      el.className = 'we-node';
+      el.id = 'we-node-' + id;
+      el.style.cssText = 'left:' + x + 'px;top:' + y + 'px;border-color:' + def.color;
+      const hdr = document.createElement('div');
+      hdr.className = 'we-node-hdr';
+      hdr.style.background = def.color;
+      hdr.textContent = type;
+      el.appendChild(hdr);
+      def.ports.forEach(function(port) {
+        const row = document.createElement('div');
+        row.className = 'we-port';
+        row.dataset.port = port;
+        row.onclick = function() { weClickPort(id, port, row); };
+        const dot = document.createElement('span');
+        dot.className = 'we-dot';
+        dot.style.background = def.color;
+        row.appendChild(dot);
+        row.appendChild(document.createTextNode('\u00a0' + port));
+        el.appendChild(row);
+      });
+      let ox, oy;
+      hdr.addEventListener('mousedown', function(e) {
+        e.preventDefault();
+        const nd = weS.nodes[id];
+        ox = e.clientX - nd.x; oy = e.clientY - nd.y;
+        function onMove(ev) {
+          nd.x = ev.clientX - ox; nd.y = ev.clientY - oy;
+          el.style.left = nd.x + 'px'; el.style.top = nd.y + 'px';
+          weRenderEdges();
+        }
+        function onUp() {
+          document.removeEventListener('mousemove', onMove);
+          document.removeEventListener('mouseup', onUp);
+        }
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+      });
+      return el;
+    }
+
+    function weAddNode(type, x, y) {
+      if (!WE_DEFS[type]) return;
+      const id = 'n' + weS.seq++;
+      weS.nodes[id] = { id, type, x, y };
+      document.getElementById('we-canvas').appendChild(weBuildNodeEl(id, type, x, y));
+      weRenderEdges();
+      document.getElementById('we-status').textContent = 'Added ' + type + '.';
+    }
+
+    function weClickPort(nodeId, port, rowEl) {
+      if (!weS.pending) {
+        weS.pending = { nodeId, port, rowEl };
+        rowEl.classList.add('pend');
+        document.getElementById('we-status').textContent =
+          port + ' selected \u2014 click another port to connect, or click again to cancel.';
+      } else if (weS.pending.nodeId === nodeId && weS.pending.port === port) {
+        weS.pending.rowEl.classList.remove('pend');
+        weS.pending = null;
+        document.getElementById('we-status').textContent = 'Cancelled.';
+      } else {
+        const fn = weS.pending.nodeId, fp = weS.pending.port, fEl = weS.pending.rowEl;
+        fEl.classList.remove('pend');
+        weS.pending = null;
+        const dup = weS.edges.some(function(e) {
+          return (e.from===fn&&e.fromPort===fp&&e.to===nodeId&&e.toPort===port) ||
+                 (e.from===nodeId&&e.fromPort===port&&e.to===fn&&e.toPort===fp);
+        });
+        if (!dup) {
+          weS.edges.push({ id:'e'+weS.seq++, from:fn, fromPort:fp, to:nodeId, toPort:port });
+        }
+        weRenderEdges();
+        document.getElementById('we-status').textContent =
+          'Connected ' + fp + ' \u2192 ' + port + '. Click a wire to delete it.';
+      }
+    }
+
+    function wePortPos(nodeId, portName) {
+      const nodeEl = document.getElementById('we-node-' + nodeId);
+      if (!nodeEl) return { x:0, y:0 };
+      const row = nodeEl.querySelector('[data-port="' + portName + '"]');
+      if (!row) return { x:0, y:0 };
+      const dot = row.querySelector('.we-dot');
+      const cr = document.getElementById('we-canvas').getBoundingClientRect();
+      const r = dot.getBoundingClientRect();
+      return { x: r.left + r.width/2 - cr.left, y: r.top + r.height/2 - cr.top };
+    }
+
+    function weRenderEdges() {
+      const svg = document.getElementById('we-svg');
+      while (svg.firstChild) svg.removeChild(svg.firstChild);
+      weS.edges.forEach(function(edge) {
+        const p1 = wePortPos(edge.from, edge.fromPort);
+        const p2 = wePortPos(edge.to, edge.toPort);
+        const mx = (p1.x + p2.x) / 2;
+        const d = 'M'+p1.x+','+p1.y+' C'+mx+','+p1.y+' '+mx+','+p2.y+' '+p2.x+','+p2.y;
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', d);
+        path.setAttribute('stroke', '#7bc47b');
+        path.setAttribute('stroke-width', '2');
+        path.setAttribute('fill', 'none');
+        svg.appendChild(path);
+        const hit = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        hit.setAttribute('d', d);
+        hit.setAttribute('stroke', 'transparent');
+        hit.setAttribute('stroke-width', '10');
+        hit.setAttribute('fill', 'none');
+        hit.setAttribute('pointer-events', 'stroke');
+        hit.style.cursor = 'pointer';
+        const eid = edge.id;
+        hit.addEventListener('click', function() {
+          weS.edges = weS.edges.filter(function(e) { return e.id !== eid; });
+          weRenderEdges();
+          document.getElementById('we-status').textContent = 'Wire deleted.';
+        });
+        svg.appendChild(hit);
+      });
+    }
+
+    async function weExport() {
+      const data = JSON.stringify({ nodes: Object.values(weS.nodes), edges: weS.edges });
+      try {
+        await fetch('/api/wiring/editor', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: data,
+        });
+        document.getElementById('we-status').textContent = 'Saved to server.';
+      } catch(err) {
+        document.getElementById('we-status').textContent = 'Export failed: ' + err.message;
+      }
+    }
+
+    async function weImport() {
+      try {
+        const r = await fetch('/api/wiring/editor');
+        if (!r.ok) { document.getElementById('we-status').textContent = 'No saved data.'; return; }
+        weLoadData(await r.json());
+        document.getElementById('we-status').textContent = 'Imported from server.';
+      } catch(err) {
+        document.getElementById('we-status').textContent = 'Import failed: ' + err.message;
+      }
+    }
+
+    function weLoadData(data) {
+      weClear();
+      (data.nodes || []).forEach(function(n) {
+        if (!WE_DEFS[n.type]) return;
+        weS.nodes[n.id] = n;
+        const num = parseInt(n.id.replace('n', ''), 10);
+        if (!isNaN(num) && num >= weS.seq) weS.seq = num + 1;
+        document.getElementById('we-canvas').appendChild(weBuildNodeEl(n.id, n.type, n.x, n.y));
+      });
+      weS.edges = (data.edges || []).map(function(e) {
+        const num = parseInt(e.id.replace('e', ''), 10);
+        if (!isNaN(num) && num >= weS.seq) weS.seq = num + 1;
+        return e;
+      });
+      weRenderEdges();
+    }
+
+    function weClear() {
+      Object.keys(weS.nodes).forEach(function(id) {
+        const el = document.getElementById('we-node-' + id);
+        if (el) el.parentNode.removeChild(el);
+      });
+      weS.nodes = {}; weS.edges = []; weS.seq = 1; weS.pending = null;
+      const svg = document.getElementById('we-svg');
+      while (svg.firstChild) svg.removeChild(svg.firstChild);
+      document.getElementById('we-status').textContent = 'Canvas cleared.';
+    }
+    // ── Boot ──
     connectWs();
   </script>
 </body>
@@ -1102,6 +1345,13 @@ mod tests {
         assert!(html.contains("run-tests-btn"));
         assert!(html.contains("runTests"));
         assert!(html.contains("test-output"));
+        // Wiring editor
+        assert!(html.contains("/api/wiring/editor"));
+        assert!(html.contains("we-canvas"));
+        assert!(html.contains("we-sidebar"));
+        assert!(html.contains("weExport"));
+        assert!(html.contains("weImport"));
+        assert!(html.contains("weClear"));
     }
 
     #[test]
