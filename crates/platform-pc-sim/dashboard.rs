@@ -119,6 +119,14 @@ impl BoardProfile {
             Self::ArduinoNano => "D11",
         }
     }
+
+    /// GPIO pin used as boot/programming pin for the camera module.
+    pub fn cam_pin(self) -> &'static str {
+        match self {
+            Self::OriginalEsp32 => "GPIO0",
+            Self::ArduinoNano => "N/A",
+        }
+    }
 }
 
 pub struct DashboardSnapshot<'a> {
