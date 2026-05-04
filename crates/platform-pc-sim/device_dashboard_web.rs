@@ -429,6 +429,149 @@ fn respond(stream: &mut TcpStream, status: &str, content_type: &str, body: &str)
 /// Stream `cargo test --workspace` output as Server-Sent Events.
 ///
 /// Blocks until the test process exits. Each stdout/stderr line is sent as
+/// Returns available serial ports likely connected to an MCU.
+fn list_serial_ports() -> Vec<String> {
+    let Ok(dir) = std::fs::read_dir("/dev") else {
+        return vec![];
+    };
+    let mut ports: Vec<String> = dir
+        .filter_map(|e| e.ok())
+        .map(|e| e.path().to_string_lossy().to_string())
+        .filter(|name| {
+            // macOS: cu.usbserial*, cu.SLAB*, cu.wchusbserial*, cu.usbmodem*
+            // Linux: ttyUSB*, ttyACM*
+            name.contains("/cu.usbserial")
+                || name.contains("/cu.SLAB")
+                || name.contains("/cu.wchusbserial")
+                || name.contains("/cu.usbmodem")
+                || name.contains("/ttyUSB")
+                || name.contains("/ttyACM")
+        })
+        .collect();
+    ports.sort();
+    ports
+}
+
+/// Streams `espflash flash` output via Server-Sent Events.
+///
+/// Query params: `port=<serial-device>` (optional `bin=<path-to-elf>`)
+/// Graceful degradation: if espflash is not installed, emits an instructional
+/// error event so the UI can display installation guidance.
+fn handle_flash_stream(stream: &mut TcpStream, query: &str) {
+    use std::io::{BufRead, BufReader};
+    use std::process::{Command, Stdio};
+    use std::sync::mpsc;
+
+    let header = "HTTP/1.1 200 OK\r\n\
+        Content-Type: text/event-stream\r\n\
+        Cache-Control: no-cache\r\n\
+        Connection: keep-alive\r\n\
+        Access-Control-Allow-Origin: *\r\n\
+        \r\n";
+    if stream.write_all(header.as_bytes()).is_err() {
+        return;
+    }
+
+    // Parse query string: port=... (&bin=...)
+    let port = query
+        .split('&')
+        .find_map(|kv| kv.strip_prefix("port="))
+        .unwrap_or("")
+        .to_string();
+    let bin = query
+        .split('&')
+        .find_map(|kv| kv.strip_prefix("bin="))
+        .unwrap_or("")
+        .to_string();
+
+    // Check espflash is available.
+    if std::process::Command::new("espflash")
+        .arg("--version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_err()
+    {
+        let _ = stream.write_all(
+            b"data: [ERROR] espflash not found.\n\n\
+              data: Install: cargo install espflash\n\n\
+              data: Docs: https://github.com/esp-rs/espflash\n\n\
+              data: [DONE] exit=1\n\n",
+        );
+        return;
+    }
+
+    if port.is_empty() {
+        let _ = stream.write_all(
+            b"data: [ERROR] No port specified. Use ?port=/dev/cu.usbserial-XXXX\n\ndata: [DONE] exit=1\n\n",
+        );
+        return;
+    }
+
+    let mut args = vec!["flash".to_string(), "--port".to_string(), port];
+    if !bin.is_empty() {
+        args.push(bin);
+    }
+
+    let mut child = match Command::new("espflash")
+        .args(&args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            let _ = stream.write_all(
+                format!("data: [ERROR] failed to spawn espflash: {e}\n\ndata: [DONE] exit=1\n\n")
+                    .as_bytes(),
+            );
+            return;
+        }
+    };
+
+    let (tx, rx) = mpsc::channel::<String>();
+    let tx_out = tx.clone();
+    let stdout = child.stdout.take().expect("stdout piped");
+    std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+            if tx_out.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    let tx_err = tx.clone();
+    let stderr = child.stderr.take().expect("stderr piped");
+    std::thread::spawn(move || {
+        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+            if tx_err.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    drop(tx);
+
+    let started = std::time::Instant::now();
+    let timeout = std::time::Duration::from_secs(120);
+
+    for line in rx {
+        if started.elapsed() > timeout {
+            let _ = stream.write_all(
+                b"data: [ERROR] timeout: espflash exceeded 2 minutes\n\ndata: [DONE] exit=1\n\n",
+            );
+            let _ = child.kill();
+            return;
+        }
+        let msg = format!("data: {}\n\n", line.replace('\n', " "));
+        if stream.write_all(msg.as_bytes()).is_err() {
+            let _ = child.kill();
+            return;
+        }
+    }
+
+    let exit_code = child.wait().map(|s| s.code().unwrap_or(-1)).unwrap_or(-1);
+    let _ = stream.write_all(format!("data: [DONE] exit={exit_code}\n\n").as_bytes());
+}
+
 /// `data: {line}\n\n`.  A final `data: [DONE] exit=N\n\n` closes the stream.
 fn handle_test_stream(stream: &mut TcpStream) {
     use std::io::{BufRead, BufReader};
@@ -582,10 +725,11 @@ fn handle_connection(
     let mut parts = first_line.split_whitespace();
     let method = parts.next().unwrap_or("GET");
     let path = parts.next().unwrap_or("/");
+    let (path_only, query_str) = path.split_once('?').unwrap_or((path, ""));
 
     // Check for WebSocket upgrade before HTTP routing.
     let is_ws_upgrade = request.to_ascii_lowercase().contains("upgrade: websocket");
-    if is_ws_upgrade && path == "/api/ws" {
+    if is_ws_upgrade && path_only == "/api/ws" {
         handle_websocket(stream, &request, ctx);
         return;
     }
@@ -595,7 +739,7 @@ fn handle_connection(
         .map(|pos| &request[pos + 4..])
         .unwrap_or("");
 
-    match (method, path) {
+    match (method, path_only) {
         (_, "/") => respond(
             &mut stream,
             "200 OK",
@@ -663,6 +807,26 @@ fn handle_connection(
         }
         (_, "/api/test/stream") => {
             handle_test_stream(&mut stream);
+        }
+        (_, "/api/flash/devices") => {
+            let ports = list_serial_ports();
+            let json = format!(
+                "[{}]",
+                ports
+                    .iter()
+                    .map(|p| format!("\"{}\"", p))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            );
+            respond(
+                &mut stream,
+                "200 OK",
+                "application/json; charset=utf-8",
+                &json,
+            );
+        }
+        (_, "/api/flash/stream") => {
+            handle_flash_stream(&mut stream, query_str);
         }
         _ => respond(
             &mut stream,

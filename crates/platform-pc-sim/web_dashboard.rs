@@ -726,6 +726,23 @@ pub fn dashboard_html() -> &'static str {
         <div id="we-status" style="padding:5px 14px;border-top:1px solid var(--line);font-size:11px;color:var(--muted)">Ready &#x2014; drag a device chip to the canvas to get started.</div>
       </article>
 
+      <!-- ESP32 Flash -->
+      <article class="panel card span-12">
+        <h2>&#x26A1; ESP32 Flash</h2>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+          <select id="flash-port" style="min-width:220px">
+            <option value="">-- select port --</option>
+          </select>
+          <button class="btn" onclick="flashRefreshPorts()">&#x1F504; Refresh</button>
+          <input id="flash-bin" type="text" placeholder="path/to/firmware.elf (optional)"
+                 style="flex:1;min-width:200px;background:var(--paper);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:5px 10px;font-size:13px;font-family:inherit"/>
+          <button class="btn" id="flash-btn" onclick="flashStart()">&#x26A1; Flash</button>
+        </div>
+        <div id="flash-output" class="wiring"
+             style="background:#0a0a0a;color:#aaffaa;border-radius:10px;padding:10px 14px;font-size:12px;min-height:80px;max-height:260px;overflow-y:auto;white-space:pre-wrap;font-family:'IBM Plex Mono',monospace"></div>
+        <div id="flash-status" style="margin-top:6px;font-size:11px;color:var(--muted)">Ready.</div>
+      </article>
+
     </section>
   </main>
 
@@ -1299,6 +1316,56 @@ pub fn dashboard_html() -> &'static str {
       document.getElementById('we-status').textContent = 'Canvas cleared.';
     }
     // ── Boot ──
+    // ── ESP32 Flash ──────────────────────────────────────────────────────────
+    async function flashRefreshPorts() {
+      try {
+        const r = await fetch('/api/flash/devices');
+        const ports = await r.json();
+        const sel = document.getElementById('flash-port');
+        sel.innerHTML = '<option value="">-- select port --</option>';
+        ports.forEach(function(p) {
+          const opt = document.createElement('option');
+          opt.value = p; opt.textContent = p;
+          sel.appendChild(opt);
+        });
+        document.getElementById('flash-status').textContent =
+          ports.length ? ports.length + ' port(s) found.' : 'No MCU ports detected.';
+      } catch(err) {
+        document.getElementById('flash-status').textContent = 'Error: ' + err.message;
+      }
+    }
+
+    function flashStart() {
+      const port = document.getElementById('flash-port').value;
+      const bin  = document.getElementById('flash-bin').value.trim();
+      const out  = document.getElementById('flash-output');
+      const btn  = document.getElementById('flash-btn');
+      out.textContent = '';
+      btn.disabled = true;
+      let url = '/api/flash/stream';
+      if (port) url += '?port=' + encodeURIComponent(port);
+      if (bin)  url += (port ? '&' : '?') + 'bin=' + encodeURIComponent(bin);
+      document.getElementById('flash-status').textContent = 'Flashing\u2026';
+      const es = new EventSource(url);
+      es.onmessage = function(e) {
+        if (e.data.startsWith('[DONE]')) {
+          es.close(); btn.disabled = false;
+          const code = e.data.includes('exit=0') ? 0 : 1;
+          document.getElementById('flash-status').textContent =
+            code === 0 ? '\u2705 Flash successful.' : '\u274C Flash failed (see output).';
+        } else {
+          out.textContent += e.data + '\n';
+          out.scrollTop = out.scrollHeight;
+        }
+      };
+      es.onerror = function() {
+        es.close(); btn.disabled = false;
+        document.getElementById('flash-status').textContent = 'Connection error.';
+      };
+    }
+
+    flashRefreshPorts();
+    // ── Boot ──
     connectWs();
   </script>
 </body>
@@ -1352,6 +1419,12 @@ mod tests {
         assert!(html.contains("weExport"));
         assert!(html.contains("weImport"));
         assert!(html.contains("weClear"));
+        // ESP32 flash panel
+        assert!(html.contains("/api/flash/devices"));
+        assert!(html.contains("/api/flash/stream"));
+        assert!(html.contains("flash-port"));
+        assert!(html.contains("flashStart"));
+        assert!(html.contains("flashRefreshPorts"));
     }
 
     #[test]
