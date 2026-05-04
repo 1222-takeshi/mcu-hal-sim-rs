@@ -32,8 +32,10 @@ const P_SDA: i32 = BOARD_Y + 52;
 const P_SCL: i32 = BOARD_Y + 96;
 const P_VCC: i32 = BOARD_Y + 152;
 const P_GND: i32 = BOARD_Y + 200;
-/// PWM pin (Servo / motor driver enable) — aligned with SRV label row.
+/// PWM pin (Servo) — aligned with SRV label row.
 const P_PWM: i32 = BOARD_Y + 263;
+/// PWM pin (L298N motor driver enable) — aligned with MOT label row.
+const P_MOT: i32 = BOARD_Y + 277;
 /// GPIO pin (HC-SR04 trigger / camera boot).
 const P_GPIO: i32 = BOARD_Y + 355;
 
@@ -90,7 +92,8 @@ fn render(out: &mut String, config: &WiringConfig) {
         (P_SCL, "dot-scl", format!("SCL/{}", config.scl_pin)),
         (P_VCC, "dot-vcc", config.power_pin.clone()),
         (P_GND, "dot-gnd", config.ground_pin.clone()),
-        (P_PWM, "dot-pwm", format!("PWM/{}", config.servo_pin)),
+        (P_PWM, "dot-pwm", format!("SRV/{}", config.servo_pin)),
+        (P_MOT, "dot-pwm", format!("MOT/{}", config.motor_pin)),
         (P_GPIO, "dot-gpio", format!("GPIO/{}", config.trig_pin)),
     ] {
         let _ = write!(
@@ -226,14 +229,14 @@ fn render(out: &mut String, config: &WiringConfig) {
                 );
             }
             ConnectionType::Pwm => {
-                let pwm_pin = if dev.kind == DeviceKind::L298n {
-                    &config.motor_pin
+                let (origin_y, pwm_pin) = if dev.kind == DeviceKind::L298n {
+                    (P_MOT, &config.motor_pin)
                 } else {
-                    &config.servo_pin
+                    (P_PWM, &config.servo_pin)
                 };
                 let _ = write!(
                     out,
-                    r#"<path class="w-pwm" d="M {BOARD_R} {P_PWM} C {cp} {P_PWM} {cp} {mid_y} {DEV_X} {mid_y}"/>
+                    r#"<path class="w-pwm" d="M {BOARD_R} {origin_y} C {cp} {origin_y} {cp} {mid_y} {DEV_X} {mid_y}"/>
 <circle cx="{DEV_X}" cy="{mid_y}" r="3" class="dot-pwm"/>
 <text x="{}" y="{}" class="dev-sub">PWM:{pwm_pin}</text>
 "#,
@@ -292,6 +295,7 @@ mod tests {
         assert!(svg.contains("GPIO22"), "missing SCL pin");
         assert!(svg.contains("3V3"), "missing power pin");
         assert!(svg.contains("GPIO13"), "missing servo PWM pin");
+        assert!(svg.contains("GPIO25"), "missing motor ENA pin");
         assert!(svg.contains("GPIO0"), "missing cam pin");
     }
 

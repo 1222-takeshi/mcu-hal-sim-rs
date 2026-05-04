@@ -235,6 +235,7 @@ mod tests {
         assert_eq!(cfg.echo_pin, "D3");
         assert_eq!(cfg.servo_pin, "D9");
         assert_eq!(cfg.motor_pin, "D5");
+        assert_eq!(cfg.cam_pin, "N/A");
     }
 
     #[test]
@@ -256,9 +257,23 @@ mod tests {
     #[test]
     fn wiring_config_devices_have_correct_connection_types() {
         let cfg = WiringConfig::from_board(BoardProfile::OriginalEsp32);
-        assert_eq!(cfg.devices[3].kind.connection_type(), ConnectionType::I2c);
-        assert_eq!(cfg.devices[5].kind.connection_type(), ConnectionType::Pwm);
-        assert_eq!(cfg.devices[7].kind.connection_type(), ConnectionType::Gpio);
+        let expected = [
+            ConnectionType::I2c,  // [0] BME280
+            ConnectionType::I2c,  // [1] MPU6050
+            ConnectionType::I2c,  // [2] LCD1602
+            ConnectionType::I2c,  // [3] BH1750
+            ConnectionType::Pwm,  // [4] Servo
+            ConnectionType::Pwm,  // [5] L298N
+            ConnectionType::Gpio, // [6] HC-SR04
+            ConnectionType::Gpio, // [7] ESP32-CAM
+        ];
+        for (i, exp) in expected.iter().enumerate() {
+            assert_eq!(
+                cfg.devices[i].kind.connection_type(),
+                *exp,
+                "device[{i}] has wrong connection type"
+            );
+        }
     }
 
     #[test]
