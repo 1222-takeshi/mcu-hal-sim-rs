@@ -124,7 +124,7 @@ impl BoardProfile {
     pub fn cam_pin(self) -> &'static str {
         match self {
             Self::OriginalEsp32 => "GPIO0",
-            Self::ArduinoNano => "D13",
+            Self::ArduinoNano => "N/A",
         }
     }
 }

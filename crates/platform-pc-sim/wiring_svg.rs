@@ -6,7 +6,7 @@
 
 use std::fmt::Write as _;
 
-use crate::wiring_config::{ConnectionType, WiringConfig};
+use crate::wiring_config::{ConnectionType, DeviceKind, WiringConfig};
 
 /// Generate a self-contained SVG string for the given wiring config.
 pub fn wiring_svg(config: &WiringConfig) -> String {
@@ -32,8 +32,8 @@ const P_SDA: i32 = BOARD_Y + 52;
 const P_SCL: i32 = BOARD_Y + 96;
 const P_VCC: i32 = BOARD_Y + 152;
 const P_GND: i32 = BOARD_Y + 200;
-/// PWM pin (Servo / motor driver enable).
-const P_PWM: i32 = BOARD_Y + 278;
+/// PWM pin (Servo / motor driver enable) — aligned with SRV label row.
+const P_PWM: i32 = BOARD_Y + 263;
 /// GPIO pin (HC-SR04 trigger / camera boot).
 const P_GPIO: i32 = BOARD_Y + 355;
 
@@ -140,7 +140,7 @@ fn render(out: &mut String, config: &WiringConfig) {
         config.servo_pin,
         BOARD_R - 7,
         pwm_y + 22,
-        config.servo_pin,
+        config.motor_pin,
     );
 
     // Devices
@@ -226,12 +226,16 @@ fn render(out: &mut String, config: &WiringConfig) {
                 );
             }
             ConnectionType::Pwm => {
-                let servo_pin = &config.servo_pin;
+                let pwm_pin = if dev.kind == DeviceKind::L298n {
+                    &config.motor_pin
+                } else {
+                    &config.servo_pin
+                };
                 let _ = write!(
                     out,
                     r#"<path class="w-pwm" d="M {BOARD_R} {P_PWM} C {cp} {P_PWM} {cp} {mid_y} {DEV_X} {mid_y}"/>
 <circle cx="{DEV_X}" cy="{mid_y}" r="3" class="dot-pwm"/>
-<text x="{}" y="{}" class="dev-sub">PWM:{servo_pin}</text>
+<text x="{}" y="{}" class="dev-sub">PWM:{pwm_pin}</text>
 "#,
                     DEV_X + 8,
                     dy + DEV_H - 4,

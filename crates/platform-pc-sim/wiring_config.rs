@@ -70,15 +70,14 @@ impl DeviceSpec {
     }
 
     pub fn gpio(kind: DeviceKind) -> Self {
-        let label = kind.label().to_string();
-        Self {
-            kind,
-            address: None,
-            label,
-        }
+        Self::non_i2c(kind)
     }
 
     pub fn pwm(kind: DeviceKind) -> Self {
+        Self::non_i2c(kind)
+    }
+
+    fn non_i2c(kind: DeviceKind) -> Self {
         let label = kind.label().to_string();
         Self {
             kind,
@@ -98,9 +97,11 @@ pub struct WiringConfig {
     pub ground_pin: String,
     pub trig_pin: String,
     pub echo_pin: String,
-    pub servo_pin: String,
     /// Representative pin for the camera module (GPIO0 / boot pin on ESP32).
     pub cam_pin: String,
+    pub servo_pin: String,
+    /// L298N motor driver enable-A pin (ENA).
+    pub motor_pin: String,
     pub devices: Vec<DeviceSpec>,
 }
 
@@ -109,17 +110,17 @@ impl WiringConfig {
     ///
     /// Returns the full simulator configuration matching `DeviceSimulationRig`:
     /// BME280 (0x77), MPU6050 (0x68), LCD1602 (0x27), BH1750 (0x23) on I²C;
-    /// HC-SR04 and ESP32-CAM on GPIO; Servo and L298N on PWM.
+    /// Servo and L298N on PWM; HC-SR04 and ESP32-CAM on GPIO.
     pub fn from_board(board: BoardProfile) -> Self {
         let devices = vec![
             DeviceSpec::i2c(DeviceKind::Bme280, 0x77),
             DeviceSpec::i2c(DeviceKind::Mpu6050, 0x68),
             DeviceSpec::i2c(DeviceKind::Lcd1602, 0x27),
             DeviceSpec::i2c(DeviceKind::Bh1750, 0x23),
-            DeviceSpec::gpio(DeviceKind::HcSr04),
-            DeviceSpec::gpio(DeviceKind::Esp32Cam),
             DeviceSpec::pwm(DeviceKind::Servo),
             DeviceSpec::pwm(DeviceKind::L298n),
+            DeviceSpec::gpio(DeviceKind::HcSr04),
+            DeviceSpec::gpio(DeviceKind::Esp32Cam),
         ];
         Self {
             sda_pin: board.sda_pin().to_string(),
@@ -128,8 +129,9 @@ impl WiringConfig {
             ground_pin: "GND".to_string(),
             trig_pin: board.trig_pin().to_string(),
             echo_pin: board.echo_pin().to_string(),
-            servo_pin: board.servo_pwm_pin().to_string(),
             cam_pin: board.cam_pin().to_string(),
+            servo_pin: board.servo_pwm_pin().to_string(),
+            motor_pin: board.motor_ena_pin().to_string(),
             board,
             devices,
         }
@@ -168,7 +170,8 @@ impl WiringConfig {
             concat!(
                 r#"{{"board":"{board}","sda_pin":"{sda}","scl_pin":"{scl}","#,
                 r#""power_pin":"{vcc}","ground_pin":"{gnd}","#,
-                r#""trig_pin":"{trig}","echo_pin":"{echo}","servo_pin":"{sv}","cam_pin":"{cam}","#,
+                r#""trig_pin":"{trig}","echo_pin":"{echo}","cam_pin":"{cam}","#,
+                r#""servo_pin":"{sv}","motor_pin":"{mot}","#,
                 r#""devices":[{devs}]}}"#
             ),
             board = board_str,
@@ -178,8 +181,9 @@ impl WiringConfig {
             gnd = json_escape(&self.ground_pin),
             trig = json_escape(&self.trig_pin),
             echo = json_escape(&self.echo_pin),
-            sv = json_escape(&self.servo_pin),
             cam = json_escape(&self.cam_pin),
+            sv = json_escape(&self.servo_pin),
+            mot = json_escape(&self.motor_pin),
             devs = devices.join(","),
         )
     }
@@ -215,7 +219,10 @@ mod tests {
         assert_eq!(cfg.scl_pin, "GPIO22");
         assert_eq!(cfg.power_pin, "3V3");
         assert_eq!(cfg.trig_pin, "GPIO5");
+        assert_eq!(cfg.echo_pin, "GPIO18");
         assert_eq!(cfg.servo_pin, "GPIO13");
+        assert_eq!(cfg.motor_pin, "GPIO25");
+        assert_eq!(cfg.cam_pin, "GPIO0");
     }
 
     #[test]
@@ -227,6 +234,7 @@ mod tests {
         assert_eq!(cfg.trig_pin, "D2");
         assert_eq!(cfg.echo_pin, "D3");
         assert_eq!(cfg.servo_pin, "D9");
+        assert_eq!(cfg.motor_pin, "D5");
     }
 
     #[test]
@@ -234,11 +242,23 @@ mod tests {
         let cfg = WiringConfig::from_board(BoardProfile::OriginalEsp32);
         assert_eq!(cfg.devices.len(), 8);
         assert_eq!(cfg.devices[0].kind, DeviceKind::Bme280);
-        assert_eq!(cfg.devices[4].kind, DeviceKind::HcSr04);
-        assert_eq!(cfg.devices[4].kind.connection_type(), ConnectionType::Gpio);
-        assert_eq!(cfg.devices[6].kind, DeviceKind::Servo);
-        assert_eq!(cfg.devices[6].kind.connection_type(), ConnectionType::Pwm);
-        assert_eq!(cfg.devices[7].kind, DeviceKind::L298n);
+        assert_eq!(cfg.devices[3].kind, DeviceKind::Bh1750);
+        // order: I2C(0-3) → PWM(4-5) → GPIO(6-7)
+        assert_eq!(cfg.devices[4].kind, DeviceKind::Servo);
+        assert_eq!(cfg.devices[4].kind.connection_type(), ConnectionType::Pwm);
+        assert_eq!(cfg.devices[5].kind, DeviceKind::L298n);
+        assert_eq!(cfg.devices[5].kind.connection_type(), ConnectionType::Pwm);
+        assert_eq!(cfg.devices[6].kind, DeviceKind::HcSr04);
+        assert_eq!(cfg.devices[6].kind.connection_type(), ConnectionType::Gpio);
+        assert_eq!(cfg.devices[7].kind, DeviceKind::Esp32Cam);
+    }
+
+    #[test]
+    fn wiring_config_devices_have_correct_connection_types() {
+        let cfg = WiringConfig::from_board(BoardProfile::OriginalEsp32);
+        assert_eq!(cfg.devices[3].kind.connection_type(), ConnectionType::I2c);
+        assert_eq!(cfg.devices[5].kind.connection_type(), ConnectionType::Pwm);
+        assert_eq!(cfg.devices[7].kind.connection_type(), ConnectionType::Gpio);
     }
 
     #[test]
@@ -253,5 +273,6 @@ mod tests {
         assert!(json.contains(r#""kind":"l298n""#));
         assert!(json.contains(r#""kind":"esp32_cam""#));
         assert!(json.contains(r#""cam_pin":"GPIO0""#));
+        assert!(json.contains(r#""motor_pin":"GPIO25""#));
     }
 }
