@@ -11,6 +11,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.5] - 2026-05-04
+
+配線シミュレータを全 8 デバイス対応に拡張。
+
+### Added
+- **[#78]** 配線エディタ（PCB-style SVG）を全 8 デバイスに対応 (PR #80)
+  - `DeviceKind`: `Bh1750`, `Servo`, `L298n`, `Esp32Cam` を追加
+  - `ConnectionType::Pwm` を追加、PWM ワイヤを黄色で描画
+  - `WiringConfig` に `motor_pin`（L298N ENA ピン）・`cam_pin`（カメラブートピン）フィールドを追加
+  - `from_board()` を 8 デバイス構成（I2C×4 → PWM×2 → GPIO×2）に拡張
+  - SVG に SRV/MOT ピン列・GPIO グループを追加、キャンバスを 580×520 に拡大
+  - L298N と Servo のワイヤ起点を別ボードドット（`P_MOT` / `P_PWM`）に分離
+  - `DeviceSpec::gpio()/pwm()` を `non_i2c()` 共通ヘルパーへ委譲（重複除去）
+  - `to_json()` に `motor_pin`・`cam_pin` を追加
+
+---
+
 ## [0.3.4] - 2026-05-04
 
 WebSocket リアルタイム更新・配線エディタ・ESP32 フラッシュ API の 3 機能を追加。
