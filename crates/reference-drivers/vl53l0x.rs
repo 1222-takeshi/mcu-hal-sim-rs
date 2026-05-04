@@ -22,6 +22,8 @@ const REG_IDENTIFICATION_MODEL_ID: u8 = 0xC0;
 const EXPECTED_MODEL_ID: u8 = 0xEE;
 const REG_SYSRANGE_START: u8 = 0x00;
 const REG_RESULT_RANGE_MM: u8 = 0x1E;
+const REG_RESULT_INTERRUPT_STATUS: u8 = 0x13;
+const MAX_RANGE_POLLS: usize = 10;
 
 /// VL53L0X ドライバ。
 pub struct Vl53l0xSensor<I2C> {
@@ -56,12 +58,27 @@ impl<I2C: I2cBus<Error = I2cError>> DistanceSensor for Vl53l0xSensor<I2C> {
 
     /// ToF で距離を測定します（mm）。
     ///
-    /// 1-shot 計測コマンドを送り、2 バイトの距離結果を読み取ります。
+    /// 1-shot 計測コマンドを送り、計測完了を待ってから 2 バイトの距離結果を読み取ります。
     fn read_distance(&mut self) -> Result<DistanceReading, SensorError> {
         // 1-shot 計測開始
         self.i2c
             .write(self.address, &[REG_SYSRANGE_START, 0x01])
             .map_err(|_| SensorError::BusError)?;
+        // 計測完了待ち: RESULT_INTERRUPT_STATUS (0x13) の bit[2:0] != 0 で完了
+        let mut ready = false;
+        for _ in 0..MAX_RANGE_POLLS {
+            let mut status = [0u8; 1];
+            self.i2c
+                .write_read(self.address, &[REG_RESULT_INTERRUPT_STATUS], &mut status)
+                .map_err(|_| SensorError::BusError)?;
+            if status[0] & 0x07 != 0 {
+                ready = true;
+                break;
+            }
+        }
+        if !ready {
+            return Err(SensorError::Busy);
+        }
         // 距離結果レジスタを読み取る
         let mut buf = [0u8; 2];
         self.i2c
@@ -105,6 +122,8 @@ mod tests {
             // モデルID確認リクエスト
             if write[0] == 0xC0 {
                 buf[0] = 0xEE; // valid model ID
+            } else if write[0] == 0x13 {
+                buf[0] = 0x01; // measurement ready (bit0 set)
             } else {
                 buf[0] = self.distance_h;
                 if buf.len() > 1 {
@@ -155,5 +174,37 @@ mod tests {
         }
         let result = Vl53l0xSensor::new(WrongIdI2c, VL53L0X_ADDRESS);
         assert!(matches!(result, Err(SensorError::InvalidReading)));
+    }
+
+    #[test]
+    fn vl53l0x_new_fails_on_bus_error() {
+        struct FailI2c;
+        impl I2cBus for FailI2c {
+            type Error = I2cError;
+            fn write(&mut self, _: u8, _: &[u8]) -> Result<(), I2cError> { Ok(()) }
+            fn read(&mut self, _: u8, _: &mut [u8]) -> Result<(), I2cError> { Ok(()) }
+            fn write_read(&mut self, _: u8, _: &[u8], _: &mut [u8]) -> Result<(), I2cError> {
+                Err(I2cError::BusError)
+            }
+        }
+        let result = Vl53l0xSensor::new(FailI2c, VL53L0X_ADDRESS);
+        assert!(matches!(result, Err(SensorError::BusError)));
+    }
+
+    #[test]
+    fn vl53l0x_returns_busy_when_measurement_not_ready() {
+        struct NeverReadyI2c;
+        impl I2cBus for NeverReadyI2c {
+            type Error = I2cError;
+            fn write(&mut self, _: u8, _: &[u8]) -> Result<(), I2cError> { Ok(()) }
+            fn read(&mut self, _: u8, _: &mut [u8]) -> Result<(), I2cError> { Ok(()) }
+            fn write_read(&mut self, _: u8, write: &[u8], buf: &mut [u8]) -> Result<(), I2cError> {
+                if write[0] == 0xC0 { buf[0] = 0xEE; } // identity ok
+                else { buf[0] = 0x00; } // never ready
+                Ok(())
+            }
+        }
+        let mut sensor = Vl53l0xSensor::new(NeverReadyI2c, VL53L0X_ADDRESS).unwrap();
+        assert_eq!(sensor.read_distance(), Err(SensorError::Busy));
     }
 }

@@ -53,6 +53,8 @@ impl<I2C: I2cBus<Error = I2cError>> GasSensor for Sgp30Sensor<I2C> {
         self.i2c
             .read(self.address, &mut buf)
             .map_err(|_| SensorError::BusError)?;
+        // CRC バイト (buf[2], buf[5]) は SGP30 CRC-8 (多項式 0x31) で保護されているが、
+        // このドライバでは検証を省略しています。信頼性が必要な場合は CRC を検証してください。
         let co2_ppm = u16::from_be_bytes([buf[0], buf[1]]);
         let voc_ppb = u16::from_be_bytes([buf[3], buf[4]]);
         Ok(GasReading::new(co2_ppm, voc_ppb))
@@ -133,5 +135,36 @@ mod tests {
         let i2c = StubI2c::new(400, 0);
         let sensor = Sgp30Sensor::new(i2c, SGP30_ADDRESS).unwrap();
         assert_eq!(sensor.i2c.writes, 1, "init should send 1 write command");
+    }
+
+    #[test]
+    fn sgp30_new_fails_on_bus_error() {
+        struct FailI2c;
+        impl I2cBus for FailI2c {
+            type Error = I2cError;
+            fn write(&mut self, _: u8, _: &[u8]) -> Result<(), I2cError> {
+                Err(I2cError::BusError)
+            }
+            fn read(&mut self, _: u8, _: &mut [u8]) -> Result<(), I2cError> { Ok(()) }
+            fn write_read(&mut self, _: u8, _: &[u8], _: &mut [u8]) -> Result<(), I2cError> { Ok(()) }
+        }
+        assert!(matches!(Sgp30Sensor::new(FailI2c, SGP30_ADDRESS), Err(SensorError::BusError)));
+    }
+
+    #[test]
+    fn sgp30_read_gas_fails_on_bus_error() {
+        struct FailReadI2c { init_done: bool }
+        impl I2cBus for FailReadI2c {
+            type Error = I2cError;
+            fn write(&mut self, _: u8, _: &[u8]) -> Result<(), I2cError> {
+                if self.init_done { Err(I2cError::BusError) } else { self.init_done = true; Ok(()) }
+            }
+            fn read(&mut self, _: u8, _: &mut [u8]) -> Result<(), I2cError> { Err(I2cError::BusError) }
+            fn write_read(&mut self, _: u8, _: &[u8], _: &mut [u8]) -> Result<(), I2cError> { Ok(()) }
+        }
+        // init succeeds (first write), then measure write fails
+        let i2c = FailReadI2c { init_done: false };
+        let mut sensor = Sgp30Sensor::new(i2c, SGP30_ADDRESS).unwrap();
+        assert!(matches!(sensor.read_gas(), Err(SensorError::BusError)));
     }
 }

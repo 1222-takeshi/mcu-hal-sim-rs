@@ -58,6 +58,9 @@ impl RtcDateTime {
 ///     fn read_datetime(&mut self) -> Result<RtcDateTime, ()> {
 ///         Ok(RtcDateTime::new(25, 5, 4, 12, 0, 0))
 ///     }
+///     fn set_datetime(&mut self, _dt: &RtcDateTime) -> Result<(), ()> {
+///         Ok(())
+///     }
 /// }
 ///
 /// let mut rtc = MockRtc;
@@ -69,4 +72,7 @@ pub trait RtcSensor {
     type Error;
 
     fn read_datetime(&mut self) -> Result<RtcDateTime, Self::Error>;
+
+    /// 日時を設定します。
+    fn set_datetime(&mut self, dt: &RtcDateTime) -> Result<(), Self::Error>;
 }
