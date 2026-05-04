@@ -11,6 +11,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.4] - 2026-05-04
+
+WebSocket リアルタイム更新・配線エディタ・ESP32 フラッシュ API の 3 機能を追加。
+
+### Added
+- **[#64]** WebSocket リアルタイムダッシュボード更新 (PR #67)
+  - `setInterval` ポーリングを廃止し、RFC 6455 準拠の手動 WebSocket ハンドシェイク (`sha1_smol` + `base64`) で実装
+  - `ServerContext` に `ws_clients` レジストリを追加、接続ごとに `mpsc::SyncSender` で JSON を Push
+  - JS 側: `connectWs()` + 指数バックオフ再接続（500 ms → 最大 10 s）
+- **[#65]** ドラッグ&ドロップ配線エディタ (PR #68)
+  - デバイスライブラリ（MCU / BME280 / MPU6050 / HC-SR04 / LCD1602 / Servo / L298N）
+  - サイドバーからキャンバスへドラッグ&ドロップでノード配置
+  - ポートクリックでベジェ曲線ワイヤ描画、ワイヤクリックで削除
+  - Export / Import via `GET|POST /api/wiring/editor`
+- **[#66]** ESP32 フラッシュ API とパネル (PR #69)
+  - `GET /api/flash/devices`: 接続済みシリアルポート一覧（macOS `cu.*` / Linux `ttyUSB*`/`ttyACM*`）
+  - `GET /api/flash/stream?port=...&bin=...`: `espflash` 出力を SSE でストリーミング
+  - `espflash` 未インストール時はインストール手順を表示（グレースフル デグラデーション）
+
+---
+
+## [Unreleased]
+
+---
+
 ## [0.3.3] - 2026-05-03
 
 ESP32 向けアクチュエータ統合テストと README への ESP32 使用ガイドを追加。全アクチュエータが sim-to-real driver-backed 経路として検証済みになりました。
