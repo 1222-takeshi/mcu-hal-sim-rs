@@ -33,7 +33,9 @@ impl SequentialI2c {
 
     fn pop_response(&self, buf: &mut [u8]) -> Result<(), I2cError> {
         let mut q = self.read_responses.borrow_mut();
-        let response = q.pop_front().ok_or(I2cError::BusError)?;
+        let response = q.pop_front().unwrap_or_else(|| {
+            panic!("SequentialI2c: response queue exhausted (forgot push_response?)")
+        });
         for (dst, src) in buf.iter_mut().zip(response.iter()) {
             *dst = *src;
         }
@@ -164,4 +166,106 @@ fn vl53l0x_bridge_rejects_wrong_model_id() {
 
     let result = Vl53l0xSensor::new(bus, VL53L0X_ADDRESS);
     assert!(result.is_err(), "wrong model ID should fail initialization");
+}
+
+#[test]
+fn vl53l0x_bridge_busy_when_measurement_never_ready() {
+    let bus = SequentialI2c::default();
+    // verify_identity succeeds
+    bus.push_response(&[0xEE]);
+    // All 10 poll attempts return "not ready" (bit[2:0] = 0)
+    for _ in 0..10 {
+        bus.push_response(&[0x00]);
+    }
+
+    let mut sensor = Vl53l0xSensor::new(bus, VL53L0X_ADDRESS).unwrap();
+    let result = sensor.read_distance();
+    assert!(
+        matches!(result, Err(hal_api::error::SensorError::Busy)),
+        "should return Busy when interrupt never asserts"
+    );
+}
+
+// ---- DS3231 set_datetime bridge test ----
+
+#[test]
+fn ds3231_bridge_set_datetime_writes_correct_frame() {
+    let bus = SequentialI2c::default();
+    let writes = bus.writes.clone();
+    let mut sensor = Ds3231Sensor::new(bus, DS3231_ADDRESS);
+
+    let dt = hal_api::rtc::RtcDateTime::new(25, 5, 4, 12, 30, 45);
+    sensor.set_datetime(&dt).unwrap();
+
+    let log = writes.borrow();
+    assert!(!log.is_empty());
+    let frame = &log[0].1;
+    // frame = [reg_ptr=0x00, sec_bcd, min_bcd, hour_bcd, dow=0x01, day_bcd, month_bcd, year_bcd]
+    assert_eq!(frame[0], 0x00, "register pointer");
+    assert_eq!(frame[1], 0x45, "seconds BCD (45 -> 0x45)");
+    assert_eq!(frame[2], 0x30, "minutes BCD (30 -> 0x30)");
+    assert_eq!(frame[3], 0x12, "hours BCD (12 -> 0x12)");
+    assert_eq!(frame[5], 0x04, "day BCD (4 -> 0x04)");
+    assert_eq!(frame[6], 0x05, "month BCD (5 -> 0x05)");
+    assert_eq!(frame[7], 0x25, "year_offset BCD (25 -> 0x25)");
+}
+
+#[test]
+fn ds3231_bridge_propagates_bus_error() {
+    // Empty response queue → pop_response panics, so we test a non-existent register path.
+    // Use a dedicated FailI2c that returns BusError on write_read.
+    struct FailI2c;
+    impl I2cBus for FailI2c {
+        type Error = I2cError;
+        fn write(&mut self, _addr: u8, _data: &[u8]) -> Result<(), I2cError> {
+            Ok(())
+        }
+        fn read(&mut self, _addr: u8, _buf: &mut [u8]) -> Result<(), I2cError> {
+            Err(I2cError::BusError)
+        }
+        fn write_read(
+            &mut self,
+            _addr: u8,
+            _write: &[u8],
+            _buf: &mut [u8],
+        ) -> Result<(), I2cError> {
+            Err(I2cError::BusError)
+        }
+    }
+
+    let mut sensor = Ds3231Sensor::new(FailI2c, DS3231_ADDRESS);
+    assert!(
+        sensor.read_datetime().is_err(),
+        "bus error should propagate through ESP32 adapter"
+    );
+}
+
+// ---- SGP30 error bridge test ----
+
+#[test]
+fn sgp30_bridge_propagates_init_bus_error() {
+    struct FailWriteI2c;
+    impl I2cBus for FailWriteI2c {
+        type Error = I2cError;
+        fn write(&mut self, _addr: u8, _data: &[u8]) -> Result<(), I2cError> {
+            Err(I2cError::BusError)
+        }
+        fn read(&mut self, _addr: u8, _buf: &mut [u8]) -> Result<(), I2cError> {
+            Ok(())
+        }
+        fn write_read(
+            &mut self,
+            _addr: u8,
+            _write: &[u8],
+            _buf: &mut [u8],
+        ) -> Result<(), I2cError> {
+            Ok(())
+        }
+    }
+
+    let result = Sgp30Sensor::new(FailWriteI2c, SGP30_ADDRESS);
+    assert!(
+        result.is_err(),
+        "init bus error should propagate through ESP32 adapter"
+    );
 }
