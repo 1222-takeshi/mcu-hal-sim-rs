@@ -21,8 +21,6 @@ pub fn demo_distances_mm() -> Vec<u32> {
 
 #[derive(Debug)]
 struct MockVl53l0xState {
-    /// True after SYSRANGE_START = 0x01 write received.
-    measurement_triggered: bool,
     /// Next distance to return on RESULT_RANGE_MM read.
     next_distance_mm: u32,
     /// Cycling distances.
@@ -43,9 +41,14 @@ impl MockVl53l0xState {
 ///
 /// Handles VL53L0X protocol:
 /// - `write_read([0xC0], buf[1])` → model ID = 0xEE
-/// - `write([0x00, 0x01])` → triggers measurement
-/// - `write_read([0x13], status[1])` → interrupt status = 0x01 (ready)
+/// - `write([0x00, 0x01])` → triggers measurement (advances to next cycling distance)
+/// - `write_read([0x13], status[1])` → interrupt status = 0x01 (always ready)
 /// - `write_read([0x1E], buf[2])` → 2-byte distance BE
+///
+/// Note: this mock does not enforce a measurement-triggered state machine.
+/// `REG_RESULT_RANGE_MM` reads succeed regardless of whether a trigger write was sent first.
+/// Maximum meaningful distance is ~8000 mm (well within `u16::MAX`); do not call
+/// `set_next_distance` with values > 65535 as they will be silently truncated.
 #[derive(Clone, Debug)]
 pub struct MockVl53l0xDevice {
     state: Rc<RefCell<MockVl53l0xState>>,
@@ -60,7 +63,6 @@ impl MockVl53l0xDevice {
         let first = distances.first().copied().unwrap_or(500);
         Self {
             state: Rc::new(RefCell::new(MockVl53l0xState {
-                measurement_triggered: false,
                 next_distance_mm: first,
                 distances,
                 distance_index: 0,
@@ -83,7 +85,6 @@ impl VirtualI2cDevice for MockVl53l0xDevice {
     fn write(&mut self, bytes: &[u8]) -> Result<(), I2cError> {
         if bytes.len() == 2 && bytes[0] == REG_SYSRANGE_START && bytes[1] == 0x01 {
             let mut state = self.state.borrow_mut();
-            state.measurement_triggered = true;
             state.next_distance_mm = state.advance();
         }
         Ok(())
@@ -146,14 +147,14 @@ mod tests {
     #[test]
     fn mock_vl53l0x_returns_distance_after_trigger() {
         let mut device = MockVl53l0xDevice::new();
+        // set_next_distance is overridden by advance() inside write(SYSRANGE_START)
+        // which cycles to demo_distances_mm()[0] = 1500
         device.set_next_distance(350);
         device.write(&[REG_SYSRANGE_START, 0x01]).unwrap();
         let mut buf = [0u8; 2];
         device.write_read(&[REG_RESULT_RANGE_MM], &mut buf).unwrap();
         let mm = u16::from_be_bytes(buf);
-        // After trigger, state.advance() gives the next cycling distance
-        // The exact value depends on cycling, but must be within u16 range
-        let _ = mm;
+        assert_eq!(mm, demo_distances_mm()[0] as u16);
     }
 
     #[test]

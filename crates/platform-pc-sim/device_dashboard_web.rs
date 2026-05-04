@@ -265,8 +265,13 @@ impl DeviceSimulationRig {
                 let mut s = String::new();
                 let _ = write!(
                     s,
-                    "20{:02}-{:02}-{:02} {:02}:{:02}:{:02}",
-                    dt.year_offset, dt.month, dt.day, dt.hour, dt.minute, dt.second
+                    "{}-{:02}-{:02} {:02}:{:02}:{:02}",
+                    dt.year(),
+                    dt.month,
+                    dt.day,
+                    dt.hour,
+                    dt.minute,
+                    dt.second
                 );
                 self.last_rtc_str = s;
             }
