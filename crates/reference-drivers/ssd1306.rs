@@ -319,7 +319,12 @@ mod tests {
         let table = include_font();
         // Digits '0'-'9' are at index 16-25
         for (i, glyph) in table[16..=25].iter().enumerate() {
-            assert_ne!(*glyph, [0u8; 5], "Digit glyph at index {} should be non-zero", i + 16);
+            assert_ne!(
+                *glyph,
+                [0u8; 5],
+                "Digit glyph at index {} should be non-zero",
+                i + 16
+            );
         }
     }
 
