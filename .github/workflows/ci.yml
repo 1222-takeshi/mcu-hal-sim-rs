@@ -9,6 +9,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   NO_STD_TARGET: thumbv6m-none-eabi
+  ESP32C3_TARGET: riscv32imc-unknown-none-elf
 
 jobs:
   test:
@@ -159,3 +160,39 @@ jobs:
 
       - name: Check platform-avr for no_std target
         run: cargo check -p platform-avr --lib --target $NO_STD_TARGET
+
+  esp32c3:
+    name: ESP32-C3 Cross Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain with ESP32-C3 target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ env.ESP32C3_TARGET }}
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.toml') }}
+
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.toml') }}
+
+      - name: Check hal-api for ESP32-C3
+        run: cargo check -p hal-api --lib --target $ESP32C3_TARGET
+
+      - name: Check core-app for ESP32-C3
+        run: cargo check -p core-app --lib --target $ESP32C3_TARGET
+
+      - name: Check reference-drivers for ESP32-C3
+        run: cargo check -p reference-drivers --lib --target $ESP32C3_TARGET
+
+      - name: Check platform-esp32 for ESP32-C3
+        run: cargo check -p platform-esp32 --lib --target $ESP32C3_TARGET
