@@ -9,9 +9,12 @@ use std::time::Duration;
 use core_app::climate_display::{ClimateDisplayApp, ClimateDisplayConfig};
 use embedded_hal::delay::DelayNs;
 use hal_api::actuator::{DualMotorDriver, MotorCommand, MotorDirection, ServoMotor};
+use hal_api::camera::CameraCapture;
 use hal_api::distance::DistanceSensor;
 use hal_api::imu::ImuSensor;
+use hal_api::light::LightSensor;
 use platform_pc_sim::bme280_mock::{demo_raw_samples, MockBme280Device};
+use platform_pc_sim::camera_mock::MockCamera;
 use platform_pc_sim::dashboard::BoardProfile;
 use platform_pc_sim::hc_sr04_mock::{demo_echo_pulses_us, MockHcSr04Device};
 use platform_pc_sim::lcd1602_mock::MockLcd1602Device;
@@ -20,12 +23,13 @@ use platform_pc_sim::mpu6050_mock::{demo_raw_frames, MockMpu6050Device};
 use platform_pc_sim::pwm_mock::MockPwmOutput;
 use platform_pc_sim::virtual_i2c::{VirtualI2cBus, VirtualI2cOperation};
 use platform_pc_sim::web_dashboard::{
-    dashboard_html, state_to_json, ClimatePanelState, DeviceDashboardState, DistancePanelState,
-    I2cPanelState, ImuPanelState, MotorChannelState, MotorDriverPanelState, ServoPanelState,
-    WiringPanelState,
+    dashboard_html, state_to_json, CameraPanelState, ClimatePanelState, DeviceDashboardState,
+    DistancePanelState, I2cPanelState, ImuPanelState, LightPanelState, MotorChannelState,
+    MotorDriverPanelState, ServoPanelState, WiringPanelState,
 };
 use platform_pc_sim::wiring_config::WiringConfig;
 use platform_pc_sim::wiring_svg::wiring_svg;
+use reference_drivers::bh1750::{Bh1750Sensor, BH1750_ADDRESS_LOW};
 use reference_drivers::bme280::{Bme280Sensor, BME280_ADDRESS_PRIMARY};
 use reference_drivers::hc_sr04::HcSr04Sensor;
 use reference_drivers::l298n::{L298nChannel, L298nDualDriver};
@@ -93,6 +97,10 @@ struct DeviceSimulationRig {
     motor_driver: MotorDriverRig,
     last_distance_mm: Option<u32>,
     last_imu: Option<hal_api::imu::ImuReading>,
+    light_sensor: Bh1750Sensor<VirtualI2cBus>,
+    camera: MockCamera,
+    last_lux_x100: u32,
+    last_camera_sequence: u32,
 }
 
 impl DeviceSimulationRig {
@@ -101,9 +109,13 @@ impl DeviceSimulationRig {
         let bme280 = MockBme280Device::new();
         let lcd = MockLcd1602Device::new();
         let mpu6050 = MockMpu6050Device::new();
+        let bh1750 = platform_pc_sim::bh1750_mock::MockBh1750Device::looping(vec![
+            8_500, 12_000, 15_300, 9_800, 7_200,
+        ]);
         bus.attach_device(BME280_ADDRESS_PRIMARY, bme280.clone());
         bus.attach_device(LCD1602_ADDRESS_PRIMARY, lcd.clone());
         bus.attach_device(MPU6050_ADDRESS_PRIMARY, mpu6050.clone());
+        bus.attach_device(BH1750_ADDRESS_LOW, bh1750);
 
         let app = ClimateDisplayApp::new_with_config(
             Bme280Sensor::new(bus.clone()),
@@ -115,6 +127,9 @@ impl DeviceSimulationRig {
         );
         let distance_sensor = HcSr04Sensor::new(MockHcSr04Device::looping(demo_echo_pulses_us()));
         let imu_sensor = Mpu6050Sensor::new(bus.clone());
+        let light_sensor = Bh1750Sensor::new(bus.clone(), BH1750_ADDRESS_LOW)
+            .expect("BH1750 mock device should initialise");
+        let camera = MockCamera::qvga_jpeg();
 
         let servo = ServoDriver::new(MockPwmOutput::new());
         let motor_driver = L298nDualDriver::new(
@@ -139,6 +154,10 @@ impl DeviceSimulationRig {
             motor_driver,
             last_distance_mm: None,
             last_imu: None,
+            light_sensor,
+            camera,
+            last_lux_x100: 0,
+            last_camera_sequence: 0,
         }
     }
 
@@ -170,6 +189,18 @@ impl DeviceSimulationRig {
                     .read_imu()
                     .expect("imu driver should read from host-side mock device"),
             );
+        }
+
+        if tick == 1 || tick % 5 == 0 {
+            if let Ok(reading) = self.light_sensor.read_lux() {
+                self.last_lux_x100 = reading.lux_x100;
+            }
+        }
+
+        if tick == 1 || tick % 7 == 0 {
+            if let Ok(frame) = self.camera.capture_frame() {
+                self.last_camera_sequence = frame.sequence;
+            }
         }
 
         let servo_angle = distance_to_servo_angle(self.last_distance_mm.unwrap_or(180));
@@ -253,6 +284,16 @@ impl DeviceSimulationRig {
                 operation_count: self.bus.operation_count(),
                 recent_operations,
             },
+            light: LightPanelState {
+                lux_x100: self.last_lux_x100,
+                sensor_name: "BH1750".to_string(),
+            },
+            camera: CameraPanelState {
+                width: self.camera.resolution().0,
+                height: self.camera.resolution().1,
+                sequence: self.last_camera_sequence,
+                sensor_name: "ESP32-CAM".to_string(),
+            },
         }
     }
 }
@@ -276,7 +317,9 @@ fn line_to_string(frame: &hal_api::display::TextFrame16x2, row: usize) -> String
 
 fn addr_to_device_name(addr: &str) -> &'static str {
     match addr {
+        "0x23" => "BH1750",
         "0x27" => "LCD1602",
+        "0x3C" => "SSD1306",
         "0x68" => "MPU6050",
         "0x77" => "BME280",
         _ => "unknown",

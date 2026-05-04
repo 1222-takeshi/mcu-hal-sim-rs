@@ -33,11 +33,13 @@
 //! ```
 
 pub mod actuator;
+pub mod camera;
 pub mod display;
 pub mod distance;
 pub mod error;
 pub mod gpio;
 pub mod i2c;
 pub mod imu;
+pub mod light;
 pub mod pwm;
 pub mod sensor;
