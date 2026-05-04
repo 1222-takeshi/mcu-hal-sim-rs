@@ -10,8 +10,10 @@
 //! board 非依存 driver 本体は `reference-drivers` crate にあり、
 //! この crate では original ESP32 向けの参照経路として re-export します。
 
+pub mod bh1750;
 pub mod bme280;
 pub mod delay;
+pub mod dht22;
 pub mod gpio;
 pub mod hc_sr04;
 pub mod i2c;
@@ -21,5 +23,6 @@ pub mod mpu6050;
 pub mod pwm;
 pub mod servo;
 pub mod shared_i2c;
+pub mod ssd1306;
 
 pub use delay::Esp32Delay;
