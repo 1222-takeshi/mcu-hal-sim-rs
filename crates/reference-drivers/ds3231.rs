@@ -49,10 +49,10 @@ fn decode_hour(raw: u8) -> u8 {
         let is_pm = (raw & 0x20) != 0;
         let h = bcd_to_dec(raw & 0x1F); // 1–12
         match (is_pm, h) {
-            (false, 12) => 0,       // 12 AM (midnight) = 0:00
-            (false, h)  => h,       // 1–11 AM
-            (true,  12) => 12,      // 12 PM (noon)     = 12:00
-            (true,  h)  => h + 12,  // 1–11 PM          = 13–23
+            (false, 12) => 0,    // 12 AM (midnight) = 0:00
+            (false, h) => h,     // 1–11 AM
+            (true, 12) => 12,    // 12 PM (noon)     = 12:00
+            (true, h) => h + 12, // 1–11 PM          = 13–23
         }
     } else {
         bcd_to_dec(raw & 0x3F)
@@ -96,11 +96,11 @@ impl<I2C: I2cBus<Error = I2cError>> RtcSensor for Ds3231Sensor<I2C> {
             ((dec / 10) << 4) | (dec % 10)
         }
         let buf = [
-            0x00u8,                      // レジスタポインタ
+            0x00u8, // レジスタポインタ
             dec_to_bcd(dt.second),
             dec_to_bcd(dt.minute),
-            dec_to_bcd(dt.hour),         // 24h モードで書き込み
-            0x01u8,                      // day of week (固定: 1)
+            dec_to_bcd(dt.hour), // 24h モードで書き込み
+            0x01u8,              // day of week (固定: 1)
             dec_to_bcd(dt.day),
             dec_to_bcd(dt.month),
             dec_to_bcd(dt.year_offset),
@@ -205,8 +205,12 @@ mod tests {
         struct FailI2c;
         impl I2cBus for FailI2c {
             type Error = I2cError;
-            fn write(&mut self, _: u8, _: &[u8]) -> Result<(), I2cError> { Ok(()) }
-            fn read(&mut self, _: u8, _: &mut [u8]) -> Result<(), I2cError> { Ok(()) }
+            fn write(&mut self, _: u8, _: &[u8]) -> Result<(), I2cError> {
+                Ok(())
+            }
+            fn read(&mut self, _: u8, _: &mut [u8]) -> Result<(), I2cError> {
+                Ok(())
+            }
             fn write_read(&mut self, _: u8, _: &[u8], _: &mut [u8]) -> Result<(), I2cError> {
                 Err(I2cError::BusError)
             }
@@ -217,9 +221,9 @@ mod tests {
 
     #[test]
     fn decode_hour_24h_mode() {
-        assert_eq!(decode_hour(0x00), 0);   // 00:xx
-        assert_eq!(decode_hour(0x23), 23);  // 23:xx (BCD 0x23 = 23)
-        assert_eq!(decode_hour(0x12), 12);  // 12:xx (BCD 0x12 = 12)
+        assert_eq!(decode_hour(0x00), 0); // 00:xx
+        assert_eq!(decode_hour(0x23), 23); // 23:xx (BCD 0x23 = 23)
+        assert_eq!(decode_hour(0x12), 12); // 12:xx (BCD 0x12 = 12)
     }
 
     #[test]
@@ -248,15 +252,25 @@ mod tests {
         struct RecordingI2c {
             last_write: [u8; 8],
         }
-        impl RecordingI2c { fn new() -> Self { Self { last_write: [0u8; 8] } } }
+        impl RecordingI2c {
+            fn new() -> Self {
+                Self {
+                    last_write: [0u8; 8],
+                }
+            }
+        }
         impl I2cBus for RecordingI2c {
             type Error = I2cError;
             fn write(&mut self, _addr: u8, data: &[u8]) -> Result<(), I2cError> {
                 self.last_write[..data.len()].copy_from_slice(data);
                 Ok(())
             }
-            fn read(&mut self, _: u8, _: &mut [u8]) -> Result<(), I2cError> { Ok(()) }
-            fn write_read(&mut self, _: u8, _: &[u8], _: &mut [u8]) -> Result<(), I2cError> { Ok(()) }
+            fn read(&mut self, _: u8, _: &mut [u8]) -> Result<(), I2cError> {
+                Ok(())
+            }
+            fn write_read(&mut self, _: u8, _: &[u8], _: &mut [u8]) -> Result<(), I2cError> {
+                Ok(())
+            }
         }
         let i2c = RecordingI2c::new();
         let mut sensor = Ds3231Sensor::new(i2c, DS3231_ADDRESS);

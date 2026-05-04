@@ -181,8 +181,12 @@ mod tests {
         struct FailI2c;
         impl I2cBus for FailI2c {
             type Error = I2cError;
-            fn write(&mut self, _: u8, _: &[u8]) -> Result<(), I2cError> { Ok(()) }
-            fn read(&mut self, _: u8, _: &mut [u8]) -> Result<(), I2cError> { Ok(()) }
+            fn write(&mut self, _: u8, _: &[u8]) -> Result<(), I2cError> {
+                Ok(())
+            }
+            fn read(&mut self, _: u8, _: &mut [u8]) -> Result<(), I2cError> {
+                Ok(())
+            }
             fn write_read(&mut self, _: u8, _: &[u8], _: &mut [u8]) -> Result<(), I2cError> {
                 Err(I2cError::BusError)
             }
@@ -196,11 +200,20 @@ mod tests {
         struct NeverReadyI2c;
         impl I2cBus for NeverReadyI2c {
             type Error = I2cError;
-            fn write(&mut self, _: u8, _: &[u8]) -> Result<(), I2cError> { Ok(()) }
-            fn read(&mut self, _: u8, _: &mut [u8]) -> Result<(), I2cError> { Ok(()) }
+            fn write(&mut self, _: u8, _: &[u8]) -> Result<(), I2cError> {
+                Ok(())
+            }
+            fn read(&mut self, _: u8, _: &mut [u8]) -> Result<(), I2cError> {
+                Ok(())
+            }
             fn write_read(&mut self, _: u8, write: &[u8], buf: &mut [u8]) -> Result<(), I2cError> {
-                if write[0] == 0xC0 { buf[0] = 0xEE; } // identity ok
-                else { buf[0] = 0x00; } // never ready
+                if write[0] == 0xC0 {
+                    buf[0] = 0xEE;
+                }
+                // identity ok
+                else {
+                    buf[0] = 0x00;
+                } // never ready
                 Ok(())
             }
         }

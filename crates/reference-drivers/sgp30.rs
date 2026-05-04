@@ -145,22 +145,40 @@ mod tests {
             fn write(&mut self, _: u8, _: &[u8]) -> Result<(), I2cError> {
                 Err(I2cError::BusError)
             }
-            fn read(&mut self, _: u8, _: &mut [u8]) -> Result<(), I2cError> { Ok(()) }
-            fn write_read(&mut self, _: u8, _: &[u8], _: &mut [u8]) -> Result<(), I2cError> { Ok(()) }
+            fn read(&mut self, _: u8, _: &mut [u8]) -> Result<(), I2cError> {
+                Ok(())
+            }
+            fn write_read(&mut self, _: u8, _: &[u8], _: &mut [u8]) -> Result<(), I2cError> {
+                Ok(())
+            }
         }
-        assert!(matches!(Sgp30Sensor::new(FailI2c, SGP30_ADDRESS), Err(SensorError::BusError)));
+        assert!(matches!(
+            Sgp30Sensor::new(FailI2c, SGP30_ADDRESS),
+            Err(SensorError::BusError)
+        ));
     }
 
     #[test]
     fn sgp30_read_gas_fails_on_bus_error() {
-        struct FailReadI2c { init_done: bool }
+        struct FailReadI2c {
+            init_done: bool,
+        }
         impl I2cBus for FailReadI2c {
             type Error = I2cError;
             fn write(&mut self, _: u8, _: &[u8]) -> Result<(), I2cError> {
-                if self.init_done { Err(I2cError::BusError) } else { self.init_done = true; Ok(()) }
+                if self.init_done {
+                    Err(I2cError::BusError)
+                } else {
+                    self.init_done = true;
+                    Ok(())
+                }
             }
-            fn read(&mut self, _: u8, _: &mut [u8]) -> Result<(), I2cError> { Err(I2cError::BusError) }
-            fn write_read(&mut self, _: u8, _: &[u8], _: &mut [u8]) -> Result<(), I2cError> { Ok(()) }
+            fn read(&mut self, _: u8, _: &mut [u8]) -> Result<(), I2cError> {
+                Err(I2cError::BusError)
+            }
+            fn write_read(&mut self, _: u8, _: &[u8], _: &mut [u8]) -> Result<(), I2cError> {
+                Ok(())
+            }
         }
         // init succeeds (first write), then measure write fails
         let i2c = FailReadI2c { init_done: false };
