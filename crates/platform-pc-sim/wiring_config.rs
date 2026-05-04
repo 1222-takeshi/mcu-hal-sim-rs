@@ -16,6 +16,12 @@ pub enum DeviceKind {
     Servo,
     L298n,
     Esp32Cam,
+    /// DS3231 high-precision RTC (I2C 0x68)
+    Ds3231,
+    /// SGP30 CO₂/VOC gas sensor (I2C 0x58)
+    Sgp30,
+    /// VL53L0X ToF distance sensor (I2C 0x29)
+    Vl53l0x,
 }
 
 impl DeviceKind {
@@ -29,6 +35,9 @@ impl DeviceKind {
             DeviceKind::Servo => "Servo",
             DeviceKind::L298n => "L298N",
             DeviceKind::Esp32Cam => "ESP32-CAM",
+            DeviceKind::Ds3231 => "DS3231",
+            DeviceKind::Sgp30 => "SGP30",
+            DeviceKind::Vl53l0x => "VL53L0X",
         }
     }
 
@@ -156,6 +165,9 @@ impl WiringConfig {
                     DeviceKind::Servo => "servo",
                     DeviceKind::L298n => "l298n",
                     DeviceKind::Esp32Cam => "esp32_cam",
+                    DeviceKind::Ds3231 => "ds3231",
+                    DeviceKind::Sgp30 => "sgp30",
+                    DeviceKind::Vl53l0x => "vl53l0x",
                 };
                 match d.address {
                     Some(a) => format!(
