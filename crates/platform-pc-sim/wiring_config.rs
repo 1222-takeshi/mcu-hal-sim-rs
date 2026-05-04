@@ -16,6 +16,12 @@ pub enum DeviceKind {
     Servo,
     L298n,
     Esp32Cam,
+    /// DS3231 high-precision RTC (I2C 0x68)
+    Ds3231,
+    /// SGP30 CO₂/VOC gas sensor (I2C 0x58)
+    Sgp30,
+    /// VL53L0X ToF distance sensor (I2C 0x29)
+    Vl53l0x,
 }
 
 impl DeviceKind {
@@ -29,6 +35,9 @@ impl DeviceKind {
             DeviceKind::Servo => "Servo",
             DeviceKind::L298n => "L298N",
             DeviceKind::Esp32Cam => "ESP32-CAM",
+            DeviceKind::Ds3231 => "DS3231",
+            DeviceKind::Sgp30 => "SGP30",
+            DeviceKind::Vl53l0x => "VL53L0X",
         }
     }
 
@@ -109,14 +118,18 @@ impl WiringConfig {
     /// Build the standard wiring config for a board profile.
     ///
     /// Returns the full simulator configuration matching `DeviceSimulationRig`:
-    /// BME280 (0x77), MPU6050 (0x68), LCD1602 (0x27), BH1750 (0x23) on I²C;
-    /// Servo and L298N on PWM; HC-SR04 and ESP32-CAM on GPIO.
+    /// BME280 (0x77), MPU6050 (0x68), LCD1602 (0x27), BH1750 (0x23),
+    /// DS3231 (0x68; sim uses 0x69 to avoid MPU6050 collision), SGP30 (0x58),
+    /// VL53L0X (0x29) on I²C; Servo and L298N on PWM; HC-SR04 and ESP32-CAM on GPIO.
     pub fn from_board(board: BoardProfile) -> Self {
         let devices = vec![
             DeviceSpec::i2c(DeviceKind::Bme280, 0x77),
             DeviceSpec::i2c(DeviceKind::Mpu6050, 0x68),
             DeviceSpec::i2c(DeviceKind::Lcd1602, 0x27),
             DeviceSpec::i2c(DeviceKind::Bh1750, 0x23),
+            DeviceSpec::i2c(DeviceKind::Ds3231, 0x68),
+            DeviceSpec::i2c(DeviceKind::Sgp30, 0x58),
+            DeviceSpec::i2c(DeviceKind::Vl53l0x, 0x29),
             DeviceSpec::pwm(DeviceKind::Servo),
             DeviceSpec::pwm(DeviceKind::L298n),
             DeviceSpec::gpio(DeviceKind::HcSr04),
@@ -156,6 +169,9 @@ impl WiringConfig {
                     DeviceKind::Servo => "servo",
                     DeviceKind::L298n => "l298n",
                     DeviceKind::Esp32Cam => "esp32_cam",
+                    DeviceKind::Ds3231 => "ds3231",
+                    DeviceKind::Sgp30 => "sgp30",
+                    DeviceKind::Vl53l0x => "vl53l0x",
                 };
                 match d.address {
                     Some(a) => format!(
@@ -239,19 +255,24 @@ mod tests {
     }
 
     #[test]
-    fn wiring_config_has_eight_devices() {
+    fn wiring_config_has_eleven_devices() {
         let cfg = WiringConfig::from_board(BoardProfile::OriginalEsp32);
-        assert_eq!(cfg.devices.len(), 8);
+        assert_eq!(cfg.devices.len(), 11);
+        // I2C devices: [0-6]
         assert_eq!(cfg.devices[0].kind, DeviceKind::Bme280);
         assert_eq!(cfg.devices[3].kind, DeviceKind::Bh1750);
-        // order: I2C(0-3) → PWM(4-5) → GPIO(6-7)
-        assert_eq!(cfg.devices[4].kind, DeviceKind::Servo);
-        assert_eq!(cfg.devices[4].kind.connection_type(), ConnectionType::Pwm);
-        assert_eq!(cfg.devices[5].kind, DeviceKind::L298n);
-        assert_eq!(cfg.devices[5].kind.connection_type(), ConnectionType::Pwm);
-        assert_eq!(cfg.devices[6].kind, DeviceKind::HcSr04);
-        assert_eq!(cfg.devices[6].kind.connection_type(), ConnectionType::Gpio);
-        assert_eq!(cfg.devices[7].kind, DeviceKind::Esp32Cam);
+        assert_eq!(cfg.devices[4].kind, DeviceKind::Ds3231);
+        assert_eq!(cfg.devices[5].kind, DeviceKind::Sgp30);
+        assert_eq!(cfg.devices[6].kind, DeviceKind::Vl53l0x);
+        // PWM: [7-8]
+        assert_eq!(cfg.devices[7].kind, DeviceKind::Servo);
+        assert_eq!(cfg.devices[7].kind.connection_type(), ConnectionType::Pwm);
+        assert_eq!(cfg.devices[8].kind, DeviceKind::L298n);
+        assert_eq!(cfg.devices[8].kind.connection_type(), ConnectionType::Pwm);
+        // GPIO: [9-10]
+        assert_eq!(cfg.devices[9].kind, DeviceKind::HcSr04);
+        assert_eq!(cfg.devices[9].kind.connection_type(), ConnectionType::Gpio);
+        assert_eq!(cfg.devices[10].kind, DeviceKind::Esp32Cam);
     }
 
     #[test]
@@ -262,10 +283,13 @@ mod tests {
             ConnectionType::I2c,  // [1] MPU6050
             ConnectionType::I2c,  // [2] LCD1602
             ConnectionType::I2c,  // [3] BH1750
-            ConnectionType::Pwm,  // [4] Servo
-            ConnectionType::Pwm,  // [5] L298N
-            ConnectionType::Gpio, // [6] HC-SR04
-            ConnectionType::Gpio, // [7] ESP32-CAM
+            ConnectionType::I2c,  // [4] DS3231
+            ConnectionType::I2c,  // [5] SGP30
+            ConnectionType::I2c,  // [6] VL53L0X
+            ConnectionType::Pwm,  // [7] Servo
+            ConnectionType::Pwm,  // [8] L298N
+            ConnectionType::Gpio, // [9] HC-SR04
+            ConnectionType::Gpio, // [10] ESP32-CAM
         ];
         for (i, exp) in expected.iter().enumerate() {
             assert_eq!(
@@ -287,6 +311,9 @@ mod tests {
         assert!(json.contains(r#""kind":"servo""#));
         assert!(json.contains(r#""kind":"l298n""#));
         assert!(json.contains(r#""kind":"esp32_cam""#));
+        assert!(json.contains(r#""kind":"ds3231""#));
+        assert!(json.contains(r#""kind":"sgp30""#));
+        assert!(json.contains(r#""kind":"vl53l0x""#));
         assert!(json.contains(r#""cam_pin":"GPIO0""#));
         assert!(json.contains(r#""motor_pin":"GPIO25""#));
     }

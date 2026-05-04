@@ -17,6 +17,9 @@ pub struct DeviceDashboardState {
     pub i2c: I2cPanelState,
     pub light: LightPanelState,
     pub camera: CameraPanelState,
+    pub gas: GasPanelState,
+    pub rtc: RtcPanelState,
+    pub tof: TofPanelState,
 }
 
 #[derive(Debug, Clone)]
@@ -90,11 +93,30 @@ pub struct CameraPanelState {
     pub sensor_name: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct GasPanelState {
+    pub co2_ppm: Option<u16>,
+    pub voc_ppb: Option<u16>,
+    pub sensor_name: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct RtcPanelState {
+    pub datetime_str: String,
+    pub sensor_name: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct TofPanelState {
+    pub distance_mm: Option<u32>,
+    pub sensor_name: String,
+}
+
 pub fn state_to_json(state: &DeviceDashboardState) -> String {
     let mut output = String::new();
     let _ = write!(
         output,
-        "{{\"board_name\":{},\"mcu_name\":{},\"tick\":{},\"climate\":{{\"temperature_c\":{},\"humidity_percent\":{},\"pressure_pa\":{},\"app_frame\":[{},{}],\"physical_lcd_frame\":[{},{}]}},\"distance\":{{\"distance_mm\":{},\"sensor_name\":{}}},\"imu\":{{\"sensor_name\":{},\"accel_mg\":[{},{},{}],\"gyro_mdps\":[{},{},{}],\"temperature_c\":{}}},\"servo\":{{\"angle_degrees\":{}}},\"motor_driver\":{{\"driver_name\":{},\"left\":{{\"direction\":{},\"duty_percent\":{}}},\"right\":{{\"direction\":{},\"duty_percent\":{}}}}},\"wiring\":{{\"sda_pin\":{},\"scl_pin\":{},\"power_pin\":{},\"ground_pin\":{},\"attached_devices\":[{}],\"diagram_lines\":[{}]}},\"i2c\":{{\"operation_count\":{},\"recent_operations\":[{}]}},\"light\":{{\"lux_x100\":{},\"lux\":{},\"sensor_name\":{}}},\"camera\":{{\"width\":{},\"height\":{},\"sequence\":{},\"sensor_name\":{}}}}}",
+        "{{\"board_name\":{},\"mcu_name\":{},\"tick\":{},\"climate\":{{\"temperature_c\":{},\"humidity_percent\":{},\"pressure_pa\":{},\"app_frame\":[{},{}],\"physical_lcd_frame\":[{},{}]}},\"distance\":{{\"distance_mm\":{},\"sensor_name\":{}}},\"imu\":{{\"sensor_name\":{},\"accel_mg\":[{},{},{}],\"gyro_mdps\":[{},{},{}],\"temperature_c\":{}}},\"servo\":{{\"angle_degrees\":{}}},\"motor_driver\":{{\"driver_name\":{},\"left\":{{\"direction\":{},\"duty_percent\":{}}},\"right\":{{\"direction\":{},\"duty_percent\":{}}}}},\"wiring\":{{\"sda_pin\":{},\"scl_pin\":{},\"power_pin\":{},\"ground_pin\":{},\"attached_devices\":[{}],\"diagram_lines\":[{}]}},\"i2c\":{{\"operation_count\":{},\"recent_operations\":[{}]}},\"light\":{{\"lux_x100\":{},\"lux\":{},\"sensor_name\":{}}},\"camera\":{{\"width\":{},\"height\":{},\"sequence\":{},\"sensor_name\":{}}},\"gas\":{{\"co2_ppm\":{},\"voc_ppb\":{},\"sensor_name\":{}}},\"rtc\":{{\"datetime_str\":{},\"sensor_name\":{}}},\"tof\":{{\"distance_mm\":{},\"sensor_name\":{}}}}}",
         json_string(&state.board_name),
         json_string(&state.mcu_name),
         state.tick,
@@ -136,6 +158,13 @@ pub fn state_to_json(state: &DeviceDashboardState) -> String {
         state.camera.height,
         state.camera.sequence,
         json_string(&state.camera.sensor_name),
+        json_option_u16(state.gas.co2_ppm),
+        json_option_u16(state.gas.voc_ppb),
+        json_string(&state.gas.sensor_name),
+        json_string(&state.rtc.datetime_str),
+        json_string(&state.rtc.sensor_name),
+        json_option_u32(state.tof.distance_mm),
+        json_string(&state.tof.sensor_name),
     );
     output
 }
@@ -151,6 +180,12 @@ fn json_option_f32(value: Option<f32>) -> String {
 }
 
 fn json_option_u32(value: Option<u32>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "null".to_string())
+}
+
+fn json_option_u16(value: Option<u16>) -> String {
     value
         .map(|value| value.to_string())
         .unwrap_or_else(|| "null".to_string())
@@ -616,6 +651,40 @@ pub fn dashboard_html() -> &'static str {
         <div style="font-size:11px;color:var(--muted);margin-top:6px">Metadata only (no pixel buffer)</div>
       </article>
 
+      <!-- Gas Sensor (SGP30) -->
+      <article class="panel card span-4">
+        <h2 id="gas-sensor-name">SGP30</h2>
+        <div class="metric">
+          <div class="name">CO&#x2082;</div>
+          <div class="val" id="gas-co2">-- ppm</div>
+        </div>
+        <div class="metric">
+          <div class="name">TVOC</div>
+          <div class="val" id="gas-voc">-- ppb</div>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:6px">Air quality sensor (I2C 0x58)</div>
+      </article>
+
+      <!-- RTC (DS3231) -->
+      <article class="panel card span-4">
+        <h2 id="rtc-sensor-name">DS3231</h2>
+        <div class="metric">
+          <div class="name">DateTime</div>
+          <div class="val" id="rtc-datetime" style="font-size:1rem">--</div>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:6px">High-precision RTC (I2C 0x68)</div>
+      </article>
+
+      <!-- ToF Distance (VL53L0X) -->
+      <article class="panel card span-4">
+        <h2 id="tof-sensor-name">VL53L0X</h2>
+        <div class="metric">
+          <div class="name">Distance</div>
+          <div class="val" id="tof-distance">-- mm</div>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:6px">Time-of-Flight sensor (I2C 0x29)</div>
+      </article>
+
       <!-- Hardware Simulation -->
       <article class="panel card span-12">
         <h2>Hardware Simulation</h2>
@@ -1031,6 +1100,28 @@ pub fn dashboard_html() -> &'static str {
         $("camera-sequence").textContent   = "#" + s.camera.sequence;
         const el = $("camera-sensor-name");
         if (el) el.textContent = s.camera.sensor_name;
+      }
+
+      // Gas sensor (SGP30)
+      if (s.gas) {
+        $("gas-co2").textContent = s.gas.co2_ppm != null ? s.gas.co2_ppm + " ppm" : "-- ppm";
+        $("gas-voc").textContent = s.gas.voc_ppb != null ? s.gas.voc_ppb + " ppb" : "-- ppb";
+        const el = $("gas-sensor-name");
+        if (el) el.textContent = s.gas.sensor_name;
+      }
+
+      // RTC (DS3231)
+      if (s.rtc) {
+        $("rtc-datetime").textContent = s.rtc.datetime_str || "--";
+        const el = $("rtc-sensor-name");
+        if (el) el.textContent = s.rtc.sensor_name;
+      }
+
+      // ToF distance (VL53L0X)
+      if (s.tof) {
+        $("tof-distance").textContent = s.tof.distance_mm != null ? s.tof.distance_mm + " mm" : "-- mm";
+        const el = $("tof-sensor-name");
+        if (el) el.textContent = s.tof.sensor_name;
       }
 
       const devEl = $("wiring-devices");
@@ -1590,6 +1681,19 @@ mod tests {
                 sequence: 1,
                 sensor_name: "ESP32-CAM".to_string(),
             },
+            gas: GasPanelState {
+                co2_ppm: Some(450),
+                voc_ppb: Some(25),
+                sensor_name: "SGP30".to_string(),
+            },
+            rtc: RtcPanelState {
+                datetime_str: "2025-05-04 12:00:00".to_string(),
+                sensor_name: "DS3231".to_string(),
+            },
+            tof: TofPanelState {
+                distance_mm: Some(500),
+                sensor_name: "VL53L0X".to_string(),
+            },
         });
 
         assert!(json.contains("\"board_name\":\"Arduino Nano\""));
@@ -1619,6 +1723,35 @@ mod tests {
         assert!(
             json.contains("\"sensor_name\":\"ESP32-CAM\""),
             "camera.sensor_name missing in JSON"
+        );
+        // Gas, RTC, ToF panel assertions
+        assert!(
+            json.contains("\"co2_ppm\":450"),
+            "gas.co2_ppm missing in JSON"
+        );
+        assert!(
+            json.contains("\"voc_ppb\":25"),
+            "gas.voc_ppb missing in JSON"
+        );
+        assert!(
+            json.contains("\"sensor_name\":\"SGP30\""),
+            "gas.sensor_name missing in JSON"
+        );
+        assert!(
+            json.contains("\"datetime_str\":\"2025-05-04 12:00:00\""),
+            "rtc.datetime_str missing in JSON"
+        );
+        assert!(
+            json.contains("\"sensor_name\":\"DS3231\""),
+            "rtc.sensor_name missing in JSON"
+        );
+        assert!(
+            json.contains("\"distance_mm\":500"),
+            "tof.distance_mm missing in JSON"
+        );
+        assert!(
+            json.contains("\"sensor_name\":\"VL53L0X\""),
+            "tof.sensor_name missing in JSON"
         );
     }
 }

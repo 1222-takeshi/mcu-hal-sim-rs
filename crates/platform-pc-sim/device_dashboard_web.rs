@@ -1,5 +1,6 @@
 use core::str;
 use std::env;
+use std::fmt::Write as FmtWrite;
 use std::io::{self, Read as _, Write as _};
 use std::net::{TcpListener, TcpStream};
 use std::sync::{mpsc, Arc, Mutex};
@@ -11,31 +12,40 @@ use embedded_hal::delay::DelayNs;
 use hal_api::actuator::{DualMotorDriver, MotorCommand, MotorDirection, ServoMotor};
 use hal_api::camera::CameraCapture;
 use hal_api::distance::DistanceSensor;
+use hal_api::gas::GasSensor;
 use hal_api::imu::ImuSensor;
 use hal_api::light::LightSensor;
+use hal_api::rtc::RtcSensor;
 use platform_pc_sim::bme280_mock::{demo_raw_samples, MockBme280Device};
 use platform_pc_sim::camera_mock::MockCamera;
 use platform_pc_sim::dashboard::BoardProfile;
+use platform_pc_sim::ds3231_mock::{demo_timestamps, MockDs3231Device};
 use platform_pc_sim::hc_sr04_mock::{demo_echo_pulses_us, MockHcSr04Device};
 use platform_pc_sim::lcd1602_mock::MockLcd1602Device;
 use platform_pc_sim::mock_hal::MockPin;
 use platform_pc_sim::mpu6050_mock::{demo_raw_frames, MockMpu6050Device};
 use platform_pc_sim::pwm_mock::MockPwmOutput;
+use platform_pc_sim::sgp30_mock::MockSgp30Device;
 use platform_pc_sim::virtual_i2c::{VirtualI2cBus, VirtualI2cOperation};
+use platform_pc_sim::vl53l0x_mock::MockVl53l0xDevice;
 use platform_pc_sim::web_dashboard::{
     dashboard_html, state_to_json, CameraPanelState, ClimatePanelState, DeviceDashboardState,
-    DistancePanelState, I2cPanelState, ImuPanelState, LightPanelState, MotorChannelState,
-    MotorDriverPanelState, ServoPanelState, WiringPanelState,
+    DistancePanelState, GasPanelState, I2cPanelState, ImuPanelState, LightPanelState,
+    MotorChannelState, MotorDriverPanelState, RtcPanelState, ServoPanelState, TofPanelState,
+    WiringPanelState,
 };
 use platform_pc_sim::wiring_config::WiringConfig;
 use platform_pc_sim::wiring_svg::wiring_svg;
 use reference_drivers::bh1750::{Bh1750Sensor, BH1750_ADDRESS_LOW};
 use reference_drivers::bme280::{Bme280Sensor, BME280_ADDRESS_PRIMARY};
+use reference_drivers::ds3231::{Ds3231Sensor, DS3231_ADDRESS};
 use reference_drivers::hc_sr04::HcSr04Sensor;
 use reference_drivers::l298n::{L298nChannel, L298nDualDriver};
 use reference_drivers::lcd1602::{Lcd1602Display, LCD1602_ADDRESS_PRIMARY};
 use reference_drivers::mpu6050::{Mpu6050Sensor, MPU6050_ADDRESS_PRIMARY};
 use reference_drivers::servo::ServoDriver;
+use reference_drivers::sgp30::{Sgp30Sensor, SGP30_ADDRESS};
+use reference_drivers::vl53l0x::{Vl53l0xSensor, VL53L0X_ADDRESS};
 
 const DEFAULT_PORT: u16 = 7878;
 
@@ -101,6 +111,16 @@ struct DeviceSimulationRig {
     camera: MockCamera,
     last_lux_x100: u32,
     last_camera_sequence: u32,
+    // New sensors: SGP30, DS3231, VL53L0X
+    ds3231_mock: MockDs3231Device,
+    ds3231_timestamps: Vec<platform_pc_sim::ds3231_mock::MockRtcTimestamp>,
+    ds3231_ts_index: usize,
+    rtc_sensor: Ds3231Sensor<VirtualI2cBus>,
+    sgp30_sensor: Sgp30Sensor<VirtualI2cBus>,
+    tof_sensor: Vl53l0xSensor<VirtualI2cBus>,
+    last_gas: Option<hal_api::gas::GasReading>,
+    last_rtc_str: String,
+    last_tof_mm: Option<u32>,
 }
 
 impl DeviceSimulationRig {
@@ -112,10 +132,22 @@ impl DeviceSimulationRig {
         let bh1750 = platform_pc_sim::bh1750_mock::MockBh1750Device::looping(vec![
             8_500, 12_000, 15_300, 9_800, 7_200,
         ]);
+        // DS3231 shares 0x68 with MPU6050 in real hardware, but in simulation both coexist.
+        // We register DS3231 at a separate internal address 0x68 — the VirtualI2cBus routes
+        // independently; MPU6050 is already attached at 0x68 via mpu6050.clone(), so we use
+        // 0x69 (alt address) for DS3231 in the simulation to avoid collision.
+        let ds3231_mock = MockDs3231Device::new();
+        let sgp30_mock = MockSgp30Device::new();
+        let vl53l0x_mock = MockVl53l0xDevice::new();
+
         bus.attach_device(BME280_ADDRESS_PRIMARY, bme280.clone());
         bus.attach_device(LCD1602_ADDRESS_PRIMARY, lcd.clone());
         bus.attach_device(MPU6050_ADDRESS_PRIMARY, mpu6050.clone());
         bus.attach_device(BH1750_ADDRESS_LOW, bh1750);
+        // DS3231 at 0x69 (alt sim address to avoid MPU6050 collision at 0x68)
+        bus.attach_device(DS3231_ADDRESS + 1, ds3231_mock.clone());
+        bus.attach_device(SGP30_ADDRESS, sgp30_mock.clone());
+        bus.attach_device(VL53L0X_ADDRESS, vl53l0x_mock.clone());
 
         let app = ClimateDisplayApp::new_with_config(
             Bme280Sensor::new(bus.clone()),
@@ -130,6 +162,11 @@ impl DeviceSimulationRig {
         let light_sensor = Bh1750Sensor::new(bus.clone(), BH1750_ADDRESS_LOW)
             .expect("BH1750 mock device should initialise");
         let camera = MockCamera::qvga_jpeg();
+        let rtc_sensor = Ds3231Sensor::new(bus.clone(), DS3231_ADDRESS + 1);
+        let sgp30_sensor =
+            Sgp30Sensor::new(bus.clone(), SGP30_ADDRESS).expect("SGP30 mock init should succeed");
+        let tof_sensor = Vl53l0xSensor::new(bus.clone(), VL53L0X_ADDRESS)
+            .expect("VL53L0X mock init should succeed");
 
         let servo = ServoDriver::new(MockPwmOutput::new());
         let motor_driver = L298nDualDriver::new(
@@ -158,6 +195,15 @@ impl DeviceSimulationRig {
             camera,
             last_lux_x100: 0,
             last_camera_sequence: 0,
+            ds3231_mock,
+            ds3231_timestamps: demo_timestamps(),
+            ds3231_ts_index: 0,
+            rtc_sensor,
+            sgp30_sensor,
+            tof_sensor,
+            last_gas: None,
+            last_rtc_str: String::new(),
+            last_tof_mm: None,
         }
     }
 
@@ -200,6 +246,41 @@ impl DeviceSimulationRig {
         if tick == 1 || tick % 7 == 0 {
             if let Ok(frame) = self.camera.capture_frame() {
                 self.last_camera_sequence = frame.sequence;
+            }
+        }
+
+        // Poll SGP30 gas sensor every 11 ticks
+        if tick == 1 || tick % 11 == 0 {
+            if let Ok(reading) = self.sgp30_sensor.read_gas() {
+                self.last_gas = Some(reading);
+            }
+        }
+
+        // Poll DS3231 RTC every 13 ticks; also advance the mock timestamp
+        if tick == 1 || tick % 13 == 0 {
+            let ts = self.ds3231_timestamps[self.ds3231_ts_index];
+            self.ds3231_ts_index = (self.ds3231_ts_index + 1) % self.ds3231_timestamps.len();
+            self.ds3231_mock.set_timestamp(ts);
+            if let Ok(dt) = self.rtc_sensor.read_datetime() {
+                let mut s = String::new();
+                let _ = write!(
+                    s,
+                    "{}-{:02}-{:02} {:02}:{:02}:{:02}",
+                    dt.year(),
+                    dt.month,
+                    dt.day,
+                    dt.hour,
+                    dt.minute,
+                    dt.second
+                );
+                self.last_rtc_str = s;
+            }
+        }
+
+        // Poll VL53L0X ToF sensor every 4 ticks
+        if tick == 1 || tick % 4 == 0 {
+            if let Ok(reading) = self.tof_sensor.read_distance() {
+                self.last_tof_mm = Some(reading.distance_mm);
             }
         }
 
@@ -293,6 +374,19 @@ impl DeviceSimulationRig {
                 height: self.camera.resolution().1,
                 sequence: self.last_camera_sequence,
                 sensor_name: "ESP32-CAM".to_string(),
+            },
+            gas: GasPanelState {
+                co2_ppm: self.last_gas.map(|g| g.co2_ppm),
+                voc_ppb: self.last_gas.map(|g| g.voc_ppb),
+                sensor_name: "SGP30".to_string(),
+            },
+            rtc: RtcPanelState {
+                datetime_str: self.last_rtc_str.clone(),
+                sensor_name: "DS3231".to_string(),
+            },
+            tof: TofPanelState {
+                distance_mm: self.last_tof_mm,
+                sensor_name: "VL53L0X".to_string(),
             },
         }
     }
