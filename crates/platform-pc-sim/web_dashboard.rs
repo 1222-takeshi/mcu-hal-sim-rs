@@ -1109,7 +1109,8 @@ pub fn dashboard_html() -> &'static str {
     // ── Boot ──
     // ── Wiring Editor ────────────────────────────────────────────────────────
     const WE_DEFS = {
-      'MCU':     { color:'#2196F3', ports:['3.3V','GND','SDA','SCL','D2','D4','D5','D12'] },
+      'ESP32':        { color:'#2196F3', ports:['3V3','GND','GPIO21(SDA)','GPIO22(SCL)','GPIO5(TRIG)','GPIO18(ECHO)','GPIO13(Servo)','GPIO25','GPIO26','GPIO27','GPIO32'] },
+      'Arduino Nano': { color:'#1565C0', ports:['5V','3.3V','GND','A4(SDA)','A5(SCL)','D2(TRIG)','D3(ECHO)','D9(Servo)','D5','D6','D7','D10'] },
       'BME280':  { color:'#4CAF50', ports:['VCC','GND','SDA','SCL'] },
       'MPU6050': { color:'#9C27B0', ports:['VCC','GND','SDA','SCL'] },
       'HC-SR04': { color:'#FF5722', ports:['VCC','GND','TRIG','ECHO'] },
