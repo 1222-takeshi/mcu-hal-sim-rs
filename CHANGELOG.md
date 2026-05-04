@@ -11,6 +11,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.6] - 2026-05-04
+
+新センサードライバ 3 種（DS3231 RTC / SGP30 ガスセンサ / VL53L0X ToF）を追加。
+
+### Added
+- **[#81]** `hal-api`: `RtcSensor` trait + `RtcDateTime` 型 (`rtc.rs`) (PR #82)
+- **[#81]** `hal-api`: `GasSensor` trait + `GasReading` 型 (`gas.rs`) (PR #82)
+- **[#81]** `reference-drivers`: DS3231 RTC ドライバ (PR #82)
+  - BCD デコード、12h/24h 時刻変換（PM ビット正確処理）
+  - `set_datetime()` による時刻書き込み対応
+- **[#81]** `reference-drivers`: SGP30 CO₂/VOC ガスセンサドライバ (PR #82)
+  - init コマンド (`0x2003`) + 6-byte 測定レスポンス
+- **[#81]** `reference-drivers`: VL53L0X ToF 距離センサドライバ (PR #82)
+  - モデル ID 検証 (`0xC0` → `0xEE`)
+  - `RESULT_INTERRUPT_STATUS` ポーリングによる計測完了待ち
+  - タイムアウト時 `SensorError::Busy` を返す
+- テスト数: 50 → 61
+
+---
+
 ## [0.3.5] - 2026-05-04
 
 配線シミュレータを全 8 デバイス対応に拡張。
