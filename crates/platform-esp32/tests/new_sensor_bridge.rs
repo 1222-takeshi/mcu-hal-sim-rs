@@ -72,6 +72,12 @@ fn bh1750_bridge_uses_correct_i2c_address() {
     assert_eq!(BH1750_ADDRESS_LOW, 0x23);
 }
 
+#[test]
+fn bh1750_bridge_uses_correct_i2c_address_high() {
+    use platform_esp32::bh1750::BH1750_ADDRESS_HIGH;
+    assert_eq!(BH1750_ADDRESS_HIGH, 0x5C);
+}
+
 // ---- SSD1306 bridge test ----
 
 #[test]
@@ -84,6 +90,12 @@ fn ssd1306_bridge_initializes_via_esp32_module() {
 #[test]
 fn ssd1306_bridge_uses_correct_i2c_address() {
     assert_eq!(SSD1306_ADDRESS_DEFAULT, 0x3C);
+}
+
+#[test]
+fn ssd1306_bridge_uses_correct_i2c_address_alt() {
+    use platform_esp32::ssd1306::SSD1306_ADDRESS_ALT;
+    assert_eq!(SSD1306_ADDRESS_ALT, 0x3D);
 }
 
 #[test]
@@ -133,6 +145,45 @@ fn dht22_bridge_stub_returns_not_initialized() {
 
     let mut dev = Esp32Dht22RawDevice::new(StubPin, NoopDelay);
     let result = platform_esp32::dht22::Dht22RawDevice::read_raw_bytes(&mut dev);
+    assert!(matches!(
+        result,
+        Err(hal_api::error::SensorError::NotInitialized)
+    ));
+}
+
+#[test]
+fn dht22_bridge_sensor_alias_stubs_correctly() {
+    use embedded_hal::digital::ErrorType;
+    use platform_esp32::dht22::{Esp32Dht22RawDevice, Esp32Dht22Sensor};
+
+    struct StubPin;
+    impl ErrorType for StubPin {
+        type Error = core::convert::Infallible;
+    }
+    impl embedded_hal::digital::InputPin for StubPin {
+        fn is_high(&mut self) -> Result<bool, Self::Error> {
+            Ok(true)
+        }
+        fn is_low(&mut self) -> Result<bool, Self::Error> {
+            Ok(false)
+        }
+    }
+    impl embedded_hal::digital::OutputPin for StubPin {
+        fn set_high(&mut self) -> Result<(), Self::Error> {
+            Ok(())
+        }
+        fn set_low(&mut self) -> Result<(), Self::Error> {
+            Ok(())
+        }
+    }
+    struct NoopDelay;
+    impl embedded_hal::delay::DelayNs for NoopDelay {
+        fn delay_ns(&mut self, _ns: u32) {}
+    }
+
+    let dev = Esp32Dht22RawDevice::new(StubPin, NoopDelay);
+    let mut sensor: Esp32Dht22Sensor<_, _> = Esp32Dht22Sensor::new(dev);
+    let result = hal_api::sensor::EnvSensor::read(&mut sensor);
     assert!(matches!(
         result,
         Err(hal_api::error::SensorError::NotInitialized)

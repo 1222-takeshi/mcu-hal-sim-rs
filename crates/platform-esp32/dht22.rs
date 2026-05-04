@@ -73,17 +73,11 @@ where
     /// 2. センサ応答待機: HIGH → LOW 80µs → HIGH 80µs
     /// 3. 40 ビット読み取り: 各ビットは LOW 50µs + HIGH (26-28µs=0 / 70µs=1)
     fn read_raw_bytes(&mut self) -> Result<[u8; 5], SensorError> {
-        // ホスト開始信号
-        self.pin.set_low().map_err(|_| SensorError::BusError)?;
-        self.delay.delay_ms(18);
-        self.pin.set_high().map_err(|_| SensorError::BusError)?;
-        self.delay.delay_us(40);
-
-        // TODO: センサ応答確認と 40 ビット読み取り
-        // 実 HAL では下記のループで bit timing を計測する:
-        //   for bit_pos in 0..40 { ... }
-        // 現段階ではスタブとして NotInitialized を返す。
-        // esp-idf 環境で実装する際にこのブロックを置き換えてください。
+        // TODO: esp-idf 環境向け実装手順:
+        // 1. ホスト開始信号: self.pin.set_low() → delay_ms(18) → self.pin.set_high() → delay_us(40)
+        // 2. センサ応答待機: HIGH→LOW 80µs → LOW→HIGH 80µs を確認
+        // 3. 40 ビット読み取り: LOW 50µs + HIGH (26-28µs=0 / 70µs=1) × 40
+        //    esp_idf_svc::hal::gpio::PinDriver + esp_idf_svc::hal::delay::FreeRtos で実装
         Err(SensorError::NotInitialized)
     }
 }
@@ -164,6 +158,6 @@ mod tests {
         let mut sensor = Dht22Sensor::new(dev);
         // Dht22Sensor::read() がエラーを正しくラップすることを確認
         let result = hal_api::sensor::EnvSensor::read(&mut sensor);
-        assert!(result.is_err());
+        assert!(matches!(result, Err(SensorError::NotInitialized)));
     }
 }
