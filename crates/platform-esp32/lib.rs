@@ -14,6 +14,7 @@ pub mod bh1750;
 pub mod bme280;
 pub mod delay;
 pub mod dht22;
+pub mod ds3231;
 pub mod gpio;
 pub mod hc_sr04;
 pub mod i2c;
@@ -22,7 +23,9 @@ pub mod lcd1602;
 pub mod mpu6050;
 pub mod pwm;
 pub mod servo;
+pub mod sgp30;
 pub mod shared_i2c;
 pub mod ssd1306;
+pub mod vl53l0x;
 
 pub use delay::Esp32Delay;
