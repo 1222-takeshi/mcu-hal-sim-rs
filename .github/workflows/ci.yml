@@ -185,6 +185,12 @@ jobs:
           path: ~/.cargo/git
           key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.toml') }}
 
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.toml') }}
+
       - name: Check hal-api for ESP32-C3
         run: cargo check -p hal-api --lib --target $ESP32C3_TARGET
 

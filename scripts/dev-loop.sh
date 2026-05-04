@@ -12,6 +12,11 @@
 #   sim/check: Rust stable toolchain + riscv32imc-unknown-none-elf target
 #   flash/monitor: espflash (cargo install espflash)
 #
+# 環境変数:
+#   ESP32_PORT      シリアルポート (例: /dev/cu.usbserial-0001, /dev/ttyUSB0)
+#   FIRMWARE_CRATE  フラッシュ対象クレート名（[[bin]] を持つクレートが必要）
+#                   デフォルト: platform-esp32 (ライブラリのみ — 実際のファームウェアに変更してください)
+#
 # シリアルポートの例:
 #   macOS/Linux: /dev/cu.usbserial-* または /dev/ttyUSB0
 #   WSL2 + Windows: espflash.exe をフルパスで指定する代替経路を使用
@@ -25,8 +30,8 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 ESP32C3_TARGET="riscv32imc-unknown-none-elf"
-FIRMWARE_CRATE="platform-esp32"
-DASHBOARD_CRATE="device-dashboard-web"
+FIRMWARE_CRATE="${FIRMWARE_CRATE:-platform-esp32}"
+DASHBOARD_CRATE="platform-pc-sim"
 SERIAL_PORT="${ESP32_PORT:-}"
 
 log_step() { echo -e "${BLUE}==>${NC} $1"; }
@@ -51,7 +56,7 @@ cmd_sim() {
   log_step "PCシミュレータを起動します..."
   log_step "ダッシュボード: http://127.0.0.1:7878"
   echo ""
-  cargo run -p "$DASHBOARD_CRATE"
+  cargo run -p "$DASHBOARD_CRATE" --bin device-dashboard-web
 }
 
 cmd_check() {
@@ -108,12 +113,23 @@ cmd_flash() {
   fi
 
   log_step "ESP32-C3 向けリリースビルド..."
-  cargo build -p "$FIRMWARE_CRATE" --release --target "$ESP32C3_TARGET"
+  BINARY_PATH="target/${ESP32C3_TARGET}/release/${FIRMWARE_CRATE}"
+  if ! cargo build -p "$FIRMWARE_CRATE" --release --target "$ESP32C3_TARGET"; then
+    log_err "ビルドに失敗しました。'${FIRMWARE_CRATE}' に [[bin]] エントリーが必要です。"
+    echo "  例: FIRMWARE_CRATE=your-esp32c3-firmware $0 flash"
+    exit 1
+  fi
+  if [[ ! -f "$BINARY_PATH" ]]; then
+    log_err "バイナリが見つかりません: ${BINARY_PATH}"
+    echo "  '${FIRMWARE_CRATE}' は [[bin]] を持つクレートである必要があります。"
+    echo "  例: FIRMWARE_CRATE=your-esp32c3-firmware $0 flash"
+    exit 1
+  fi
 
   log_step "フラッシュ書き込み: $SERIAL_PORT"
   espflash flash \
     --port "$SERIAL_PORT" \
-    "target/${ESP32C3_TARGET}/release/${FIRMWARE_CRATE}"
+    "$BINARY_PATH"
   log_ok "フラッシュ完了"
 }
 
@@ -126,6 +142,7 @@ cmd_monitor() {
   if [[ -z "$SERIAL_PORT" ]]; then
     DETECTED=$(ls /dev/cu.usbserial-* /dev/ttyUSB* 2>/dev/null | head -1 || true)
     SERIAL_PORT="${DETECTED:-}"
+    [[ -n "$SERIAL_PORT" ]] && log_step "検出: $SERIAL_PORT"
   fi
 
   if [[ -z "$SERIAL_PORT" ]]; then
@@ -134,12 +151,23 @@ cmd_monitor() {
     exit 1
   fi
 
+  BINARY_PATH="target/${ESP32C3_TARGET}/release/${FIRMWARE_CRATE}"
   log_step "フラッシュ + モニタ: $SERIAL_PORT"
-  cargo build -p "$FIRMWARE_CRATE" --release --target "$ESP32C3_TARGET"
+  if ! cargo build -p "$FIRMWARE_CRATE" --release --target "$ESP32C3_TARGET"; then
+    log_err "ビルドに失敗しました。FIRMWARE_CRATE=${FIRMWARE_CRATE}"
+    echo "  例: FIRMWARE_CRATE=your-esp32c3-firmware $0 monitor"
+    exit 1
+  fi
+  if [[ ! -f "$BINARY_PATH" ]]; then
+    log_err "バイナリが見つかりません: ${BINARY_PATH}"
+    echo "  例: FIRMWARE_CRATE=your-esp32c3-firmware $0 monitor"
+    exit 1
+  fi
   espflash flash \
     --port "$SERIAL_PORT" \
     --monitor \
-    "target/${ESP32C3_TARGET}/release/${FIRMWARE_CRATE}"
+    "$BINARY_PATH"
+  log_ok "モニタ終了"
 }
 
 case "${1:-}" in
