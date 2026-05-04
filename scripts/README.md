@@ -91,7 +91,70 @@ gh auth login
 
 ---
 
-## 🔧 推奨ワークフロー
+### `dev-loop.sh` - シミュレータ / ESP32 デプロイループ
+
+PC シミュレータの起動・ESP32 実機へのフラッシュ・クロスビルドチェックを一コマンドで実行します。
+
+**基本的な使用方法:**
+
+```bash
+# PCシミュレータを起動
+./scripts/dev-loop.sh sim
+
+# 全CIチェック + ESP32-C3クロスビルドを実行
+./scripts/dev-loop.sh check
+
+# ESP32実機へフラッシュ
+ESP32_PORT=/dev/cu.usbserial-0001 ./scripts/dev-loop.sh flash
+
+# フラッシュ後にシリアルモニタを開く
+ESP32_PORT=/dev/cu.usbserial-0001 ./scripts/dev-loop.sh monitor
+```
+
+**環境変数:**
+
+| 変数 | 説明 | 例 |
+|------|------|-----|
+| `ESP32_PORT` | ESP32 のシリアルポート | `/dev/cu.usbserial-0001`（macOS）<br>`/dev/ttyUSB0`（Linux） |
+
+**シリアルポートの調べ方:**
+
+```bash
+# macOS
+ls /dev/cu.usbserial-*
+
+# Linux
+ls /dev/ttyUSB*
+
+# または
+dmesg | tail -5  # デバイス接続直後
+```
+
+**WSL2 の場合:**
+
+Windows 側の `espflash.exe` を使うことを推奨します。WSL2 からの USB デバイス直アクセスは usbipd が必要です。
+
+**espflash のインストール（flash/monitor に必要）:**
+
+```bash
+cargo install espflash
+```
+
+---
+
+### sim-to-real 開発サイクル
+
+```bash
+# 1. PCシミュレータでロジックを確認
+./scripts/dev-loop.sh sim
+# → http://127.0.0.1:7878 でダッシュボードを確認
+
+# 2. ESP32-C3 クロスビルドが壊れていないか確認
+./scripts/dev-loop.sh check
+
+# 3. 実機へフラッシュ（espflash が必要）
+ESP32_PORT=/dev/cu.usbserial-0001 ./scripts/dev-loop.sh monitor
+```
 
 ### PRを作成する前
 
@@ -132,7 +195,11 @@ rustup component add clippy
 ### `no_std` ターゲットが見つからない
 
 ```bash
+# ARM Cortex-M0 (Arduino, AVR 互換)
 rustup target add thumbv6m-none-eabi
+
+# ESP32-C3 (RISC-V)
+rustup target add riscv32imc-unknown-none-elf
 ```
 
 ### `gh` コマンドが見つからない
