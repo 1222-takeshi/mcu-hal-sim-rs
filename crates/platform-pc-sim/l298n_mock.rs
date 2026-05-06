@@ -5,6 +5,13 @@
 //!
 //! Cloned instances of `MockL298nChannel` share the same internal state.
 //!
+//! # `component_sim::MockDualMotorDriver` との使い分け
+//!
+//! `component_sim::MockDualMotorDriver` はダッシュボードのアプリケーション層で使う
+//! 軽量モックで、左右独立のコマンド履歴や呼び出し回数の記録機能を持ちません。
+//! `MockL298nChannel` / `MockL298nDevice` はトレイトの単体テストに特化した豊富な観測 API
+//! （`history()`・`call_count()`・クローン間状態共有）を提供します。
+//!
 //! # Examples
 //!
 //! ```
@@ -123,6 +130,10 @@ impl DualMotorDriver for MockL298nDevice {
         left: MotorCommand,
         right: MotorCommand,
     ) -> Result<(), Self::Error> {
+        // Validate both channels before updating any state (atomic semantics).
+        if left.duty_percent > 100 || right.duty_percent > 100 {
+            return Err(ActuatorError::InvalidCommand);
+        }
         self.left.apply(left)?;
         self.right.apply(right)?;
         Ok(())
@@ -207,5 +218,40 @@ mod tests {
         for cmd in demo_commands() {
             assert!(ch.apply(cmd).is_ok());
         }
+    }
+
+    #[test]
+    fn mock_channel_accepts_max_valid_duty() {
+        let mut ch = MockL298nChannel::new();
+        assert!(ch
+            .apply(MotorCommand::new(MotorDirection::Forward, 100))
+            .is_ok());
+        assert_eq!(ch.current_command().duty_percent, 100);
+    }
+
+    #[test]
+    fn mock_channel_state_unchanged_on_rejection() {
+        let mut ch = MockL298nChannel::new();
+        ch.apply(MotorCommand::new(MotorDirection::Forward, 50))
+            .unwrap();
+        let _ = ch.apply(MotorCommand::new(MotorDirection::Forward, 101));
+        assert_eq!(ch.current_command().duty_percent, 50);
+        assert_eq!(ch.call_count(), 1);
+        assert_eq!(ch.history().len(), 1);
+    }
+
+    #[test]
+    fn mock_l298n_device_apply_channels_is_atomic_on_right_failure() {
+        let mut device = MockL298nDevice::new();
+        let result = device.apply_channels(
+            MotorCommand::new(MotorDirection::Forward, 50),
+            MotorCommand::new(MotorDirection::Forward, 101),
+        );
+        assert_eq!(result, Err(ActuatorError::InvalidCommand));
+        assert_eq!(
+            device.left.current_command().direction,
+            MotorDirection::Coast
+        );
+        assert_eq!(device.left.call_count(), 0);
     }
 }

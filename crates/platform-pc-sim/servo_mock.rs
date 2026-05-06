@@ -6,6 +6,20 @@
 //! For the sim-to-real dashboard path, the real `ServoDriver<MockPwmOutput>` is used
 //! instead, as it exercises the full reference-driver code path.
 //!
+//! # `component_sim::MockServoMotor` との使い分け
+//!
+//! `component_sim::MockServoMotor` はダッシュボードのアプリケーション層で使う
+//! 軽量モックで、角度履歴や呼び出し回数の記録機能を持ちません。
+//! `MockServoDevice` はトレイトの単体テストに特化した豊富な観測 API
+//! （`history()`・`call_count()`・クローン間状態共有）を提供します。
+//!
+//! # 注意: 初期角度
+//!
+//! `MockServoDevice::new()` の初期角度は `0°` です。
+//! 実ハードウェアの `ServoDriver::new()` が `90°`（中立位置）で初期化するのとは異なります。
+//! `ServoMotor` トレイトは初期状態を規定しないため、最初の `set_angle_degrees` 呼び出し前に
+//! 現在角度を参照するテストは `MockServoDevice` と実ドライバで異なる値を返します。
+//!
 //! # Examples
 //!
 //! ```
@@ -133,5 +147,24 @@ mod tests {
         for angle in demo_angles() {
             assert!(servo.set_angle_degrees(angle).is_ok());
         }
+    }
+
+    #[test]
+    fn mock_servo_accepts_boundary_angles() {
+        let mut servo = MockServoDevice::new();
+        assert!(servo.set_angle_degrees(0).is_ok());
+        assert!(servo.set_angle_degrees(180).is_ok());
+        assert_eq!(servo.current_angle(), 180);
+        assert_eq!(servo.call_count(), 2);
+    }
+
+    #[test]
+    fn mock_servo_state_unchanged_on_rejection() {
+        let mut servo = MockServoDevice::new();
+        servo.set_angle_degrees(90).unwrap();
+        let _ = servo.set_angle_degrees(200);
+        assert_eq!(servo.current_angle(), 90);
+        assert_eq!(servo.call_count(), 1);
+        assert_eq!(servo.history(), vec![90]);
     }
 }
