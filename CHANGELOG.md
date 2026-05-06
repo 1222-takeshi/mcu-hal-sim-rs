@@ -9,10 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [0.3.9] - 2026-05-06
+
+Servо/L298N 専用モック追加・ドキュメント更新。全 13 デバイスの 4 層アーキテクチャ完成。
+
 ### Added
-- `platform-pc-sim/servo_mock.rs`: `MockServoDevice` — `ServoMotor` を直接実装するホスト側モック（角度履歴・デモシーケンス付き）
-- `platform-pc-sim/l298n_mock.rs`: `MockL298nChannel` / `MockL298nDevice` — `DriveMotor` / `DualMotorDriver` を直接実装するホスト側モック
-- `docs/sensors-and-actuators.md`: DS3231/SGP30/VL53L0X セクション追加（セクション 11-13）、Servo/L298N に mock ファイル名を追記
+- **[#88]** `platform-pc-sim/servo_mock.rs`: `MockServoDevice` — `ServoMotor` 直接実装（角度履歴・`demo_angles()`・クローン状態共有）
+- **[#88]** `platform-pc-sim/l298n_mock.rs`: `MockL298nChannel`/`MockL298nDevice` — `DriveMotor`/`DualMotorDriver` 直接実装（コマンド履歴・`demo_commands()`）
+- **[#88]** `docs/sensors-and-actuators.md`: DS3231/SGP30/VL53L0X セクション追加（11-13）、マトリクス 10→13 デバイスへ更新
+
+### Changed
+- **[#88]** `MockL298nDevice::apply_channels` を両チャンネル事前検証に変更（アトミックな更新）
 
 ---
 
