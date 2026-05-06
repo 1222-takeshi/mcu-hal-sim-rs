@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `platform-pc-sim/servo_mock.rs`: `MockServoDevice` — `ServoMotor` を直接実装するホスト側モック（角度履歴・デモシーケンス付き）
+- `platform-pc-sim/l298n_mock.rs`: `MockL298nChannel` / `MockL298nDevice` — `DriveMotor` / `DualMotorDriver` を直接実装するホスト側モック
+- `docs/sensors-and-actuators.md`: DS3231/SGP30/VL53L0X セクション追加（セクション 11-13）、Servo/L298N に mock ファイル名を追記
+
 ---
 
 ## [0.3.8] - 2026-05-04

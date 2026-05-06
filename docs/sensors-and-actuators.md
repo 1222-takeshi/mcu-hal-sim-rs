@@ -193,6 +193,76 @@ println!("Frame #{}: {}×{}", meta.sequence, meta.width, meta.height);
 
 ---
 
+### 11. DS3231 — RTC（リアルタイムクロック）✨ New（PR #82-84, v0.3.6-v0.3.7）
+
+| 項目 | 値 |
+|------|-----|
+| 通信方式 | I2C |
+| I2C アドレス | `0x68`（primary）/ `0x69`（secondary） |
+| HAL trait | `RtcSensor` → `RtcDateTime { year, month, day, hour, minute, second }` |
+| ダッシュボードパネル | **RTC** |
+| sim-to-real | ✅ 完全対応 |
+
+```rust
+use platform_esp32::ds3231::Ds3231Rtc;
+use hal_api::rtc::RtcSensor;
+
+let mut rtc = Ds3231Rtc::new(i2c_bus);
+let dt = rtc.read_datetime()?;
+println!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+    dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second);
+
+// 時刻設定（BCD 変換は自動）
+rtc.set_datetime(dt)?;
+```
+
+---
+
+### 12. SGP30 — 空気品質センサー（CO₂/VOC）✨ New（PR #82-84, v0.3.6-v0.3.7）
+
+| 項目 | 値 |
+|------|-----|
+| 通信方式 | I2C |
+| I2C アドレス | `0x58`（固定） |
+| HAL trait | `GasSensor` → `GasReading { co2_ppm, voc_ppb }` |
+| ダッシュボードパネル | **Gas** |
+| sim-to-real | ✅ 完全対応 |
+
+```rust
+use platform_esp32::sgp30::Sgp30Sensor;
+use hal_api::gas::GasSensor;
+
+let mut sensor = Sgp30Sensor::new(i2c_bus);
+sensor.initialize()?;  // "Init air quality" コマンド送信
+let reading = sensor.read_gas()?;
+println!("CO2: {} ppm, VOC: {} ppb", reading.co2_ppm, reading.voc_ppb);
+```
+
+---
+
+### 13. VL53L0X — ToF 距離センサー ✨ New（PR #82-84, v0.3.6-v0.3.7）
+
+| 項目 | 値 |
+|------|-----|
+| 通信方式 | I2C |
+| I2C アドレス | `0x29`（固定） |
+| HAL trait | `DistanceSensor` → `DistanceReading { distance_mm }` |
+| 測定範囲 | 20〜2000 mm（モード依存） |
+| ダッシュボードパネル | **ToF** |
+| sim-to-real | ✅ 完全対応 |
+
+```rust
+use platform_esp32::vl53l0x::Vl53l0xSensor;
+use hal_api::distance::DistanceSensor;
+
+let mut sensor = Vl53l0xSensor::new(i2c_bus);
+sensor.initialize()?;  // モデル ID 確認 + 測定開始
+let reading = sensor.read_distance()?;
+println!("Distance: {} mm", reading.distance_mm);
+```
+
+---
+
 ## アクチュエーター一覧
 
 ### 8. Servo — PWM サーボモーター
@@ -203,6 +273,7 @@ println!("Frame #{}: {}×{}", meta.sequence, meta.width, meta.height);
 | HAL trait | `ServoMotor` → `set_angle_degrees(0–180)` |
 | Duty range | 1000µs（0°）〜 2000µs（180°）、50Hz（デューティ比 5〜10%） |
 | ダッシュボードパネル | **Servo** |
+| pc-sim mock | `MockServoDevice`（`servo_mock.rs`）|
 | sim-to-real | ✅ 完全対応 |
 
 ```rust
@@ -225,6 +296,7 @@ servo.set_angle_degrees(90)?; // 中央位置
 | HAL trait | `DriveMotor` → `MotorCommand { direction, duty_percent }` |
 | チャンネル | Channel-A（左輪）/ Channel-B（右輪） |
 | ダッシュボードパネル | **Motor Driver** |
+| pc-sim mock | `MockL298nDevice` / `MockL298nChannel`（`l298n_mock.rs`）|
 | sim-to-real | ✅ 完全対応 |
 
 ```rust
@@ -266,6 +338,9 @@ driver.apply_channels(
 | DHT22 | ✅ | ✅ | ✅ | ⚠️ stub | — |
 | SSD1306 | ✅ | ✅ | ✅ | ✅ | — |
 | ESP32-CAM | ✅ | ✅ | ✅ | — | ✅ Camera |
+| DS3231 | ✅ | ✅ | ✅ | ✅ | ✅ RTC |
+| SGP30 | ✅ | ✅ | ✅ | ✅ | ✅ Gas |
+| VL53L0X | ✅ | ✅ | ✅ | ✅ | ✅ ToF |
 | Servo | ✅ | ✅ | ✅ | ✅ | ✅ Servo |
 | L298N | ✅ | ✅ | ✅ | ✅ | ✅ Motor |
 | LCD1602 | ✅ | ✅ | ✅ | ✅ | ✅ Climate |
