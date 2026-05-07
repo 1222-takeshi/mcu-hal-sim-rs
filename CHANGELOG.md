@@ -11,6 +11,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.14] - 2026-05-07
+
+### Added
+- `firmware/original-esp32-robot-base/`: ESP32 robot base firmware skeleton
+  - Servo motor control via LEDC PWM (GPIO 18, 50 Hz, SG90 compatible)
+  - Dual motor driver (L298N) via GPIO + LEDC PWM (6 pins: IN1/IN2/EN per channel)
+  - Demo sequence: Forward → Turn → Brake → Reverse cycling every 1 s
+  - Uses `Esp32ServoDriver<LedcChannel>` and `Esp32L298nDualDriverSimple<Output, LedcChannel>`
+    type aliases from `platform_esp32::types`
+  - `README.md` with wiring table, power diagram, build/flash instructions
+- Closes #98
+
+### Notes
+- Total tests: 312 (unchanged — firmware crate is standalone `[workspace]`)
+
+---
+
 ## [0.3.13] - 2026-05-07
 
 ### Added
