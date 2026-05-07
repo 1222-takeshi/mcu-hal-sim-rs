@@ -805,10 +805,6 @@ pub fn dashboard_html() -> &'static str {
             <option value="arduino-nano">Arduino Nano</option>
           </select>
           <select id="sensor-profile-select" style="font-size:12px;background:#1a2a1a;color:#7bc47b;border:1px solid #3d7a3d;border-radius:4px;padding:2px 6px;cursor:pointer">
-            <option value="full">Full (all devices)</option>
-            <option value="climate">Climate Station</option>
-            <option value="robot">Robot Base</option>
-            <option value="minimal">Minimal (BME280 + LCD)</option>
           </select>
         </h2>
         <div id="wiring-svg-wrap" style="width:100%;overflow-x:auto;min-height:180px"></div>
@@ -1037,10 +1033,22 @@ pub fn dashboard_html() -> &'static str {
         await loadWiringDiagram();
       } catch(_) {}
     }
+    async function initProfileSelect() {
+      try {
+        const res = await fetch("/api/wiring/profiles");
+        const data = await res.json();
+        const sel = $("sensor-profile-select");
+        if (!sel) return;
+        sel.innerHTML = data.profiles
+          .map(p => `<option value="${p.slug}">${p.name}</option>`)
+          .join("");
+      } catch(_) {}
+    }
     const boardSel = $("board-select");
     if (boardSel) boardSel.addEventListener("change", changeWiringConfig);
     const profileSel = $("sensor-profile-select");
     if (profileSel) profileSel.addEventListener("change", changeWiringConfig);
+    initProfileSelect();
     loadWiringDiagram();
     setInterval(loadWiringDiagram, 5000);
 
@@ -1588,6 +1596,10 @@ mod tests {
         assert!(html.contains("/api/wiring/svg"));
         assert!(html.contains("wiring-svg-wrap"));
         assert!(html.contains("loadWiringDiagram"));
+        // sensor profile selector
+        assert!(html.contains("sensor-profile-select"));
+        assert!(html.contains("initProfileSelect"));
+        assert!(html.contains("changeWiringConfig"));
         // E2E test runner
         assert!(html.contains("/api/test/stream"));
         assert!(html.contains("run-tests-btn"));
