@@ -1,87 +1,100 @@
-//! Convenience type aliases for composing ESP32 adapters with reference drivers.
+//! ESP32 アダプタと reference-drivers を合成した便利型エイリアス群。
 //!
-//! Instead of spelling out the full generic parameter chain, use these aliases to
-//! construct the typical ESP32 + sensor/actuator stacks.
+//! ジェネリクスをすべて明示する代わりにこれらのエイリアスを使うと、
+//! 典型的な ESP32 + センサー/アクチュエータのスタックを簡潔に記述できます。
 //!
-//! # Usage
+//! # 使用例
 //!
 //! ```ignore
-//! // Typical ESP32 bringup (esp-hal types plug into the generic adapters):
+//! // ESP32 立ち上げ（esp-hal の型をジェネリックアダプタに接続）:
 //! //
 //! // let i2c_raw = esp_hal::i2c::master::I2c::new(peripherals.I2C0, config);
 //! // let mut i2c = Esp32I2c::new(i2c_raw);
 //! //
-//! // Then use type aliases:
-//! // let mut bme: Esp32Bme280<_> = Bme280Sensor::new(&mut i2c, ...);
+//! // 型エイリアスを使った初期化:
+//! // let mut bme = Esp32Bme280::new(&mut i2c, ...);
 //! // let mut servo = Esp32ServoDriver::new(Esp32PwmOutput::new(ledc_ch));
 //! ```
 
+use crate::dht22::Esp32Dht22Sensor;
 use crate::gpio::Esp32OutputPin;
 use crate::i2c::Esp32I2c;
+use crate::l298n::{L298nChannel, L298nDualDriver};
 use crate::pwm::Esp32PwmOutput;
+use crate::servo::ServoDriver;
 use reference_drivers::bh1750::Bh1750Sensor;
 use reference_drivers::bme280::Bme280Sensor;
 use reference_drivers::ds3231::Ds3231Sensor;
-use reference_drivers::l298n::{L298nChannel, L298nDualDriver};
 use reference_drivers::lcd1602::Lcd1602Display;
 use reference_drivers::mpu6050::Mpu6050Sensor;
-use reference_drivers::servo::ServoDriver;
 use reference_drivers::sgp30::Sgp30Sensor;
 use reference_drivers::ssd1306::Ssd1306Display;
 use reference_drivers::vl53l0x::Vl53l0xSensor;
 
 // ---------------------------------------------------------------------------
-// Sensor type aliases
+// センサー型エイリアス
 // ---------------------------------------------------------------------------
 
-/// BME280 temperature/humidity/pressure sensor on an ESP32 I2C bus.
+/// ESP32 I2C バスに接続した BME280 温湿度・気圧センサー。
 pub type Esp32Bme280<I> = Bme280Sensor<Esp32I2c<I>>;
 
-/// LCD1602 character display on an ESP32 I2C bus.
+/// ESP32 I2C バスに接続した LCD1602 キャラクタディスプレイ。
 ///
-/// `D` must implement `embedded_hal::delay::DelayNs` — use [`crate::delay::Esp32Delay`].
+/// `D` は `embedded_hal::delay::DelayNs` 実装（[`crate::delay::Esp32Delay`] を推奨）。
 pub type Esp32Lcd1602<I, D> = Lcd1602Display<Esp32I2c<I>, D>;
 
-/// MPU6050 IMU sensor on an ESP32 I2C bus.
+/// ESP32 I2C バスに接続した MPU6050 IMU センサー。
 pub type Esp32Mpu6050<I> = Mpu6050Sensor<Esp32I2c<I>>;
 
-/// BH1750 ambient light sensor on an ESP32 I2C bus.
+/// ESP32 I2C バスに接続した BH1750 照度センサー。
 pub type Esp32Bh1750<I> = Bh1750Sensor<Esp32I2c<I>>;
 
-/// DS3231 RTC on an ESP32 I2C bus.
+/// ESP32 I2C バスに接続した DS3231 RTC。
 pub type Esp32Ds3231<I> = Ds3231Sensor<Esp32I2c<I>>;
 
-/// SGP30 gas/VOC sensor on an ESP32 I2C bus.
+/// ESP32 I2C バスに接続した SGP30 CO₂/VOC センサー。
 pub type Esp32Sgp30<I> = Sgp30Sensor<Esp32I2c<I>>;
 
-/// VL53L0X time-of-flight distance sensor on an ESP32 I2C bus.
+/// ESP32 I2C バスに接続した VL53L0X ToF 距離センサー。
 pub type Esp32Vl53l0x<I> = Vl53l0xSensor<Esp32I2c<I>>;
 
-/// SSD1306 OLED display on an ESP32 I2C bus.
+/// ESP32 I2C バスに接続した SSD1306 OLED ディスプレイ。
 pub type Esp32Ssd1306<I> = Ssd1306Display<Esp32I2c<I>>;
 
+/// ESP32 GPIO を使った DHT22 温湿度センサー。
+///
+/// `P` はオープンドレイン設定の GPIO ピン（`InputPin + OutputPin` 兼用）。
+/// `D` はマイクロ秒精度の delay 実装（`embedded_hal::delay::DelayNs`）。
+/// 実装は現在スタブです（[`crate::dht22::Esp32Dht22RawDevice`] 参照）。
+pub type Esp32Dht22<P, D> = Esp32Dht22Sensor<P, D>;
+
 // ---------------------------------------------------------------------------
-// Actuator type aliases
+// アクチュエータ型エイリアス
 // ---------------------------------------------------------------------------
 
-/// Servo motor driver using an ESP32 PWM output channel.
+/// ESP32 PWM チャンネルを使ったサーボモータドライバ。
 pub type Esp32ServoDriver<P> = ServoDriver<Esp32PwmOutput<P>>;
 
-/// One L298N motor channel wired to ESP32 GPIO (IN1, IN2) and PWM (ENA).
+/// ESP32 GPIO (IN1/IN2) + PWM (ENA) で構成した L298N 1 チャンネル。
 pub type Esp32L298nChannel<IN1, IN2, ENA> =
     L298nChannel<Esp32OutputPin<IN1>, Esp32OutputPin<IN2>, Esp32PwmOutput<ENA>>;
 
-/// Dual L298N motor driver with two channels, each wired to ESP32 GPIO and PWM.
+/// 2 チャンネル L298N デュアルモータドライバ（各チャンネルを ESP32 GPIO + PWM に接続）。
 pub type Esp32L298nDualDriver<IN1A, IN2A, ENAA, IN1B, IN2B, ENAB> =
     L298nDualDriver<Esp32L298nChannel<IN1A, IN2A, ENAA>, Esp32L298nChannel<IN1B, IN2B, ENAB>>;
+
+/// 両チャンネルで同一のピン型を使う典型的なケース向けの簡略エイリアス。
+///
+/// `IN` は IN1/IN2 の GPIO ピン型（4 本すべて共通）、
+/// `ENA` は ENA の PWM チャンネル型（両チャンネル共通）。
+pub type Esp32L298nDualDriverSimple<IN, ENA> = Esp32L298nDualDriver<IN, IN, ENA, IN, IN, ENA>;
 
 #[cfg(test)]
 extern crate std;
 
 #[cfg(test)]
 mod tests {
-    //! Smoke tests: verify that the type aliases resolve and compose correctly
-    //! using the same dummy stubs as the other bridge tests.
+    //! 型エイリアスが正しく解決され、エンドツーエンドで動作することを確認するスモークテスト。
 
     use core::convert::Infallible;
 
@@ -139,6 +152,13 @@ mod tests {
     }
 
     #[test]
+    fn esp32_servo_driver_type_alias_rejects_angle_beyond_180() {
+        let mut servo: Esp32ServoDriver<DummyPwm> =
+            Esp32ServoDriver::new(Esp32PwmOutput::new(DummyPwm));
+        assert!(servo.set_angle_degrees(181).is_err());
+    }
+
+    #[test]
     fn esp32_l298n_channel_type_alias_resolves_and_drives_forward() {
         let mut ch: Esp32L298nChannel<DummyOutputPin, DummyOutputPin, DummyPwm> =
             Esp32L298nChannel::new(
@@ -151,6 +171,19 @@ mod tests {
             .unwrap();
         assert_eq!(ch.current_command().duty_percent, 75);
         assert_eq!(ch.current_command().direction, MotorDirection::Forward);
+    }
+
+    #[test]
+    fn esp32_l298n_channel_type_alias_rejects_duty_over_100() {
+        let mut ch: Esp32L298nChannel<DummyOutputPin, DummyOutputPin, DummyPwm> =
+            Esp32L298nChannel::new(
+                Esp32OutputPin::new(DummyOutputPin),
+                Esp32OutputPin::new(DummyOutputPin),
+                Esp32PwmOutput::new(DummyPwm),
+            );
+        assert!(ch
+            .apply(MotorCommand::new(MotorDirection::Forward, 101))
+            .is_err());
     }
 
     #[test]
@@ -188,5 +221,28 @@ mod tests {
             driver.channel_b().current_command().direction,
             MotorDirection::Reverse
         );
+    }
+
+    #[test]
+    fn esp32_l298n_dual_driver_simple_type_alias_resolves() {
+        type Driver = Esp32L298nDualDriverSimple<DummyOutputPin, DummyPwm>;
+
+        let make_ch = || {
+            Esp32L298nChannel::new(
+                Esp32OutputPin::new(DummyOutputPin),
+                Esp32OutputPin::new(DummyOutputPin),
+                Esp32PwmOutput::new(DummyPwm),
+            )
+        };
+
+        let mut driver = Driver::new(make_ch(), make_ch());
+        driver
+            .apply_channels(
+                MotorCommand::new(MotorDirection::Forward, 60),
+                MotorCommand::new(MotorDirection::Brake, 0),
+            )
+            .unwrap();
+
+        assert_eq!(driver.channel_a().current_command().duty_percent, 60);
     }
 }
