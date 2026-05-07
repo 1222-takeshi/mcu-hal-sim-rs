@@ -9,10 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [0.3.20] - 2026-05-10
+
+### Added
+- `crates/platform-pc-sim/wiring_svg.rs`: SensorProfile name label in top-right corner of wiring
+  SVG; VCC/GND entry dots and pin labels on device connection points; SDA/SCL pin labels next to
+  device I2C pins; `.dev-pin` and `.profile-lbl` CSS classes; 4 new wiring SVG tests
+
+---
+
+## [0.3.19] - 2026-05-10
+
 ### Added
 - `docs/porting-and-extension-guide.md`: expanded with step-by-step 4-layer device addition
   instructions, code templates for each layer, checklist, trait reference table, and
   `flash-esp32.sh` quick reference
+
+### Fixed
+- `crates/platform-avr/tests/app_bridge.rs`: aligned `extern crate std` import with workspace
+  `#[cfg(test)]` convention for clean `no_std`-ready builds
 
 ---
 
