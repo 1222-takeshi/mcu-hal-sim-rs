@@ -1,4 +1,7 @@
 use core::convert::Infallible;
+
+#[cfg(test)]
+extern crate std;
 use std::cell::RefCell;
 use std::rc::Rc;
 
