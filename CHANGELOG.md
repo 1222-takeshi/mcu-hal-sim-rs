@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.17] - 2026-05-10
+
+### Changed
+- `firmware/original-esp32-climate-display/README.md`: updated flash instructions to reference
+  `scripts/flash-esp32.sh` for one-command flash with auto port detection; updated confirmation
+  scope to include macOS/Linux port auto-detection and WSL2 notes
+
+---
+
 ## [0.3.15] - 2026-05-07
 
 ### Added

@@ -32,6 +32,12 @@ original ESP32 + `BME280` + `LCD1602` I2C backpack 向けの climate display fir
 ## 実行
 
 ```bash
+# ワークスペースルートから scripts/flash-esp32.sh を使う場合（推奨）
+cd /path/to/mcu-hal-sim-rs
+./scripts/flash-esp32.sh original-esp32-climate-display      # ポート自動検出
+./scripts/flash-esp32.sh original-esp32-climate-display /dev/cu.usbserial-0001  # ポート明示
+
+# または firmware ディレクトリ内で直接実行する場合
 cd firmware/original-esp32-climate-display
 
 # Xtensa toolchain が入っている環境ならそのまま
@@ -58,7 +64,9 @@ climate refresh tick=10 temp_cc=2481 hum_cp=4315 line1="Temp    24.8C   " line2=
 - host 側の `cargo test --workspace --all-targets`
 - host 側の `cargo clippy --workspace --all-targets -- -D warnings`
 - この crate の `cargo build --release`
-- Windows `espflash.exe` 経由の actual flash
+- `scripts/flash-esp32.sh original-esp32-climate-display` による one-command flash
+- macOS: `/dev/cu.*` の自動検出、Linux: `/dev/ttyUSB*` の自動検出
+- Windows WSL2 環境では `espflash.exe` 経由でのポート指定 flash
 - original ESP32 + `BME280` + `LCD1602` で温湿度表示を実機確認
 - 実機シリアルで `climate refresh tick = ...` の継続出力を確認
 
