@@ -5,6 +5,7 @@
 //! by a `MockPwmOutput` instead of a real hardware PWM channel.
 
 use hal_api::actuator::ServoMotor;
+use hal_api::error::ActuatorError;
 use platform_esp32::servo::ServoDriver;
 use platform_pc_sim::pwm_mock::MockPwmOutput;
 
@@ -38,7 +39,7 @@ fn esp32_servo_driver_maps_180_degrees_to_max_duty() {
 }
 
 #[test]
-fn esp32_servo_driver_maps_90_degrees_to_midpoint_duty() {
+fn esp32_servo_driver_maps_90_degrees_to_duty_7() {
     let pwm = MockPwmOutput::new();
     let pwm_handle = pwm.clone();
     let mut servo = ServoDriver::new(pwm);
@@ -53,7 +54,16 @@ fn esp32_servo_driver_maps_90_degrees_to_midpoint_duty() {
 #[test]
 fn esp32_servo_driver_rejects_angle_beyond_180() {
     let mut servo = ServoDriver::new(MockPwmOutput::new());
-    assert!(servo.set_angle_degrees(181).is_err());
+    assert_eq!(
+        servo.set_angle_degrees(181),
+        Err(ActuatorError::InvalidCommand)
+    );
+}
+
+#[test]
+fn esp32_servo_driver_initial_angle_is_90() {
+    let servo = ServoDriver::new(MockPwmOutput::new());
+    assert_eq!(servo.current_angle(), 90);
 }
 
 #[test]

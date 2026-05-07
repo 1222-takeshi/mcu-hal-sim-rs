@@ -6,6 +6,7 @@
 //! when backed by `MockPin` and `MockPwmOutput` instead of real hardware peripherals.
 
 use hal_api::actuator::{DriveMotor, DualMotorDriver, MotorCommand, MotorDirection};
+use hal_api::error::ActuatorError;
 use platform_esp32::l298n::{L298nChannel, L298nDualDriver};
 use platform_pc_sim::mock_hal::MockPin;
 use platform_pc_sim::pwm_mock::MockPwmOutput;
@@ -52,32 +53,35 @@ fn esp32_l298n_channel_reverse_sets_in1_low_in2_high() {
 
 #[test]
 fn esp32_l298n_channel_brake_sets_both_pins_high() {
-    let (in1_h, in2_h, _, mut ch) = make_channel();
+    let (in1_h, in2_h, ena_h, mut ch) = make_channel();
 
     ch.apply(MotorCommand::new(MotorDirection::Brake, 0))
         .unwrap();
 
     assert!(in1_h.level());
     assert!(in2_h.level());
+    assert_eq!(ena_h.current_duty(), 0);
 }
 
 #[test]
 fn esp32_l298n_channel_coast_sets_both_pins_low() {
-    let (in1_h, in2_h, _, mut ch) = make_channel();
+    let (in1_h, in2_h, ena_h, mut ch) = make_channel();
 
     ch.apply(MotorCommand::new(MotorDirection::Coast, 0))
         .unwrap();
 
     assert!(!in1_h.level());
     assert!(!in2_h.level());
+    assert_eq!(ena_h.current_duty(), 0);
 }
 
 #[test]
 fn esp32_l298n_channel_rejects_duty_over_100() {
     let (_, _, _, mut ch) = make_channel();
-    assert!(ch
-        .apply(MotorCommand::new(MotorDirection::Forward, 101))
-        .is_err());
+    assert_eq!(
+        ch.apply(MotorCommand::new(MotorDirection::Forward, 101)),
+        Err(ActuatorError::InvalidCommand)
+    );
 }
 
 #[test]
