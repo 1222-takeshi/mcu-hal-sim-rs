@@ -11,6 +11,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.10] - 2025-07-16
+
+### Added
+- `tests/servo_host_bridge.rs`: 6 host bridge integration tests for `ServoDriver<MockPwmOutput>`
+  (angle→PWM duty mapping, initial angle 90°, >180° rejection with `ActuatorError::InvalidCommand`,
+  PWM call history)
+- `tests/l298n_host_bridge.rs`: 9 host bridge integration tests for
+  `L298nDualDriver<L298nChannel<MockPin, MockPin, MockPwmOutput>>`
+  (Forward/Reverse/Brake/Coast GPIO pin states + ENA duty, duty>100 rejection,
+  independent dual-channel routing, PWM history per channel)
+
+### Changed
+- Removed `MockServoMotor` and `MockDualMotorDriver` from `component_sim.rs`;
+  their internal tests now delegate to `servo_mock::MockServoDevice` and
+  `l298n_mock::MockL298nDevice` (no external API change)
+- Updated module doc comments in `servo_mock.rs` and `l298n_mock.rs`
+
+---
+
 ## [0.3.9] - 2026-05-06
 
 Servо/L298N 専用モック追加・ドキュメント更新。全 13 デバイスの 4 層アーキテクチャ完成。
