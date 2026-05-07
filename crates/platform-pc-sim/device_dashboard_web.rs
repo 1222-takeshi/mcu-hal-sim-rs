@@ -560,26 +560,30 @@ fn format_operation(operation: &VirtualI2cOperation) -> String {
     }
 }
 
-/// Extract the `"board"` string value from a minimal JSON object.
+/// Extract a string field value from a minimal JSON body.
 ///
-/// Handles `{"board":"arduino-nano"}` without pulling in a full JSON parser.
-fn parse_board_from_json(json: &str) -> Option<&str> {
-    let after_key = json.split("\"board\"").nth(1)?;
+/// Handles `{"key":"value"}` without a full JSON parser.
+fn parse_json_string_field<'a>(json: &'a str, key: &str) -> Option<&'a str> {
+    let key_literal = format!("\"{key}\"");
+    let after_key = json.split(key_literal.as_str()).nth(1)?;
     let after_colon = after_key.split(':').nth(1)?.trim_start();
     let inner = after_colon.strip_prefix('"')?;
     let end = inner.find('"')?;
     Some(&inner[..end])
 }
 
+/// Extract the `"board"` string value from a minimal JSON object.
+///
+/// Handles `{"board":"arduino-nano"}` without pulling in a full JSON parser.
+fn parse_board_from_json(json: &str) -> Option<&str> {
+    parse_json_string_field(json, "board")
+}
+
 /// Extract `sensor_profile` field from a JSON body string.
 ///
 /// Handles `{"sensor_profile":"climate"}` without a full JSON parser.
 fn parse_sensor_profile_from_json(json: &str) -> Option<&str> {
-    let after_key = json.split("\"sensor_profile\"").nth(1)?;
-    let after_colon = after_key.split(':').nth(1)?.trim_start();
-    let inner = after_colon.strip_prefix('"')?;
-    let end = inner.find('"')?;
-    Some(&inner[..end])
+    parse_json_string_field(json, "sensor_profile")
 }
 
 fn respond(stream: &mut TcpStream, status: &str, content_type: &str, body: &str) {
@@ -1198,5 +1202,13 @@ mod tests {
     #[test]
     fn parse_sensor_profile_from_json_returns_none_for_empty_body() {
         assert_eq!(parse_sensor_profile_from_json(""), None);
+    }
+
+    #[test]
+    fn parse_json_string_field_handles_space_after_colon() {
+        assert_eq!(
+            parse_json_string_field(r#"{"sensor_profile": "climate"}"#, "sensor_profile"),
+            Some("climate")
+        );
     }
 }
