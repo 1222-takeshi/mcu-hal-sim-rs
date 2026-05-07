@@ -11,6 +11,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.11] - 2025-07-16
+
+### Added
+- `SensorProfile` enum in `wiring_config.rs`: `Full`, `ClimateStation`, `RobotBase`, `Minimal`
+  — each profile specifies which sensors appear in the wiring diagram
+- `WiringConfig::from_board_with_sensors(board, SensorProfile)` constructor; `from_board()` now
+  calls this with `SensorProfile::Full` for backward compatibility
+- `WiringConfig::to_json()` now includes `"sensor_profile":"<slug>"` field
+- `GET /api/wiring/profiles` endpoint — returns JSON array of all available profiles with slug,
+  display name, and device list
+- `POST /api/wiring` now accepts `"sensor_profile"` key in body to switch profiles
+- Wiring Diagram panel in dashboard gains a sensor-profile `<select>` dynamically populated
+  from `/api/wiring/profiles` on page load
+- `WiringState { board, sensor_profile }` single Mutex in `ServerContext` eliminates TOCTOU
+  between board and profile reads
+- `parse_json_string_field(json, key)` shared helper replaces duplicated parsing implementations
+- `SensorProfile::all_variants()` returns `&'static [SensorProfile]` (single source of truth)
+- `impl Default for SensorProfile` (defaults to `Full`)
+- 17 new unit tests; total: 297
+
+### Changed
+- `SensorProfile::all()` renamed to `all_variants()` to follow Rust convention
+
+---
+
 ## [0.3.10] - 2025-07-16
 
 ### Added

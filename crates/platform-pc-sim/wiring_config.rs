@@ -2,8 +2,153 @@
 //!
 //! Provides a board-independent description of the hardware setup used by
 //! the visual wiring diagram generator.
+//!
+//! ## Board vs Sensor separation
+//!
+//! - [`crate::dashboard::BoardProfile`] describes **hardware** (pin assignments, MCU type).
+//! - [`SensorProfile`] describes **which sensors** are attached.
+//!
+//! Use [`WiringConfig::from_board_with_sensors`] to combine the two.  
+//! [`WiringConfig::from_board`] is a shortcut for [`SensorProfile::Full`].
 
 use crate::dashboard::BoardProfile;
+
+/// Which set of sensors/actuators is attached to the board.
+///
+/// Each profile maps to a fixed subset of [`DeviceKind`]s included in the
+/// [`WiringConfig`].  Add new profiles here to describe additional hardware
+/// configurations without changing any other code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SensorProfile {
+    /// All 11 devices (BME280, MPU6050, LCD1602, BH1750, DS3231, SGP30,
+    /// VL53L0X, Servo, L298N, HC-SR04, ESP32-CAM).  This is the default.
+    Full,
+    /// Climate station: BME280 + BH1750 + SGP30 + DS3231 + LCD1602.
+    ClimateStation,
+    /// Robot base: MPU6050 + HC-SR04 + VL53L0X + Servo + L298N.
+    RobotBase,
+    /// Minimal starter: BME280 + LCD1602.
+    Minimal,
+}
+
+impl SensorProfile {
+    /// Parse a sensor profile from a URL-friendly slug string.
+    ///
+    /// ```
+    /// use platform_pc_sim::wiring_config::SensorProfile;
+    /// assert_eq!(SensorProfile::from_slug("climate"), Some(SensorProfile::ClimateStation));
+    /// assert_eq!(SensorProfile::from_slug("unknown"), None);
+    /// ```
+    pub fn from_slug(s: &str) -> Option<Self> {
+        match s {
+            "full" => Some(Self::Full),
+            "climate" => Some(Self::ClimateStation),
+            "robot" => Some(Self::RobotBase),
+            "minimal" => Some(Self::Minimal),
+            _ => None,
+        }
+    }
+
+    /// URL-friendly slug for this profile.
+    ///
+    /// ```
+    /// use platform_pc_sim::wiring_config::SensorProfile;
+    /// assert_eq!(SensorProfile::Full.slug(), "full");
+    /// assert_eq!(SensorProfile::ClimateStation.slug(), "climate");
+    /// ```
+    pub fn slug(self) -> &'static str {
+        match self {
+            Self::Full => "full",
+            Self::ClimateStation => "climate",
+            Self::RobotBase => "robot",
+            Self::Minimal => "minimal",
+        }
+    }
+
+    /// Human-readable display name.
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Self::Full => "Full (all devices)",
+            Self::ClimateStation => "Climate Station",
+            Self::RobotBase => "Robot Base",
+            Self::Minimal => "Minimal (BME280 + LCD)",
+        }
+    }
+
+    /// Returns all sensor profile variants.
+    ///
+    /// ```
+    /// use platform_pc_sim::wiring_config::SensorProfile;
+    /// assert_eq!(SensorProfile::all_variants().len(), 4);
+    /// assert_eq!(SensorProfile::all_variants()[0], SensorProfile::Full);
+    /// ```
+    pub fn all_variants() -> &'static [SensorProfile] {
+        &[
+            Self::Full,
+            Self::ClimateStation,
+            Self::RobotBase,
+            Self::Minimal,
+        ]
+    }
+
+    /// Returns all available sensor profiles as `(slug, display_name)` pairs.
+    ///
+    /// ```
+    /// use platform_pc_sim::wiring_config::SensorProfile;
+    /// let profiles = SensorProfile::all();
+    /// assert!(profiles.iter().any(|(slug, _)| *slug == "full"));
+    /// assert!(profiles.iter().any(|(slug, _)| *slug == "climate"));
+    /// ```
+    pub fn all() -> Vec<(&'static str, &'static str)> {
+        Self::all_variants()
+            .iter()
+            .map(|p| (p.slug(), p.display_name()))
+            .collect()
+    }
+
+    /// Device kinds included in this profile.
+    pub(crate) fn devices(self) -> Vec<DeviceSpec> {
+        match self {
+            Self::Full => vec![
+                DeviceSpec::i2c(DeviceKind::Bme280, 0x77),
+                DeviceSpec::i2c(DeviceKind::Mpu6050, 0x68),
+                DeviceSpec::i2c(DeviceKind::Lcd1602, 0x27),
+                DeviceSpec::i2c(DeviceKind::Bh1750, 0x23),
+                DeviceSpec::i2c(DeviceKind::Ds3231, 0x68),
+                DeviceSpec::i2c(DeviceKind::Sgp30, 0x58),
+                DeviceSpec::i2c(DeviceKind::Vl53l0x, 0x29),
+                DeviceSpec::pwm(DeviceKind::Servo),
+                DeviceSpec::pwm(DeviceKind::L298n),
+                DeviceSpec::gpio(DeviceKind::HcSr04),
+                DeviceSpec::gpio(DeviceKind::Esp32Cam),
+            ],
+            Self::ClimateStation => vec![
+                DeviceSpec::i2c(DeviceKind::Bme280, 0x77),
+                DeviceSpec::i2c(DeviceKind::Bh1750, 0x23),
+                DeviceSpec::i2c(DeviceKind::Sgp30, 0x58),
+                DeviceSpec::i2c(DeviceKind::Ds3231, 0x68),
+                DeviceSpec::i2c(DeviceKind::Lcd1602, 0x27),
+            ],
+            Self::RobotBase => vec![
+                DeviceSpec::i2c(DeviceKind::Mpu6050, 0x68),
+                DeviceSpec::i2c(DeviceKind::Vl53l0x, 0x29),
+                DeviceSpec::gpio(DeviceKind::HcSr04),
+                DeviceSpec::pwm(DeviceKind::Servo),
+                DeviceSpec::pwm(DeviceKind::L298n),
+            ],
+            Self::Minimal => vec![
+                DeviceSpec::i2c(DeviceKind::Bme280, 0x77),
+                DeviceSpec::i2c(DeviceKind::Lcd1602, 0x27),
+            ],
+        }
+    }
+}
+
+impl Default for SensorProfile {
+    fn default() -> Self {
+        Self::Full
+    }
+}
 
 /// Physical device type attached to the board.
 #[derive(Debug, Clone, PartialEq)]
@@ -100,6 +245,7 @@ impl DeviceSpec {
 #[derive(Debug, Clone)]
 pub struct WiringConfig {
     pub board: BoardProfile,
+    pub sensor_profile: SensorProfile,
     pub sda_pin: String,
     pub scl_pin: String,
     pub power_pin: String,
@@ -115,26 +261,21 @@ pub struct WiringConfig {
 }
 
 impl WiringConfig {
-    /// Build the standard wiring config for a board profile.
+    /// Build the wiring config for a board profile with a specific sensor set.
     ///
-    /// Returns the full simulator configuration matching `DeviceSimulationRig`:
-    /// BME280 (0x77), MPU6050 (0x68), LCD1602 (0x27), BH1750 (0x23),
-    /// DS3231 (0x68; sim uses 0x69 to avoid MPU6050 collision), SGP30 (0x58),
-    /// VL53L0X (0x29) on I²C; Servo and L298N on PWM; HC-SR04 and ESP32-CAM on GPIO.
-    pub fn from_board(board: BoardProfile) -> Self {
-        let devices = vec![
-            DeviceSpec::i2c(DeviceKind::Bme280, 0x77),
-            DeviceSpec::i2c(DeviceKind::Mpu6050, 0x68),
-            DeviceSpec::i2c(DeviceKind::Lcd1602, 0x27),
-            DeviceSpec::i2c(DeviceKind::Bh1750, 0x23),
-            DeviceSpec::i2c(DeviceKind::Ds3231, 0x68),
-            DeviceSpec::i2c(DeviceKind::Sgp30, 0x58),
-            DeviceSpec::i2c(DeviceKind::Vl53l0x, 0x29),
-            DeviceSpec::pwm(DeviceKind::Servo),
-            DeviceSpec::pwm(DeviceKind::L298n),
-            DeviceSpec::gpio(DeviceKind::HcSr04),
-            DeviceSpec::gpio(DeviceKind::Esp32Cam),
-        ];
+    /// # Examples
+    ///
+    /// ```
+    /// use platform_pc_sim::dashboard::BoardProfile;
+    /// use platform_pc_sim::wiring_config::{SensorProfile, WiringConfig};
+    ///
+    /// let cfg = WiringConfig::from_board_with_sensors(
+    ///     BoardProfile::OriginalEsp32,
+    ///     SensorProfile::Minimal,
+    /// );
+    /// assert_eq!(cfg.devices.len(), 2);
+    /// ```
+    pub fn from_board_with_sensors(board: BoardProfile, sensor_profile: SensorProfile) -> Self {
         Self {
             sda_pin: board.sda_pin().to_string(),
             scl_pin: board.scl_pin().to_string(),
@@ -145,9 +286,22 @@ impl WiringConfig {
             cam_pin: board.cam_pin().to_string(),
             servo_pin: board.servo_pwm_pin().to_string(),
             motor_pin: board.motor_ena_pin().to_string(),
+            devices: sensor_profile.devices(),
             board,
-            devices,
+            sensor_profile,
         }
+    }
+
+    /// Build the standard wiring config for a board profile with all devices.
+    ///
+    /// Equivalent to `from_board_with_sensors(board, SensorProfile::Full)`.
+    ///
+    /// Returns the full simulator configuration matching `DeviceSimulationRig`:
+    /// BME280 (0x77), MPU6050 (0x68), LCD1602 (0x27), BH1750 (0x23),
+    /// DS3231 (0x68; sim uses 0x69 to avoid MPU6050 collision), SGP30 (0x58),
+    /// VL53L0X (0x29) on I²C; Servo and L298N on PWM; HC-SR04 and ESP32-CAM on GPIO.
+    pub fn from_board(board: BoardProfile) -> Self {
+        Self::from_board_with_sensors(board, SensorProfile::Full)
     }
 
     /// Serialise to a simple JSON string.
@@ -184,13 +338,15 @@ impl WiringConfig {
             .collect();
         format!(
             concat!(
-                r#"{{"board":"{board}","sda_pin":"{sda}","scl_pin":"{scl}","#,
+                r#"{{"board":"{board}","sensor_profile":"{sp}","#,
+                r#""sda_pin":"{sda}","scl_pin":"{scl}","#,
                 r#""power_pin":"{vcc}","ground_pin":"{gnd}","#,
                 r#""trig_pin":"{trig}","echo_pin":"{echo}","cam_pin":"{cam}","#,
                 r#""servo_pin":"{sv}","motor_pin":"{mot}","#,
                 r#""devices":[{devs}]}}"#
             ),
             board = board_str,
+            sp = self.sensor_profile.slug(),
             sda = json_escape(&self.sda_pin),
             scl = json_escape(&self.scl_pin),
             vcc = json_escape(&self.power_pin),
@@ -304,6 +460,7 @@ mod tests {
     fn wiring_config_to_json_contains_board_and_devices() {
         let json = WiringConfig::from_board(BoardProfile::OriginalEsp32).to_json();
         assert!(json.contains(r#""board":"esp32""#));
+        assert!(json.contains(r#""sensor_profile":"full""#));
         assert!(json.contains(r#""sda_pin":"GPIO21""#));
         assert!(json.contains(r#""address":"0x77""#));
         assert!(json.contains(r#""kind":"hc_sr04""#));
@@ -316,5 +473,127 @@ mod tests {
         assert!(json.contains(r#""kind":"vl53l0x""#));
         assert!(json.contains(r#""cam_pin":"GPIO0""#));
         assert!(json.contains(r#""motor_pin":"GPIO25""#));
+    }
+
+    // ── SensorProfile tests ────────────────────────────────────────────────
+
+    #[test]
+    fn sensor_profile_minimal_has_two_devices() {
+        let cfg = WiringConfig::from_board_with_sensors(
+            BoardProfile::OriginalEsp32,
+            SensorProfile::Minimal,
+        );
+        assert_eq!(cfg.devices.len(), 2);
+        assert_eq!(cfg.devices[0].kind, DeviceKind::Bme280);
+        assert_eq!(cfg.devices[1].kind, DeviceKind::Lcd1602);
+        assert_eq!(cfg.sensor_profile, SensorProfile::Minimal);
+    }
+
+    #[test]
+    fn sensor_profile_climate_station_has_five_devices() {
+        let cfg = WiringConfig::from_board_with_sensors(
+            BoardProfile::OriginalEsp32,
+            SensorProfile::ClimateStation,
+        );
+        assert_eq!(cfg.devices.len(), 5);
+        let kinds: Vec<_> = cfg.devices.iter().map(|d| &d.kind).collect();
+        assert!(kinds.contains(&&DeviceKind::Bme280));
+        assert!(kinds.contains(&&DeviceKind::Bh1750));
+        assert!(kinds.contains(&&DeviceKind::Sgp30));
+        assert!(kinds.contains(&&DeviceKind::Ds3231));
+        assert!(kinds.contains(&&DeviceKind::Lcd1602));
+    }
+
+    #[test]
+    fn sensor_profile_robot_base_has_five_devices() {
+        let cfg = WiringConfig::from_board_with_sensors(
+            BoardProfile::OriginalEsp32,
+            SensorProfile::RobotBase,
+        );
+        assert_eq!(cfg.devices.len(), 5);
+        let kinds: Vec<_> = cfg.devices.iter().map(|d| &d.kind).collect();
+        assert!(kinds.contains(&&DeviceKind::Mpu6050));
+        assert!(kinds.contains(&&DeviceKind::Vl53l0x));
+        assert!(kinds.contains(&&DeviceKind::HcSr04));
+        assert!(kinds.contains(&&DeviceKind::Servo));
+        assert!(kinds.contains(&&DeviceKind::L298n));
+    }
+
+    #[test]
+    fn sensor_profile_full_is_default_and_has_eleven_devices() {
+        let full =
+            WiringConfig::from_board_with_sensors(BoardProfile::OriginalEsp32, SensorProfile::Full);
+        let default = WiringConfig::from_board(BoardProfile::OriginalEsp32);
+        assert_eq!(full.devices.len(), 11);
+        assert_eq!(default.devices.len(), 11);
+        assert_eq!(full.sensor_profile, SensorProfile::Full);
+        assert_eq!(default.sensor_profile, SensorProfile::Full);
+    }
+
+    #[test]
+    fn sensor_profile_from_slug_roundtrips() {
+        for (slug, _) in SensorProfile::all() {
+            let parsed = SensorProfile::from_slug(slug);
+            assert!(parsed.is_some(), "slug '{slug}' should parse");
+            assert_eq!(parsed.unwrap().slug(), slug);
+        }
+    }
+
+    #[test]
+    fn sensor_profile_from_slug_rejects_unknown() {
+        assert!(SensorProfile::from_slug("unknown-profile").is_none());
+        assert!(SensorProfile::from_slug("").is_none());
+    }
+
+    #[test]
+    fn sensor_profile_all_has_four_entries() {
+        assert_eq!(SensorProfile::all().len(), 4);
+    }
+
+    #[test]
+    fn sensor_profile_display_names_match_all_variants() {
+        for p in SensorProfile::all_variants() {
+            let name = p.display_name();
+            assert!(
+                !name.is_empty(),
+                "display_name() must not be empty for {:?}",
+                p
+            );
+            // slug roundtrip
+            assert_eq!(SensorProfile::from_slug(p.slug()).unwrap(), *p);
+        }
+    }
+
+    #[test]
+    fn sensor_profile_default_is_full() {
+        assert_eq!(SensorProfile::default(), SensorProfile::Full);
+    }
+
+    #[test]
+    fn wiring_config_json_includes_sensor_profile_slug() {
+        let cfg = WiringConfig::from_board_with_sensors(
+            BoardProfile::OriginalEsp32,
+            SensorProfile::ClimateStation,
+        );
+        let json = cfg.to_json();
+        assert!(json.contains(r#""sensor_profile":"climate""#));
+        assert!(!json.contains(r#""kind":"servo""#));
+        assert!(!json.contains(r#""kind":"hc_sr04""#));
+    }
+
+    #[test]
+    fn wiring_config_pins_are_board_specific_regardless_of_sensor_profile() {
+        let esp = WiringConfig::from_board_with_sensors(
+            BoardProfile::OriginalEsp32,
+            SensorProfile::Minimal,
+        );
+        let nano = WiringConfig::from_board_with_sensors(
+            BoardProfile::ArduinoNano,
+            SensorProfile::Minimal,
+        );
+        assert_eq!(esp.sda_pin, "GPIO21");
+        assert_eq!(nano.sda_pin, "A4");
+        // Both have the same sensor count despite different boards
+        assert_eq!(esp.devices.len(), nano.devices.len());
     }
 }

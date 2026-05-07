@@ -34,7 +34,7 @@ use platform_pc_sim::web_dashboard::{
     MotorChannelState, MotorDriverPanelState, RtcPanelState, ServoPanelState, TofPanelState,
     WiringPanelState,
 };
-use platform_pc_sim::wiring_config::WiringConfig;
+use platform_pc_sim::wiring_config::{SensorProfile, WiringConfig};
 use platform_pc_sim::wiring_svg::wiring_svg;
 use reference_drivers::bh1750::{Bh1750Sensor, BH1750_ADDRESS_LOW};
 use reference_drivers::bme280::{Bme280Sensor, BME280_ADDRESS_PRIMARY};
@@ -49,11 +49,23 @@ use reference_drivers::vl53l0x::{Vl53l0xSensor, VL53L0X_ADDRESS};
 
 const DEFAULT_PORT: u16 = 7878;
 
+/// Combined board + sensor profile state read/written as a unit.
+#[derive(Clone, Copy)]
+struct WiringState {
+    board: BoardProfile,
+    sensor_profile: SensorProfile,
+}
+
 /// Shared server state passed to every connection-handler thread.
 struct ServerContext {
     latest_json: Mutex<String>,
     ws_clients: Mutex<Vec<mpsc::SyncSender<String>>>,
     current_board: Mutex<BoardProfile>,
+    /// Kept for future use; wiring API reads now go through `wiring_state`.
+    #[allow(dead_code)]
+    current_sensor_profile: Mutex<SensorProfile>,
+    /// Atomic board + sensor profile state for wiring API reads.
+    wiring_state: Mutex<WiringState>,
     /// Last wiring-editor JSON submitted via POST /api/wiring/editor.
     editor_json: Mutex<String>,
 }
@@ -64,6 +76,11 @@ impl ServerContext {
             latest_json: Mutex::new("{}".into()),
             ws_clients: Mutex::new(vec![]),
             current_board: Mutex::new(board),
+            current_sensor_profile: Mutex::new(SensorProfile::Full),
+            wiring_state: Mutex::new(WiringState {
+                board,
+                sensor_profile: SensorProfile::Full,
+            }),
             editor_json: Mutex::new("{}".into()),
         })
     }
@@ -543,15 +560,30 @@ fn format_operation(operation: &VirtualI2cOperation) -> String {
     }
 }
 
-/// Extract the `"board"` string value from a minimal JSON object.
+/// Extract a string field value from a minimal JSON body.
 ///
-/// Handles `{"board":"arduino-nano"}` without pulling in a full JSON parser.
-fn parse_board_from_json(json: &str) -> Option<&str> {
-    let after_key = json.split("\"board\"").nth(1)?;
+/// Handles `{"key":"value"}` without a full JSON parser.
+fn parse_json_string_field<'a>(json: &'a str, key: &str) -> Option<&'a str> {
+    let key_literal = format!("\"{key}\"");
+    let after_key = json.split(key_literal.as_str()).nth(1)?;
     let after_colon = after_key.split(':').nth(1)?.trim_start();
     let inner = after_colon.strip_prefix('"')?;
     let end = inner.find('"')?;
     Some(&inner[..end])
+}
+
+/// Extract the `"board"` string value from a minimal JSON object.
+///
+/// Handles `{"board":"arduino-nano"}` without pulling in a full JSON parser.
+fn parse_board_from_json(json: &str) -> Option<&str> {
+    parse_json_string_field(json, "board")
+}
+
+/// Extract `sensor_profile` field from a JSON body string.
+///
+/// Handles `{"sensor_profile":"climate"}` without a full JSON parser.
+fn parse_sensor_profile_from_json(json: &str) -> Option<&str> {
+    parse_json_string_field(json, "sensor_profile")
 }
 
 fn respond(stream: &mut TcpStream, status: &str, content_type: &str, body: &str) {
@@ -899,8 +931,35 @@ fn handle_connection(
                 // Give the main thread time to apply the change.
                 thread::sleep(Duration::from_millis(50));
             }
-            let board = *ctx.current_board.lock().unwrap();
-            let payload = WiringConfig::from_board(board).to_json();
+            // Update wiring_state atomically as a single unit.
+            let wiring = {
+                let mut ws = ctx.wiring_state.lock().unwrap();
+                if let Some(board_name) = parse_board_from_json(body) {
+                    ws.board = BoardProfile::from_arg(Some(board_name));
+                }
+                if let Some(profile_slug) = parse_sensor_profile_from_json(body) {
+                    if let Some(profile) = SensorProfile::from_slug(profile_slug) {
+                        ws.sensor_profile = profile;
+                    }
+                }
+                *ws
+            };
+            let payload =
+                WiringConfig::from_board_with_sensors(wiring.board, wiring.sensor_profile)
+                    .to_json();
+            respond(
+                &mut stream,
+                "200 OK",
+                "application/json; charset=utf-8",
+                &payload,
+            );
+        }
+        (_, "/api/wiring/profiles") => {
+            let entries: Vec<String> = SensorProfile::all_variants()
+                .iter()
+                .map(|p| format!(r#"{{"slug":"{}","name":"{}"}}"#, p.slug(), p.display_name()))
+                .collect();
+            let payload = format!(r#"{{"profiles":[{}]}}"#, entries.join(","));
             respond(
                 &mut stream,
                 "200 OK",
@@ -909,8 +968,10 @@ fn handle_connection(
             );
         }
         (_, "/api/wiring") => {
-            let board = *ctx.current_board.lock().unwrap();
-            let payload = WiringConfig::from_board(board).to_json();
+            let wiring = *ctx.wiring_state.lock().unwrap();
+            let payload =
+                WiringConfig::from_board_with_sensors(wiring.board, wiring.sensor_profile)
+                    .to_json();
             respond(
                 &mut stream,
                 "200 OK",
@@ -919,8 +980,8 @@ fn handle_connection(
             );
         }
         (_, "/api/wiring/svg") => {
-            let board = *ctx.current_board.lock().unwrap();
-            let cfg = WiringConfig::from_board(board);
+            let wiring = *ctx.wiring_state.lock().unwrap();
+            let cfg = WiringConfig::from_board_with_sensors(wiring.board, wiring.sensor_profile);
             let svg = wiring_svg(&cfg);
             respond(&mut stream, "200 OK", "image/svg+xml; charset=utf-8", &svg);
         }
@@ -1115,5 +1176,39 @@ mod tests {
     #[test]
     fn parse_board_from_json_returns_none_for_empty_body() {
         assert_eq!(parse_board_from_json(""), None);
+    }
+
+    #[test]
+    fn parse_sensor_profile_from_json_extracts_profile() {
+        assert_eq!(
+            parse_sensor_profile_from_json(r#"{"sensor_profile":"climate"}"#),
+            Some("climate")
+        );
+    }
+
+    #[test]
+    fn parse_sensor_profile_from_json_handles_combined_body() {
+        assert_eq!(
+            parse_sensor_profile_from_json(r#"{"board":"esp32","sensor_profile":"robot"}"#),
+            Some("robot")
+        );
+    }
+
+    #[test]
+    fn parse_sensor_profile_from_json_returns_none_for_missing_key() {
+        assert_eq!(parse_sensor_profile_from_json(r#"{"board":"esp32"}"#), None);
+    }
+
+    #[test]
+    fn parse_sensor_profile_from_json_returns_none_for_empty_body() {
+        assert_eq!(parse_sensor_profile_from_json(""), None);
+    }
+
+    #[test]
+    fn parse_json_string_field_handles_space_after_colon() {
+        assert_eq!(
+            parse_json_string_field(r#"{"sensor_profile": "climate"}"#, "sensor_profile"),
+            Some("climate")
+        );
     }
 }

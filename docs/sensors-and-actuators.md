@@ -368,6 +368,52 @@ curl http://127.0.0.1:7878/api/state | python3 -m json.tool
 
 ---
 
+## センサープロファイル (SensorProfile)
+
+`WiringConfig` はセンサーセットをプロファイルで切り替えられます。
+ダッシュボードの **Wiring Diagram** パネルにあるセレクタで切り替えるか、API 経由で指定します。
+
+### 利用可能なプロファイル
+
+| slug | 名前 | デバイス数 | 内容 |
+|------|------|-----------|------|
+| `full` | Full (all devices) | 11 | すべてのデバイス（デフォルト） |
+| `climate` | Climate Station | 5 | BME280, BH1750, SGP30, DS3231, LCD1602 |
+| `robot` | Robot Base | 5 | MPU6050, VL53L0X, HC-SR04, Servo, L298N |
+| `minimal` | Minimal | 2 | BME280, LCD1602 |
+
+### API 例
+
+```bash
+# 利用可能なプロファイル一覧
+curl http://127.0.0.1:7878/api/wiring/profiles
+
+# ボード + センサープロファイルを同時に切り替え
+curl -X POST http://127.0.0.1:7878/api/wiring \
+  -H "Content-Type: application/json" \
+  -d '{"board":"esp32", "sensor_profile":"climate"}'
+```
+
+### コード例
+
+```rust
+use platform_pc_sim::dashboard::BoardProfile;
+use platform_pc_sim::wiring_config::{SensorProfile, WiringConfig};
+
+// プロファイル指定
+let cfg = WiringConfig::from_board_with_sensors(
+    BoardProfile::OriginalEsp32,
+    SensorProfile::ClimateStation,
+);
+assert_eq!(cfg.devices.len(), 5);
+
+// スラッグからパース
+let profile = SensorProfile::from_slug("robot").unwrap();
+assert_eq!(profile, SensorProfile::RobotBase);
+```
+
+---
+
 ## 新しいセンサーを追加するには
 
 [porting-and-extension-guide.md](./porting-and-extension-guide.md) を参照してください。
