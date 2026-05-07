@@ -72,10 +72,8 @@ pub type Esp32L298nChannel<IN1, IN2, ENA> =
     L298nChannel<Esp32OutputPin<IN1>, Esp32OutputPin<IN2>, Esp32PwmOutput<ENA>>;
 
 /// Dual L298N motor driver with two channels, each wired to ESP32 GPIO and PWM.
-pub type Esp32L298nDualDriver<IN1A, IN2A, ENAA, IN1B, IN2B, ENAB> = L298nDualDriver<
-    Esp32L298nChannel<IN1A, IN2A, ENAA>,
-    Esp32L298nChannel<IN1B, IN2B, ENAB>,
->;
+pub type Esp32L298nDualDriver<IN1A, IN2A, ENAA, IN1B, IN2B, ENAB> =
+    L298nDualDriver<Esp32L298nChannel<IN1A, IN2A, ENAA>, Esp32L298nChannel<IN1B, IN2B, ENAB>>;
 
 #[cfg(test)]
 extern crate std;
@@ -89,7 +87,9 @@ mod tests {
 
     use embedded_hal::digital::{ErrorType as DigitalErrorType, OutputPin as EmbeddedOutputPin};
     use embedded_hal::pwm::{ErrorType as PwmErrorType, SetDutyCycle};
-    use hal_api::actuator::{DriveMotor, DualMotorDriver, MotorCommand, MotorDirection, ServoMotor};
+    use hal_api::actuator::{
+        DriveMotor, DualMotorDriver, MotorCommand, MotorDirection, ServoMotor,
+    };
 
     use super::*;
 
