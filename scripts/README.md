@@ -142,6 +142,55 @@ cargo install espflash
 
 ---
 
+### `gh-workflow.sh` - GitHub ワークフロー操作
+
+`scripts/gh-workflow.sh` で push / PR / Issue 操作を行います。詳細は `gh-workflow.sh --help` を参照してください。
+
+---
+
+### `flash-esp32.sh` - ESP32 ワンコマンドフラッシュ
+
+ファームウェアディレクトリを指定して、ビルド → シリアルポート自動検出 → フラッシュ + モニタを一コマンドで実行します。
+
+**基本的な使用方法:**
+
+```bash
+./scripts/flash-esp32.sh <firmware-dir> [port]
+```
+
+**例:**
+
+```bash
+# シリアルポートを自動検出してフラッシュ
+./scripts/flash-esp32.sh firmware/original-esp32-robot-base
+
+# ポートを明示指定
+./scripts/flash-esp32.sh firmware/original-esp32-climate-display /dev/ttyUSB0
+
+# 環境変数でポート指定
+ESP32_PORT=/dev/cu.usbserial-0001 ./scripts/flash-esp32.sh firmware/original-esp32-robot-base
+```
+
+**自動検出されるシリアルポート:**
+
+| OS | 検索パターン |
+|----|-------------|
+| macOS | `/dev/cu.usbserial-*`, `/dev/cu.SLAB_USBtoUART*`, `/dev/cu.wchusbserial*` |
+| Linux | `/dev/ttyUSB0`, `/dev/ttyUSB1`, `/dev/ttyACM0` |
+| WSL2 | 環境変数 `ESP32_PORT` に COM ポート指定、または `espflash.exe` を直接使用 |
+
+**必要なツール:**
+
+```bash
+# espflash のインストール
+cargo install espflash
+
+# xtensa ツールチェーンのインストール（ESP32 Xtensa 用）
+cargo install espup && espup install
+```
+
+---
+
 ### sim-to-real 開発サイクル
 
 ```bash
