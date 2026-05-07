@@ -9,6 +9,8 @@
 //! 接続するラッパーを提供します。`BME280` / `LCD1602` の
 //! board 非依存 driver 本体は `reference-drivers` crate にあり、
 //! この crate では original ESP32 向けの参照経路として re-export します。
+//!
+//! センサー・アクチュエータの合成済み型エイリアスは [`types`] モジュールを参照してください。
 
 pub mod bh1750;
 pub mod bme280;
@@ -26,6 +28,7 @@ pub mod servo;
 pub mod sgp30;
 pub mod shared_i2c;
 pub mod ssd1306;
+pub mod types;
 pub mod vl53l0x;
 
 pub use delay::Esp32Delay;

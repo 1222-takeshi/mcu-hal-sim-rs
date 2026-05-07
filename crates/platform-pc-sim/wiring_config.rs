@@ -18,10 +18,11 @@ use crate::dashboard::BoardProfile;
 /// Each profile maps to a fixed subset of [`DeviceKind`]s included in the
 /// [`WiringConfig`].  Add new profiles here to describe additional hardware
 /// configurations without changing any other code.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SensorProfile {
     /// All 11 devices (BME280, MPU6050, LCD1602, BH1750, DS3231, SGP30,
     /// VL53L0X, Servo, L298N, HC-SR04, ESP32-CAM).  This is the default.
+    #[default]
     Full,
     /// Climate station: BME280 + BH1750 + SGP30 + DS3231 + LCD1602.
     ClimateStation,
@@ -141,12 +142,6 @@ impl SensorProfile {
                 DeviceSpec::i2c(DeviceKind::Lcd1602, 0x27),
             ],
         }
-    }
-}
-
-impl Default for SensorProfile {
-    fn default() -> Self {
-        Self::Full
     }
 }
 
