@@ -220,4 +220,66 @@ mod tests {
         let mut sensor = Vl53l0xSensor::new(NeverReadyI2c, VL53L0X_ADDRESS).unwrap();
         assert_eq!(sensor.read_distance(), Err(SensorError::Busy));
     }
+
+    #[test]
+    fn vl53l0x_read_distance_fails_when_sysrange_write_fails() {
+        struct FailWriteAfterInitI2c {
+            init_done: bool,
+        }
+        impl I2cBus for FailWriteAfterInitI2c {
+            type Error = I2cError;
+            fn write(&mut self, _: u8, _: &[u8]) -> Result<(), I2cError> {
+                if self.init_done {
+                    Err(I2cError::BusError)
+                } else {
+                    Ok(())
+                }
+            }
+            fn read(&mut self, _: u8, _: &mut [u8]) -> Result<(), I2cError> {
+                Ok(())
+            }
+            fn write_read(&mut self, _: u8, write: &[u8], buf: &mut [u8]) -> Result<(), I2cError> {
+                if write[0] == 0xC0 {
+                    buf[0] = 0xEE; // identity ok
+                    self.init_done = true;
+                }
+                Ok(())
+            }
+        }
+        let i2c = FailWriteAfterInitI2c { init_done: false };
+        let mut sensor = Vl53l0xSensor::new(i2c, VL53L0X_ADDRESS).unwrap();
+        assert_eq!(sensor.read_distance(), Err(SensorError::BusError));
+    }
+
+    #[test]
+    fn vl53l0x_read_distance_fails_when_range_read_fails() {
+        struct FailRangeReadI2c {
+            poll_count: usize,
+        }
+        impl I2cBus for FailRangeReadI2c {
+            type Error = I2cError;
+            fn write(&mut self, _: u8, _: &[u8]) -> Result<(), I2cError> {
+                Ok(())
+            }
+            fn read(&mut self, _: u8, _: &mut [u8]) -> Result<(), I2cError> {
+                Ok(())
+            }
+            fn write_read(&mut self, _: u8, write: &[u8], buf: &mut [u8]) -> Result<(), I2cError> {
+                if write[0] == 0xC0 {
+                    buf[0] = 0xEE; // identity ok
+                } else if write[0] == 0x13 {
+                    // RESULT_INTERRUPT_STATUS: signal ready
+                    buf[0] = 0x07;
+                    self.poll_count += 1;
+                } else if write[0] == 0x1E {
+                    // REG_RESULT_RANGE_MM
+                    return Err(I2cError::BusError);
+                }
+                Ok(())
+            }
+        }
+        let i2c = FailRangeReadI2c { poll_count: 0 };
+        let mut sensor = Vl53l0xSensor::new(i2c, VL53L0X_ADDRESS).unwrap();
+        assert_eq!(sensor.read_distance(), Err(SensorError::BusError));
+    }
 }

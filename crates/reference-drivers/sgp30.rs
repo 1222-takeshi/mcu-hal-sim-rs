@@ -185,4 +185,27 @@ mod tests {
         let mut sensor = Sgp30Sensor::new(i2c, SGP30_ADDRESS).unwrap();
         assert!(matches!(sensor.read_gas(), Err(SensorError::BusError)));
     }
+
+    #[test]
+    fn sgp30_read_gas_fails_when_read_fails() {
+        struct FailOnReadI2c {
+            init_done: bool,
+        }
+        impl I2cBus for FailOnReadI2c {
+            type Error = I2cError;
+            fn write(&mut self, _: u8, _: &[u8]) -> Result<(), I2cError> {
+                self.init_done = true;
+                Ok(())
+            }
+            fn read(&mut self, _: u8, _: &mut [u8]) -> Result<(), I2cError> {
+                Err(I2cError::BusError)
+            }
+            fn write_read(&mut self, _: u8, _: &[u8], _: &mut [u8]) -> Result<(), I2cError> {
+                Ok(())
+            }
+        }
+        let i2c = FailOnReadI2c { init_done: false };
+        let mut sensor = Sgp30Sensor::new(i2c, SGP30_ADDRESS).unwrap();
+        assert!(matches!(sensor.read_gas(), Err(SensorError::BusError)));
+    }
 }
