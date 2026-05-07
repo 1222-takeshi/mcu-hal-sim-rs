@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `docs/porting-and-extension-guide.md`: expanded with step-by-step 4-layer device addition
+  instructions, code templates for each layer, checklist, trait reference table, and
+  `flash-esp32.sh` quick reference
+
 ---
 
 ## [0.3.18] - 2026-05-10
