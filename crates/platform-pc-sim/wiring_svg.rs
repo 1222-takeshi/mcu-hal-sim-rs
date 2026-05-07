@@ -59,6 +59,8 @@ fn render(out: &mut String, config: &WiringConfig) {
 .dev-box{{fill:#1a2333;stroke:#3a5888;stroke-width:1.5}}
 .dev-lbl{{fill:#7ab0e8;font:bold 10px monospace}}
 .dev-sub{{fill:#6888aa;font:9px monospace}}
+.dev-pin{{fill:#8899bb;font:8px monospace}}
+.profile-lbl{{fill:#a0c8a0;font:bold 10px monospace;opacity:0.85}}
 .w-sda{{fill:none;stroke:#4488ff;stroke-width:2.2;stroke-dasharray:8 4;animation:wiring-flow 1.2s linear infinite}}
 .w-scl{{fill:none;stroke:#ffdd44;stroke-width:1.8;stroke-dasharray:8 4;animation:wiring-flow 1.7s linear infinite reverse}}
 .w-vcc{{fill:none;stroke:#e55;stroke-width:1.6}}
@@ -84,6 +86,15 @@ fn render(out: &mut String, config: &WiringConfig) {
 "#,
         BOARD_Y + 20,
         BOARD_Y + 33,
+    );
+
+    // SensorProfile label (top-right corner)
+    let profile_name = config.sensor_profile.display_name();
+    let _ = write!(
+        out,
+        r#"<text x="{}" y="28" class="profile-lbl" text-anchor="end">Profile: {profile_name}</text>
+"#,
+        W - 8,
     );
 
     // Board pin dots + labels
@@ -179,20 +190,28 @@ fn render(out: &mut String, config: &WiringConfig) {
             );
         }
 
-        // VCC wire
+        // VCC wire + entry dot
         let y_vcc = dy + 8;
         let _ = write!(
             out,
             r#"<path class="w-vcc" d="M {BOARD_R} {P_VCC} C {cp} {P_VCC} {cp} {y_vcc} {DEV_X} {y_vcc}"/>
-"#
+<circle cx="{DEV_X}" cy="{y_vcc}" r="3" class="dot-vcc"/>
+<text x="{}" y="{}" class="dev-pin">VCC</text>
+"#,
+            DEV_X + 6,
+            y_vcc - 2,
         );
 
-        // GND wire
+        // GND wire + entry dot
         let y_gnd = dy + DEV_H - 8;
         let _ = write!(
             out,
             r#"<path class="w-gnd" d="M {BOARD_R} {P_GND} C {cp} {P_GND} {cp} {y_gnd} {DEV_X} {y_gnd}"/>
-"#
+<circle cx="{DEV_X}" cy="{y_gnd}" r="3" class="dot-gnd"/>
+<text x="{}" y="{}" class="dev-pin">GND</text>
+"#,
+            DEV_X + 6,
+            y_gnd + 8,
         );
 
         match conn {
@@ -203,9 +222,15 @@ fn render(out: &mut String, config: &WiringConfig) {
                     out,
                     r#"<path class="w-sda" d="M {BOARD_R} {P_SDA} C {cp} {P_SDA} {cp} {y_sda} {DEV_X} {y_sda}"/>
 <circle cx="{DEV_X}" cy="{y_sda}" r="3" class="dot-sda"/>
+<text x="{}" y="{}" class="dev-pin">SDA</text>
 <path class="w-scl" d="M {BOARD_R} {P_SCL} C {cp} {P_SCL} {cp} {y_scl} {DEV_X} {y_scl}"/>
 <circle cx="{DEV_X}" cy="{y_scl}" r="3" class="dot-scl"/>
-"#
+<text x="{}" y="{}" class="dev-pin">SCL</text>
+"#,
+                    DEV_X + 6,
+                    y_sda - 2,
+                    DEV_X + 6,
+                    y_scl - 2,
                 );
             }
             ConnectionType::Gpio => {
@@ -316,5 +341,48 @@ mod tests {
         let svg = wiring_svg(&cfg);
         assert!(svg.starts_with("<svg "));
         assert!(svg.ends_with("</svg>"));
+    }
+
+    #[test]
+    fn wiring_svg_contains_profile_label() {
+        use crate::wiring_config::SensorProfile;
+        let cfg =
+            WiringConfig::from_board_with_sensors(BoardProfile::OriginalEsp32, SensorProfile::Full);
+        let svg = wiring_svg(&cfg);
+        assert!(svg.contains("Profile:"), "missing profile indicator");
+        assert!(svg.contains("Full"), "missing profile name");
+    }
+
+    #[test]
+    fn wiring_svg_profile_label_changes_with_profile() {
+        use crate::wiring_config::SensorProfile;
+        let full =
+            WiringConfig::from_board_with_sensors(BoardProfile::OriginalEsp32, SensorProfile::Full);
+        let climate = WiringConfig::from_board_with_sensors(
+            BoardProfile::OriginalEsp32,
+            SensorProfile::ClimateStation,
+        );
+        let svg_full = wiring_svg(&full);
+        let svg_climate = wiring_svg(&climate);
+        assert!(svg_full.contains("Full"));
+        assert!(svg_climate.contains("Climate"));
+    }
+
+    #[test]
+    fn wiring_svg_contains_device_pin_labels() {
+        let cfg = WiringConfig::from_board(BoardProfile::OriginalEsp32);
+        let svg = wiring_svg(&cfg);
+        assert!(svg.contains(">SDA<"), "missing SDA device pin label");
+        assert!(svg.contains(">SCL<"), "missing SCL device pin label");
+        assert!(svg.contains(">VCC<"), "missing VCC device pin label");
+        assert!(svg.contains(">GND<"), "missing GND device pin label");
+    }
+
+    #[test]
+    fn wiring_svg_contains_vcc_gnd_dots() {
+        let cfg = WiringConfig::from_board(BoardProfile::OriginalEsp32);
+        let svg = wiring_svg(&cfg);
+        assert!(svg.contains("dot-vcc"), "missing VCC dots");
+        assert!(svg.contains("dot-gnd"), "missing GND dots");
     }
 }
