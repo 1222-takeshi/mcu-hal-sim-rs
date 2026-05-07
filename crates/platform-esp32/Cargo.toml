@@ -14,11 +14,11 @@ publish = false
 
 [dependencies]
 embedded-hal = "1.0"
-hal-api = { version = "0.1.0", path = "../hal-api" }
-reference-drivers = { version = "0.1.0", path = "../reference-drivers" }
+hal-api = { version = "0.1.0", path = "../hal-api", default-features = false }
+reference-drivers = { version = "0.1.0", path = "../reference-drivers", default-features = false }
 
 [lib]
 path = "lib.rs"
 
 [dev-dependencies]
-core-app = { version = "0.1.0", path = "../core-app" }
+core-app = { version = "0.1.0", path = "../core-app", default-features = false }

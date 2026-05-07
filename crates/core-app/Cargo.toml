@@ -11,8 +11,12 @@ keywords = ["embedded", "application", "simulator", "no-std", "iot"]
 categories = ["embedded", "no-std"]
 rust-version = "1.66"
 
+[features]
+default = ["std"]
+std = ["hal-api/std"]
+
 [dependencies]
-hal-api = { version = "0.1.0", path = "../hal-api" }
+hal-api = { version = "0.1.0", path = "../hal-api", default-features = false }
 heapless = "0.8"
 
 [lib]

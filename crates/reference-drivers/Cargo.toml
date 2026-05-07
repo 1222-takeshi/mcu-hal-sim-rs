@@ -11,9 +11,13 @@ keywords = ["embedded", "bme280", "lcd1602", "i2c", "no-std"]
 categories = ["embedded", "no-std", "hardware-support"]
 rust-version = "1.66"
 
+[features]
+default = ["std"]
+std = ["hal-api/std"]
+
 [dependencies]
 embedded-hal = "1.0"
-hal-api = { version = "0.1.0", path = "../hal-api" }
+hal-api = { version = "0.1.0", path = "../hal-api", default-features = false }
 
 [lib]
 path = "lib.rs"
