@@ -11,6 +11,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.12] - 2026-05-07
+
+### Added
+- `[features] default = ["std"] / std = []` to `hal-api`, `core-app`, `reference-drivers`
+- `#![cfg_attr(not(feature = "std"), no_std)]` replaces hardcoded `#![no_std]` in all three crates
+- `std::fmt::Display` + `std::error::Error` impls for all 5 HAL error types (`GpioError`,
+  `I2cError`, `SensorError`, `DisplayError`, `ActuatorError`), gated with `#[cfg(feature = "std")]`
+- 9 new tests in `hal-api/error.rs` covering Display messages and Error trait bounds
+
+### Changed
+- `platform-esp32` and `platform-avr`: `hal-api`, `core-app`, `reference-drivers` deps now use
+  `default-features = false` so no_std propagates correctly through the dependency chain
+- CI `no-std` and `esp32c3` jobs: add `--no-default-features` to `hal-api`/`core-app`/
+  `reference-drivers` checks
+- Total tests: 306
+
+---
+
 ## [0.3.11] - 2025-07-16
 
 ### Added
