@@ -11,6 +11,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.15] - 2026-05-07
+
+### Added
+- `hal-api/camera.rs`: unit tests for `PixelFormat::as_str` all variants + `FrameMetadata::new`
+- `platform-pc-sim/component_sim.rs`: unit tests for `SequenceDistanceSensor`/`SequenceImuSensor`
+  (looping, read_count, exhausted, demo helpers)
+- `reference-drivers/sgp30.rs`: test for `read_gas` failure on I2C read error
+- `reference-drivers/vl53l0x.rs`: tests for `read_distance` failures (write fail, range read fail)
+- `.github/workflows/ci.yml`: Coverage job (`cargo-llvm-cov`, `llvm-tools-preview`)
+
+### Changed
+- Test count: 312 → 335 (+23)
+- Line coverage: 80.74% → 81.42% (target 80%+ achieved)
+
+---
+
 ## [0.3.14] - 2026-05-07
 
 ### Added

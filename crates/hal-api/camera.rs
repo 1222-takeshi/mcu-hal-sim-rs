@@ -94,3 +94,31 @@ pub trait CameraCapture {
     /// ピクセルフォーマットを返します。
     fn pixel_format(&self) -> PixelFormat;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pixel_format_as_str_covers_all_variants() {
+        assert_eq!(PixelFormat::Rgb565.as_str(), "RGB565");
+        assert_eq!(PixelFormat::Jpeg.as_str(), "JPEG");
+        assert_eq!(PixelFormat::Grayscale.as_str(), "GRAY");
+    }
+
+    #[test]
+    fn frame_metadata_new_stores_fields() {
+        let m = FrameMetadata::new(640, 480, PixelFormat::Rgb565, 7, 614400);
+        assert_eq!(m.width, 640);
+        assert_eq!(m.height, 480);
+        assert_eq!(m.format, PixelFormat::Rgb565);
+        assert_eq!(m.sequence, 7);
+        assert_eq!(m.size_bytes, 614400);
+    }
+
+    #[test]
+    fn pixel_format_equality() {
+        assert_eq!(PixelFormat::Jpeg, PixelFormat::Jpeg);
+        assert_ne!(PixelFormat::Jpeg, PixelFormat::Grayscale);
+    }
+}

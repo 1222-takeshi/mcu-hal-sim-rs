@@ -170,4 +170,61 @@ mod tests {
         assert_eq!(driver.left.current_command(), left);
         assert_eq!(driver.right.current_command(), right);
     }
+
+    #[test]
+    fn sequence_distance_sensor_exhausted_returns_error() {
+        let mut sensor = SequenceDistanceSensor::new(vec![]);
+        assert_eq!(sensor.read_distance(), Err(SensorError::NotInitialized));
+    }
+
+    #[test]
+    fn sequence_distance_sensor_read_count_tracks_reads() {
+        let mut sensor = SequenceDistanceSensor::looping(vec![
+            DistanceReading::new(10),
+            DistanceReading::new(20),
+        ]);
+        sensor.read_distance().unwrap();
+        sensor.read_distance().unwrap();
+        sensor.read_distance().unwrap();
+        assert_eq!(sensor.read_count(), 3);
+    }
+
+    #[test]
+    fn sequence_imu_sensor_loops() {
+        let a = ImuReading::new([1, 0, 0], [0, 0, 0], None);
+        let b = ImuReading::new([0, 1, 0], [0, 0, 0], None);
+        let mut sensor = SequenceImuSensor::looping(vec![a, b]);
+        assert_eq!(sensor.read_imu().unwrap(), a);
+        assert_eq!(sensor.read_imu().unwrap(), b);
+        assert_eq!(sensor.read_imu().unwrap(), a);
+    }
+
+    #[test]
+    fn sequence_imu_sensor_exhausted_returns_error() {
+        let mut sensor = SequenceImuSensor::new(vec![]);
+        assert_eq!(sensor.read_imu(), Err(SensorError::NotInitialized));
+    }
+
+    #[test]
+    fn sequence_imu_sensor_read_count_tracks_reads() {
+        let val = ImuReading::new([0, 0, 1000], [0, 0, 0], None);
+        let mut sensor = SequenceImuSensor::looping(vec![val]);
+        for _ in 0..5 {
+            sensor.read_imu().unwrap();
+        }
+        assert_eq!(sensor.read_count(), 5);
+    }
+
+    #[test]
+    fn demo_distance_readings_has_four_entries() {
+        let readings = demo_distance_readings();
+        assert_eq!(readings.len(), 4);
+        assert!(readings.iter().all(|r| r.distance_mm > 0));
+    }
+
+    #[test]
+    fn demo_imu_readings_has_four_entries() {
+        let readings = demo_imu_readings();
+        assert_eq!(readings.len(), 4);
+    }
 }
