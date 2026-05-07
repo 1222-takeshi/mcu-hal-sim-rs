@@ -49,12 +49,23 @@ use reference_drivers::vl53l0x::{Vl53l0xSensor, VL53L0X_ADDRESS};
 
 const DEFAULT_PORT: u16 = 7878;
 
+/// Combined board + sensor profile state read/written as a unit.
+#[derive(Clone, Copy)]
+struct WiringState {
+    board: BoardProfile,
+    sensor_profile: SensorProfile,
+}
+
 /// Shared server state passed to every connection-handler thread.
 struct ServerContext {
     latest_json: Mutex<String>,
     ws_clients: Mutex<Vec<mpsc::SyncSender<String>>>,
     current_board: Mutex<BoardProfile>,
+    /// Kept for future use; wiring API reads now go through `wiring_state`.
+    #[allow(dead_code)]
     current_sensor_profile: Mutex<SensorProfile>,
+    /// Atomic board + sensor profile state for wiring API reads.
+    wiring_state: Mutex<WiringState>,
     /// Last wiring-editor JSON submitted via POST /api/wiring/editor.
     editor_json: Mutex<String>,
 }
@@ -66,6 +77,10 @@ impl ServerContext {
             ws_clients: Mutex::new(vec![]),
             current_board: Mutex::new(board),
             current_sensor_profile: Mutex::new(SensorProfile::Full),
+            wiring_state: Mutex::new(WiringState {
+                board,
+                sensor_profile: SensorProfile::Full,
+            }),
             editor_json: Mutex::new("{}".into()),
         })
     }
@@ -912,14 +927,22 @@ fn handle_connection(
                 // Give the main thread time to apply the change.
                 thread::sleep(Duration::from_millis(50));
             }
-            if let Some(profile_slug) = parse_sensor_profile_from_json(body) {
-                if let Some(profile) = SensorProfile::from_slug(profile_slug) {
-                    *ctx.current_sensor_profile.lock().unwrap() = profile;
+            // Update wiring_state atomically as a single unit.
+            let wiring = {
+                let mut ws = ctx.wiring_state.lock().unwrap();
+                if let Some(board_name) = parse_board_from_json(body) {
+                    ws.board = BoardProfile::from_arg(Some(board_name));
                 }
-            }
-            let board = *ctx.current_board.lock().unwrap();
-            let sensor_profile = *ctx.current_sensor_profile.lock().unwrap();
-            let payload = WiringConfig::from_board_with_sensors(board, sensor_profile).to_json();
+                if let Some(profile_slug) = parse_sensor_profile_from_json(body) {
+                    if let Some(profile) = SensorProfile::from_slug(profile_slug) {
+                        ws.sensor_profile = profile;
+                    }
+                }
+                *ws
+            };
+            let payload =
+                WiringConfig::from_board_with_sensors(wiring.board, wiring.sensor_profile)
+                    .to_json();
             respond(
                 &mut stream,
                 "200 OK",
@@ -941,9 +964,10 @@ fn handle_connection(
             );
         }
         (_, "/api/wiring") => {
-            let board = *ctx.current_board.lock().unwrap();
-            let sensor_profile = *ctx.current_sensor_profile.lock().unwrap();
-            let payload = WiringConfig::from_board_with_sensors(board, sensor_profile).to_json();
+            let wiring = *ctx.wiring_state.lock().unwrap();
+            let payload =
+                WiringConfig::from_board_with_sensors(wiring.board, wiring.sensor_profile)
+                    .to_json();
             respond(
                 &mut stream,
                 "200 OK",
@@ -952,9 +976,8 @@ fn handle_connection(
             );
         }
         (_, "/api/wiring/svg") => {
-            let board = *ctx.current_board.lock().unwrap();
-            let sensor_profile = *ctx.current_sensor_profile.lock().unwrap();
-            let cfg = WiringConfig::from_board_with_sensors(board, sensor_profile);
+            let wiring = *ctx.wiring_state.lock().unwrap();
+            let cfg = WiringConfig::from_board_with_sensors(wiring.board, wiring.sensor_profile);
             let svg = wiring_svg(&cfg);
             respond(&mut stream, "200 OK", "image/svg+xml; charset=utf-8", &svg);
         }
