@@ -18,6 +18,8 @@ ufmt = "0.2.0"
 nb = "1.1.0"
 embedded-hal = "1.0"
 arduino-hal = { git = "https://github.com/rahix/avr-hal", rev = "e5c8f37fe48419956e722490a82b9ca9b9fc61a2", features = ["arduino-nano"] }
+platform-avr = { path = "../../crates/platform-avr" }
+core-app = { path = "../../crates/core-app", default-features = false }
 
 [profile.dev]
 panic = "abort"

@@ -2,20 +2,23 @@
 
 classic Arduino Nano (`ATmega328P`) 向けの bring-up firmware です。
 
-この crate は、`mcu-hal-sim-rs` が今後 `Arduino Nano` 系まで広がることを見据えた最初の実機足場です。  
-現時点では `core-app` との統合より前に、次の 3 点を最短で確認する目的に絞っています。
+この crate は `mcu-hal-sim-rs` の sim-to-real 経路を AVR 系 board まで伸ばす最初の実機足場です。  
+`platform-avr` の `AvrOutputPin` / `AvrI2c` アダプタを通して `core-app::App` を実行することで、  
+PC シミュレータと同じアプリロジックを Arduino Nano 実機上で動作させます。
 
-- onboard LED (`D13`) の点滅
-- USB serial の疎通
-- onboard I2C (`A4` / `A5`) にぶら下がる sensor の address 検出
+## 起動シーケンス
+
+1. `scan_i2c_bus` で A4/A5 に繋がる sensor address を検出し serial に出力
+2. `arduino_hal` の pin / I2C を `platform-avr` アダプタでラップ
+3. `App::new(avr_pin, avr_i2c)` で `core-app` を生成し、`app.tick()` ループへ
 
 ## 対象
 
 - board: classic Arduino Nano
 - MCU: `ATmega328P`
-- LED: `D13`
+- LED: `D13` (`AvrOutputPin` でラップ)
 - I2C:
-  - `A4` -> `SDA`
+  - `A4` -> `SDA` (`AvrI2c` でラップ)
   - `A5` -> `SCL`
 
 ## 前提
@@ -61,21 +64,31 @@ cargo run --release
 
 ## ログで確認すること
 
-- `arduino nano bring-up started`
+- `arduino nano bring-up + hal-api demo`
 - `LED=D13 SDA=A4 SCL=A5 ...`
 - `Write direction test:` / `Read direction test:` の I2C detect 結果
-- `heartbeat=...`
+- `Starting core-app via hal-api adapters...`
+- `heartbeat=...` — `core-app::App::tick()` が 100 tick ごとに LED を制御
 
-40 heartbeat ごとに I2C bus を再 scan します。  
-新しい sensor を足す前に、まずこの firmware で address が見えることを確認してください。
+## コード構成
+
+```
+arduino-nano-bringup/src/main.rs
+ ├─ scan_i2c_bus()        : 起動時の I2C bus scan (arduino_hal 直接)
+ ├─ AvrOutputPin::new(led): D13 を hal-api OutputPin でラップ
+ ├─ AvrI2c::new(i2c)     : TWI を hal-api I2cBus でラップ
+ └─ App::new(pin, i2c)   : platform 非依存のアプリロジック実行
+```
 
 ## この crate の位置づけ
 
-- これは `platform-avr` や `core-app` 連携の前段です
-- まず board 固有の bring-up を固定し、その後に共通 contract へ還流する方針です
-- `Raspberry Pi Pico` / `Teensy` / `ESP32-CAM` も同じ考え方で、最初は bring-up firmware から始めます
+- `platform-avr` (`AvrOutputPin` / `AvrI2c`) と `core-app` の統合を実機で示す
+- PC シミュレータ (`platform-pc-sim`) と同じ `App` 型をそのまま再利用
+- board 固有の初期化 (`arduino_hal` 呼び出し) はこの firmware に閉じ込め、`platform-avr` を汚染しない
 
 ## 未検証事項
 
-- この環境では AVR toolchain が未導入のため、`cargo run --release` の実機検証は未実施です
+- この環境では AVR toolchain が未導入のため、`cargo run --release` の実機検証は未実施
 - 旧 bootloader / clone board では `ravedude` の board 指定や baud を調整する必要があります
+- `arduino_hal::I2c` の `embedded-hal v1.0` 対応は avr-hal commit `e5c8f37` 以降に依存します
+

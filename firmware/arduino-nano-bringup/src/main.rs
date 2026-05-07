@@ -2,7 +2,9 @@
 #![no_main]
 
 use arduino_hal::prelude::*;
+use core_app::App;
 use panic_halt as _;
+use platform_avr::{gpio::AvrOutputPin, i2c::AvrI2c};
 use ufmt::uWrite;
 
 const SERIAL_BAUD: u32 = 57_600;
@@ -28,7 +30,7 @@ fn main() -> ! {
     let pins = arduino_hal::pins!(dp);
 
     let mut serial = arduino_hal::default_serial!(dp, pins, SERIAL_BAUD);
-    let mut led = pins.d13.into_output();
+    let led = pins.d13.into_output();
     let mut i2c = arduino_hal::I2c::new(
         dp.TWI,
         pins.a4.into_pull_up_input(),
@@ -36,7 +38,7 @@ fn main() -> ! {
         I2C_FREQUENCY_HZ,
     );
 
-    ufmt::uwriteln!(serial, "arduino nano bring-up started\r").unwrap_infallible();
+    ufmt::uwriteln!(serial, "arduino nano bring-up + hal-api demo\r").unwrap_infallible();
     ufmt::uwriteln!(
         serial,
         "LED=D13 SDA=A4 SCL=A5 baud={} i2c={}Hz\r",
@@ -52,18 +54,24 @@ fn main() -> ! {
 
     scan_i2c_bus(&mut serial, &mut i2c);
 
+    // Wrap arduino-hal types into platform-avr hal-api adapters and run core-app.
+    let avr_pin = AvrOutputPin::new(led);
+    let avr_i2c = AvrI2c::new(i2c);
+    let mut app = App::new(avr_pin, avr_i2c);
+
+    ufmt::uwriteln!(serial, "Starting core-app via hal-api adapters...\r").unwrap_infallible();
+
     let mut heartbeat = 0u32;
     loop {
         heartbeat = heartbeat.wrapping_add(1);
-        led.toggle();
+
+        if let Err(_) = app.tick() {
+            ufmt::uwriteln!(serial, "app.tick() error at heartbeat={}\r", heartbeat)
+                .unwrap_infallible();
+        }
 
         if heartbeat % 4 == 0 {
             ufmt::uwriteln!(serial, "heartbeat={}\r", heartbeat).unwrap_infallible();
-        }
-
-        if heartbeat % 40 == 0 {
-            ufmt::uwriteln!(serial, "rescanning I2C bus...\r").unwrap_infallible();
-            scan_i2c_bus(&mut serial, &mut i2c);
         }
 
         arduino_hal::delay_ms(HEARTBEAT_DELAY_MS);
