@@ -1,8 +1,7 @@
-//! Host-side simulators for distance / IMU / actuator components.
+//! Host-side simulators for distance / IMU components.
 
-use hal_api::actuator::{DriveMotor, DualMotorDriver, MotorCommand, ServoMotor};
 use hal_api::distance::{DistanceReading, DistanceSensor};
-use hal_api::error::{ActuatorError, SensorError};
+use hal_api::error::SensorError;
 use hal_api::imu::{ImuReading, ImuSensor};
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -101,109 +100,6 @@ impl ImuSensor for SequenceImuSensor {
     }
 }
 
-#[derive(Debug, Default)]
-struct ServoState {
-    angle_degrees: u16,
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct MockServoMotor {
-    state: Rc<RefCell<ServoState>>,
-}
-
-impl MockServoMotor {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn angle_degrees(&self) -> u16 {
-        self.state.borrow().angle_degrees
-    }
-}
-
-impl ServoMotor for MockServoMotor {
-    type Error = ActuatorError;
-
-    fn set_angle_degrees(&mut self, angle_degrees: u16) -> Result<(), Self::Error> {
-        if angle_degrees > 180 {
-            return Err(ActuatorError::InvalidCommand);
-        }
-        self.state.borrow_mut().angle_degrees = angle_degrees;
-        Ok(())
-    }
-}
-
-#[derive(Debug)]
-struct MotorState {
-    left: MotorCommand,
-    right: MotorCommand,
-}
-
-impl Default for MotorState {
-    fn default() -> Self {
-        Self {
-            left: MotorCommand::new(hal_api::actuator::MotorDirection::Coast, 0),
-            right: MotorCommand::new(hal_api::actuator::MotorDirection::Coast, 0),
-        }
-    }
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct MockDualMotorDriver {
-    state: Rc<RefCell<MotorState>>,
-}
-
-impl MockDualMotorDriver {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn left_command(&self) -> MotorCommand {
-        self.state.borrow().left
-    }
-
-    pub fn right_command(&self) -> MotorCommand {
-        self.state.borrow().right
-    }
-}
-
-impl DriveMotor for MockDualMotorDriver {
-    type Error = ActuatorError;
-
-    // This single-channel apply sets BOTH channels to the same command.
-    // This is a mock convenience for simulation — real dual-motor drivers
-    // would expose per-channel control via DualMotorDriver::apply_channels.
-    fn apply(&mut self, command: MotorCommand) -> Result<(), Self::Error> {
-        if command.duty_percent > 100 {
-            return Err(ActuatorError::InvalidCommand);
-        }
-
-        let mut state = self.state.borrow_mut();
-        state.left = command;
-        state.right = command;
-        Ok(())
-    }
-}
-
-impl DualMotorDriver for MockDualMotorDriver {
-    type Error = ActuatorError;
-
-    fn apply_channels(
-        &mut self,
-        left: MotorCommand,
-        right: MotorCommand,
-    ) -> Result<(), Self::Error> {
-        if left.duty_percent > 100 || right.duty_percent > 100 {
-            return Err(ActuatorError::InvalidCommand);
-        }
-
-        let mut state = self.state.borrow_mut();
-        state.left = left;
-        state.right = right;
-        Ok(())
-    }
-}
-
 pub fn demo_distance_readings() -> Vec<DistanceReading> {
     vec![
         DistanceReading::new(180),
@@ -225,7 +121,9 @@ pub fn demo_imu_readings() -> Vec<ImuReading> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use hal_api::actuator::{MotorDirection, ServoMotor};
+    use crate::l298n_mock::MockL298nDevice;
+    use crate::servo_mock::MockServoDevice;
+    use hal_api::actuator::{DualMotorDriver, MotorCommand, MotorDirection, ServoMotor};
     use hal_api::distance::DistanceSensor;
     use hal_api::imu::ImuSensor;
 
@@ -251,25 +149,25 @@ mod tests {
 
     #[test]
     fn mock_servo_motor_rejects_invalid_angle() {
-        let mut servo = MockServoMotor::new();
+        let mut servo = MockServoDevice::new();
 
         assert_eq!(
             servo.set_angle_degrees(181),
-            Err(ActuatorError::InvalidCommand)
+            Err(hal_api::error::ActuatorError::InvalidCommand)
         );
         servo.set_angle_degrees(90).unwrap();
-        assert_eq!(servo.angle_degrees(), 90);
+        assert_eq!(servo.current_angle(), 90);
     }
 
     #[test]
     fn mock_dual_motor_driver_tracks_channels() {
-        let mut driver = MockDualMotorDriver::new();
+        let mut driver = MockL298nDevice::new();
         let left = MotorCommand::new(MotorDirection::Forward, 35);
         let right = MotorCommand::new(MotorDirection::Reverse, 20);
 
         driver.apply_channels(left, right).unwrap();
 
-        assert_eq!(driver.left_command(), left);
-        assert_eq!(driver.right_command(), right);
+        assert_eq!(driver.left.current_command(), left);
+        assert_eq!(driver.right.current_command(), right);
     }
 }

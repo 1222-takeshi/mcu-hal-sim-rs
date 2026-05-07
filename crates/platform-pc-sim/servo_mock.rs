@@ -6,12 +6,9 @@
 //! For the sim-to-real dashboard path, the real `ServoDriver<MockPwmOutput>` is used
 //! instead, as it exercises the full reference-driver code path.
 //!
-//! # `component_sim::MockServoMotor` との使い分け
-//!
-//! `component_sim::MockServoMotor` はダッシュボードのアプリケーション層で使う
-//! 軽量モックで、角度履歴や呼び出し回数の記録機能を持ちません。
-//! `MockServoDevice` はトレイトの単体テストに特化した豊富な観測 API
-//! （`history()`・`call_count()`・クローン間状態共有）を提供します。
+//! The former `component_sim::MockServoMotor` (lightweight, no history) has been
+//! consolidated into this module. `component_sim` now delegates its tests to
+//! `MockServoDevice`.
 //!
 //! # 注意: 初期角度
 //!

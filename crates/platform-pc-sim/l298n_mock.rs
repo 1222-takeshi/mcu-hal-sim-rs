@@ -5,12 +5,9 @@
 //!
 //! Cloned instances of `MockL298nChannel` share the same internal state.
 //!
-//! # `component_sim::MockDualMotorDriver` との使い分け
-//!
-//! `component_sim::MockDualMotorDriver` はダッシュボードのアプリケーション層で使う
-//! 軽量モックで、左右独立のコマンド履歴や呼び出し回数の記録機能を持ちません。
-//! `MockL298nChannel` / `MockL298nDevice` はトレイトの単体テストに特化した豊富な観測 API
-//! （`history()`・`call_count()`・クローン間状態共有）を提供します。
+//! The former `component_sim::MockDualMotorDriver` (lightweight, no history) has been
+//! consolidated into this module. `component_sim` now delegates its tests to
+//! `MockL298nDevice`.
 //!
 //! # Examples
 //!
