@@ -11,6 +11,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.13] - 2026-05-07
+
+### Added
+- `crates/platform-esp32/src/types.rs`: convenience type aliases for all sensor and actuator stacks
+  - Sensor aliases: `Esp32Bme280<I>`, `Esp32Lcd1602<I, D>`, `Esp32Mpu6050<I>`, `Esp32Bh1750<I>`,
+    `Esp32Ds3231<I>`, `Esp32Sgp30<I>`, `Esp32Vl53l0x<I>`, `Esp32Ssd1306<I>`
+  - Actuator aliases: `Esp32ServoDriver<P>`, `Esp32L298nChannel<IN1, IN2, ENA>`,
+    `Esp32L298nDualDriver<IN1A, IN2A, ENAA, IN1B, IN2B, ENAB>`
+  - 3 new unit tests verifying each alias resolves and operates end-to-end
+- `pub mod types` export added to `platform-esp32/lib.rs`
+- Updated doc comment for `platform-esp32/lib.rs` linking to `types` module
+
+### Notes
+- Total tests: 309 (+3 from v0.3.12)
+- Closes #94, closes #95
+
+---
+
 ## [0.3.12] - 2026-05-07
 
 ### Added
