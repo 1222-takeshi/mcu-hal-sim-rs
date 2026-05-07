@@ -147,13 +147,13 @@ jobs:
           key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.toml') }}
 
       - name: Check hal-api for no_std target
-        run: cargo check -p hal-api --lib --target $NO_STD_TARGET
+        run: cargo check -p hal-api --lib --target $NO_STD_TARGET --no-default-features
 
       - name: Check core-app for no_std target
-        run: cargo check -p core-app --lib --target $NO_STD_TARGET
+        run: cargo check -p core-app --lib --target $NO_STD_TARGET --no-default-features
 
       - name: Check reference-drivers for no_std target
-        run: cargo check -p reference-drivers --lib --target $NO_STD_TARGET
+        run: cargo check -p reference-drivers --lib --target $NO_STD_TARGET --no-default-features
 
       - name: Check platform-esp32 for no_std target
         run: cargo check -p platform-esp32 --lib --target $NO_STD_TARGET
@@ -192,13 +192,13 @@ jobs:
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.toml') }}
 
       - name: Check hal-api for ESP32-C3
-        run: cargo check -p hal-api --lib --target $ESP32C3_TARGET
+        run: cargo check -p hal-api --lib --target $ESP32C3_TARGET --no-default-features
 
       - name: Check core-app for ESP32-C3
-        run: cargo check -p core-app --lib --target $ESP32C3_TARGET
+        run: cargo check -p core-app --lib --target $ESP32C3_TARGET --no-default-features
 
       - name: Check reference-drivers for ESP32-C3
-        run: cargo check -p reference-drivers --lib --target $ESP32C3_TARGET
+        run: cargo check -p reference-drivers --lib --target $ESP32C3_TARGET --no-default-features
 
       - name: Check platform-esp32 for ESP32-C3
         run: cargo check -p platform-esp32 --lib --target $ESP32C3_TARGET
