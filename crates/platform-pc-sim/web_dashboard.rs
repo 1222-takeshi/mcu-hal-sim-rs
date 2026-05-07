@@ -804,6 +804,12 @@ pub fn dashboard_html() -> &'static str {
             <option value="original-esp32">Original ESP32</option>
             <option value="arduino-nano">Arduino Nano</option>
           </select>
+          <select id="sensor-profile-select" style="font-size:12px;background:#1a2a1a;color:#7bc47b;border:1px solid #3d7a3d;border-radius:4px;padding:2px 6px;cursor:pointer">
+            <option value="full">Full (all devices)</option>
+            <option value="climate">Climate Station</option>
+            <option value="robot">Robot Base</option>
+            <option value="minimal">Minimal (BME280 + LCD)</option>
+          </select>
         </h2>
         <div id="wiring-svg-wrap" style="width:100%;overflow-x:auto;min-height:180px"></div>
         <div class="footer" style="margin-top:6px">
@@ -1016,18 +1022,25 @@ pub fn dashboard_html() -> &'static str {
         if (wrap) wrap.innerHTML = svg;
       } catch(_) {}
     }
-    async function changeBoard(boardName) {
+    async function changeWiringConfig() {
       try {
+        const boardSel = $("board-select");
+        const profileSel = $("sensor-profile-select");
+        const body = {};
+        if (boardSel) body.board = boardSel.value;
+        if (profileSel) body.sensor_profile = profileSel.value;
         await fetch("/api/wiring", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ board: boardName }),
+          body: JSON.stringify(body),
         });
         await loadWiringDiagram();
       } catch(_) {}
     }
     const boardSel = $("board-select");
-    if (boardSel) boardSel.addEventListener("change", () => changeBoard(boardSel.value));
+    if (boardSel) boardSel.addEventListener("change", changeWiringConfig);
+    const profileSel = $("sensor-profile-select");
+    if (profileSel) profileSel.addEventListener("change", changeWiringConfig);
     loadWiringDiagram();
     setInterval(loadWiringDiagram, 5000);
 

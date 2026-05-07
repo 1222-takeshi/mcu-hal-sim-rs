@@ -34,7 +34,7 @@ use platform_pc_sim::web_dashboard::{
     MotorChannelState, MotorDriverPanelState, RtcPanelState, ServoPanelState, TofPanelState,
     WiringPanelState,
 };
-use platform_pc_sim::wiring_config::WiringConfig;
+use platform_pc_sim::wiring_config::{SensorProfile, WiringConfig};
 use platform_pc_sim::wiring_svg::wiring_svg;
 use reference_drivers::bh1750::{Bh1750Sensor, BH1750_ADDRESS_LOW};
 use reference_drivers::bme280::{Bme280Sensor, BME280_ADDRESS_PRIMARY};
@@ -54,6 +54,7 @@ struct ServerContext {
     latest_json: Mutex<String>,
     ws_clients: Mutex<Vec<mpsc::SyncSender<String>>>,
     current_board: Mutex<BoardProfile>,
+    current_sensor_profile: Mutex<SensorProfile>,
     /// Last wiring-editor JSON submitted via POST /api/wiring/editor.
     editor_json: Mutex<String>,
 }
@@ -64,6 +65,7 @@ impl ServerContext {
             latest_json: Mutex::new("{}".into()),
             ws_clients: Mutex::new(vec![]),
             current_board: Mutex::new(board),
+            current_sensor_profile: Mutex::new(SensorProfile::Full),
             editor_json: Mutex::new("{}".into()),
         })
     }
@@ -554,6 +556,17 @@ fn parse_board_from_json(json: &str) -> Option<&str> {
     Some(&inner[..end])
 }
 
+/// Extract `sensor_profile` field from a JSON body string.
+///
+/// Handles `{"sensor_profile":"climate"}` without a full JSON parser.
+fn parse_sensor_profile_from_json(json: &str) -> Option<&str> {
+    let after_key = json.split("\"sensor_profile\"").nth(1)?;
+    let after_colon = after_key.split(':').nth(1)?.trim_start();
+    let inner = after_colon.strip_prefix('"')?;
+    let end = inner.find('"')?;
+    Some(&inner[..end])
+}
+
 fn respond(stream: &mut TcpStream, status: &str, content_type: &str, body: &str) {
     let response = format!(
         "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
@@ -899,8 +912,27 @@ fn handle_connection(
                 // Give the main thread time to apply the change.
                 thread::sleep(Duration::from_millis(50));
             }
+            if let Some(profile_slug) = parse_sensor_profile_from_json(body) {
+                if let Some(profile) = SensorProfile::from_slug(profile_slug) {
+                    *ctx.current_sensor_profile.lock().unwrap() = profile;
+                }
+            }
             let board = *ctx.current_board.lock().unwrap();
-            let payload = WiringConfig::from_board(board).to_json();
+            let sensor_profile = *ctx.current_sensor_profile.lock().unwrap();
+            let payload = WiringConfig::from_board_with_sensors(board, sensor_profile).to_json();
+            respond(
+                &mut stream,
+                "200 OK",
+                "application/json; charset=utf-8",
+                &payload,
+            );
+        }
+        (_, "/api/wiring/profiles") => {
+            let entries: Vec<String> = SensorProfile::all()
+                .iter()
+                .map(|(slug, name)| format!(r#"{{"slug":"{slug}","name":"{name}"}}"#))
+                .collect();
+            let payload = format!(r#"{{"profiles":[{}]}}"#, entries.join(","));
             respond(
                 &mut stream,
                 "200 OK",
@@ -910,7 +942,8 @@ fn handle_connection(
         }
         (_, "/api/wiring") => {
             let board = *ctx.current_board.lock().unwrap();
-            let payload = WiringConfig::from_board(board).to_json();
+            let sensor_profile = *ctx.current_sensor_profile.lock().unwrap();
+            let payload = WiringConfig::from_board_with_sensors(board, sensor_profile).to_json();
             respond(
                 &mut stream,
                 "200 OK",
@@ -920,7 +953,8 @@ fn handle_connection(
         }
         (_, "/api/wiring/svg") => {
             let board = *ctx.current_board.lock().unwrap();
-            let cfg = WiringConfig::from_board(board);
+            let sensor_profile = *ctx.current_sensor_profile.lock().unwrap();
+            let cfg = WiringConfig::from_board_with_sensors(board, sensor_profile);
             let svg = wiring_svg(&cfg);
             respond(&mut stream, "200 OK", "image/svg+xml; charset=utf-8", &svg);
         }
@@ -1115,5 +1149,31 @@ mod tests {
     #[test]
     fn parse_board_from_json_returns_none_for_empty_body() {
         assert_eq!(parse_board_from_json(""), None);
+    }
+
+    #[test]
+    fn parse_sensor_profile_from_json_extracts_profile() {
+        assert_eq!(
+            parse_sensor_profile_from_json(r#"{"sensor_profile":"climate"}"#),
+            Some("climate")
+        );
+    }
+
+    #[test]
+    fn parse_sensor_profile_from_json_handles_combined_body() {
+        assert_eq!(
+            parse_sensor_profile_from_json(r#"{"board":"esp32","sensor_profile":"robot"}"#),
+            Some("robot")
+        );
+    }
+
+    #[test]
+    fn parse_sensor_profile_from_json_returns_none_for_missing_key() {
+        assert_eq!(parse_sensor_profile_from_json(r#"{"board":"esp32"}"#), None);
+    }
+
+    #[test]
+    fn parse_sensor_profile_from_json_returns_none_for_empty_body() {
+        assert_eq!(parse_sensor_profile_from_json(""), None);
     }
 }
