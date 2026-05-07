@@ -128,17 +128,6 @@ impl From<GpioError> for ActuatorError {
 }
 
 #[cfg(feature = "std")]
-mod std_impls {
-    use super::{ActuatorError, DisplayError, GpioError, I2cError, SensorError};
-
-    impl std::error::Error for GpioError {}
-    impl std::error::Error for I2cError {}
-    impl std::error::Error for SensorError {}
-    impl std::error::Error for DisplayError {}
-    impl std::error::Error for ActuatorError {}
-}
-
-#[cfg(feature = "std")]
 impl std::fmt::Display for GpioError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -147,6 +136,9 @@ impl std::fmt::Display for GpioError {
         }
     }
 }
+
+#[cfg(feature = "std")]
+impl std::error::Error for GpioError {}
 
 #[cfg(feature = "std")]
 impl std::fmt::Display for I2cError {
@@ -158,6 +150,9 @@ impl std::fmt::Display for I2cError {
         }
     }
 }
+
+#[cfg(feature = "std")]
+impl std::error::Error for I2cError {}
 
 #[cfg(feature = "std")]
 impl std::fmt::Display for SensorError {
@@ -172,6 +167,9 @@ impl std::fmt::Display for SensorError {
 }
 
 #[cfg(feature = "std")]
+impl std::error::Error for SensorError {}
+
+#[cfg(feature = "std")]
 impl std::fmt::Display for DisplayError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -183,6 +181,9 @@ impl std::fmt::Display for DisplayError {
 }
 
 #[cfg(feature = "std")]
+impl std::error::Error for DisplayError {}
+
+#[cfg(feature = "std")]
 impl std::fmt::Display for ActuatorError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -191,6 +192,9 @@ impl std::fmt::Display for ActuatorError {
         }
     }
 }
+
+#[cfg(feature = "std")]
+impl std::error::Error for ActuatorError {}
 
 #[cfg(test)]
 mod tests {
