@@ -83,7 +83,12 @@ impl SensorProfile {
     /// assert_eq!(SensorProfile::all_variants()[0], SensorProfile::Full);
     /// ```
     pub fn all_variants() -> &'static [SensorProfile] {
-        &[Self::Full, Self::ClimateStation, Self::RobotBase, Self::Minimal]
+        &[
+            Self::Full,
+            Self::ClimateStation,
+            Self::RobotBase,
+            Self::Minimal,
+        ]
     }
 
     /// Returns all available sensor profiles as `(slug, display_name)` pairs.
@@ -136,6 +141,12 @@ impl SensorProfile {
                 DeviceSpec::i2c(DeviceKind::Lcd1602, 0x27),
             ],
         }
+    }
+}
+
+impl Default for SensorProfile {
+    fn default() -> Self {
+        Self::Full
     }
 }
 
@@ -543,10 +554,19 @@ mod tests {
     fn sensor_profile_display_names_match_all_variants() {
         for p in SensorProfile::all_variants() {
             let name = p.display_name();
-            assert!(!name.is_empty(), "display_name() must not be empty for {:?}", p);
+            assert!(
+                !name.is_empty(),
+                "display_name() must not be empty for {:?}",
+                p
+            );
             // slug roundtrip
             assert_eq!(SensorProfile::from_slug(p.slug()).unwrap(), *p);
         }
+    }
+
+    #[test]
+    fn sensor_profile_default_is_full() {
+        assert_eq!(SensorProfile::default(), SensorProfile::Full);
     }
 
     #[test]
