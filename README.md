@@ -28,6 +28,7 @@
 - **📊 terminal dashboard**: `climate-dashboard-sim` で sensor / LCD / I2C / wiring view を 1 画面で確認できる
 - **🌐 browser dashboard**: `device-dashboard-web` で climate / HC-SR04 / MPU6050 / servo / motor driver をブラウザで可視化できる
 - **🧪 IMU driver bridge**: `MPU6050` は host-side mock device と reference driver を経由して GUI / test に載せられる
+- **🗂️ SensorProfile**: `WiringConfig::from_board_with_sensors(board, SensorProfile::ClimateStation)` など 4 プロファイルでセンサー構成を切り替え可能
 - **📏 distance driver bridge**: `HC-SR04` は pulse/echo mock device と reference driver を経由して GUI / test に載せられる
 - **🧱 sensor / actuator 契約を拡張**: `hal-api` に distance / IMU / servo / drive motor / dual motor driver の board 非依存 trait を追加
 - **🌡️ Sim-to-real 経路**: `ClimateDisplayApp` を PC simulator と original ESP32 実機で再利用
@@ -580,9 +581,11 @@ mcu-hal-sim-rs/
 - [ ] `ClimateDisplayApp` の reference path を保ちながら、新しい board / sensor の追加手順を標準化する
 - [ ] `Arduino Nano` の bring-up から `platform-avr` へ還流できる共通 contract を切り出す
 - [ ] `Raspberry Pi Pico` / `Teensy` / `ESP32-CAM` のような候補を、共通契約へ還元できる単位で検証する
-- [x] servo / motor driver の host-side mock を実 driver bridge まで広げる（v0.3.1–v0.3.2）
+- [x] servo / motor driver の host-side mock を実 driver bridge まで広げる（v0.3.9–v0.3.10）
+- [x] `SensorProfile` で WiringConfig のセンサーセットをプロファイル切り替え対応にする（v0.3.11）
+- [ ] `platform-esp32` を実 esp-hal crate に接続し、ESP32 フラッシュ書き込み CI を追加する
+- [ ] `no_std` feature flag を明示化（`hal-api`・`core-app`）
 - [ ] browser dashboard を WebSocket / canvas / wiring editor まで育てる
-- [ ] `EnvSensor` 以外の sensor / actuator lineup も増やし、downstream repo が driver を差し替えやすい状態を作る
 - [ ] publish 対象 crate の release 導線を固める
 
 詳細は [CHANGELOG.md](./CHANGELOG.md) と [PLAN.md](./PLAN.md) を参照してください。
