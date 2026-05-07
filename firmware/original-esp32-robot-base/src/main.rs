@@ -23,13 +23,6 @@
 //! | IN2-B  | GPIO 33   | チャンネル B 方向 2 |
 //! | ENB    | GPIO 14   | チャンネル B PWM (LEDC Ch2) |
 //!
-//! ### HC-SR04 超音波距離センサ
-//!
-//! | 信号    | ESP32 GPIO | 備考 |
-//! |--------|-----------|------|
-//! | TRIG   | GPIO 5    | 出力 |
-//! | ECHO   | GPIO 4    | 入力（5 V → 3.3 V 分圧推奨） |
-//!
 //! ## ビルド・書き込み
 //!
 //! ```bash
@@ -63,6 +56,9 @@ use platform_esp32::{
 esp_bootloader_esp_idf::esp_app_desc!();
 
 // ── ピン番号定数 ──────────────────────────────────────────────────────────────
+// NOTE: これらの定数は println! によるログ出力用です。
+//       実際のペリフェラル初期化は peripherals.GPIOxx を直接使用します。
+//       ピン変更時は両方を同時に更新してください。
 const SERVO_PWM_GPIO: u8 = 18;
 const MOTOR_IN1_A_GPIO: u8 = 25;
 const MOTOR_IN2_A_GPIO: u8 = 26;
@@ -95,7 +91,7 @@ struct DemoStep {
 static DEMO_SEQUENCE: &[DemoStep] = &[
     DemoStep { servo_angle: 0,   motor_duty: 50, direction: MotorDirection::Forward },
     DemoStep { servo_angle: 45,  motor_duty: 75, direction: MotorDirection::Forward },
-    DemoStep { servo_angle: 90,  motor_duty: 50, direction: MotorDirection::Brake },
+    DemoStep { servo_angle: 90,  motor_duty: 0,  direction: MotorDirection::Brake },
     DemoStep { servo_angle: 135, motor_duty: 60, direction: MotorDirection::Reverse },
     DemoStep { servo_angle: 180, motor_duty: 40, direction: MotorDirection::Reverse },
     DemoStep { servo_angle: 90,  motor_duty: 0,  direction: MotorDirection::Brake },
@@ -218,7 +214,7 @@ fn main() -> ! {
                 println!("servo error: {:?}", e);
             }
 
-            let cmd = MotorCommand::new(step.direction, step.motor_duty as u16);
+            let cmd = MotorCommand::new(step.direction, step.motor_duty);
             if let Err(e) = motors.apply_channels(cmd, cmd) {
                 println!("motor error: {:?}", e);
             }
