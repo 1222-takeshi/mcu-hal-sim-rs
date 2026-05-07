@@ -75,6 +75,17 @@ impl SensorProfile {
         }
     }
 
+    /// Returns all sensor profile variants.
+    ///
+    /// ```
+    /// use platform_pc_sim::wiring_config::SensorProfile;
+    /// assert_eq!(SensorProfile::all_variants().len(), 4);
+    /// assert_eq!(SensorProfile::all_variants()[0], SensorProfile::Full);
+    /// ```
+    pub fn all_variants() -> &'static [SensorProfile] {
+        &[Self::Full, Self::ClimateStation, Self::RobotBase, Self::Minimal]
+    }
+
     /// Returns all available sensor profiles as `(slug, display_name)` pairs.
     ///
     /// ```
@@ -83,13 +94,11 @@ impl SensorProfile {
     /// assert!(profiles.iter().any(|(slug, _)| *slug == "full"));
     /// assert!(profiles.iter().any(|(slug, _)| *slug == "climate"));
     /// ```
-    pub fn all() -> &'static [(&'static str, &'static str)] {
-        &[
-            ("full", "Full (all devices)"),
-            ("climate", "Climate Station"),
-            ("robot", "Robot Base"),
-            ("minimal", "Minimal (BME280 + LCD)"),
-        ]
+    pub fn all() -> Vec<(&'static str, &'static str)> {
+        Self::all_variants()
+            .iter()
+            .map(|p| (p.slug(), p.display_name()))
+            .collect()
     }
 
     /// Device kinds included in this profile.
@@ -515,7 +524,7 @@ mod tests {
         for (slug, _) in SensorProfile::all() {
             let parsed = SensorProfile::from_slug(slug);
             assert!(parsed.is_some(), "slug '{slug}' should parse");
-            assert_eq!(parsed.unwrap().slug(), *slug);
+            assert_eq!(parsed.unwrap().slug(), slug);
         }
     }
 
@@ -528,6 +537,16 @@ mod tests {
     #[test]
     fn sensor_profile_all_has_four_entries() {
         assert_eq!(SensorProfile::all().len(), 4);
+    }
+
+    #[test]
+    fn sensor_profile_display_names_match_all_variants() {
+        for p in SensorProfile::all_variants() {
+            let name = p.display_name();
+            assert!(!name.is_empty(), "display_name() must not be empty for {:?}", p);
+            // slug roundtrip
+            assert_eq!(SensorProfile::from_slug(p.slug()).unwrap(), *p);
+        }
     }
 
     #[test]

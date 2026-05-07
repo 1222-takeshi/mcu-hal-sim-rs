@@ -928,9 +928,9 @@ fn handle_connection(
             );
         }
         (_, "/api/wiring/profiles") => {
-            let entries: Vec<String> = SensorProfile::all()
+            let entries: Vec<String> = SensorProfile::all_variants()
                 .iter()
-                .map(|(slug, name)| format!(r#"{{"slug":"{slug}","name":"{name}"}}"#))
+                .map(|p| format!(r#"{{"slug":"{}","name":"{}"}}"#, p.slug(), p.display_name()))
                 .collect();
             let payload = format!(r#"{{"profiles":[{}]}}"#, entries.join(","));
             respond(
