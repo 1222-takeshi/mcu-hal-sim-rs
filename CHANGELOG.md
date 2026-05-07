@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- `firmware/arduino-nano-bringup/src/main.rs`: wired through `platform-avr` adapters
+  (`AvrOutputPin`, `AvrI2c`) and `core-app::App`; I2C scan still runs at startup, then
+  `App::tick()` drives the main loop via `hal-api` contract
+- `firmware/arduino-nano-bringup/Cargo.toml`: added `platform-avr` and `core-app` path deps
+- `firmware/arduino-nano-bringup/README.md`: updated to document the sim-to-real wiring and
+  startup sequence
+
 ---
 
 ## [0.3.20] - 2026-05-10
