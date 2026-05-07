@@ -68,17 +68,25 @@ cargo install espflash
 ## ビルドと書き込み
 
 ```bash
+# ワークスペースルートから scripts/flash-esp32.sh を使う場合（推奨）
+cd /path/to/mcu-hal-sim-rs
+./scripts/flash-esp32.sh original-esp32-robot-base           # ポート自動検出
+./scripts/flash-esp32.sh original-esp32-robot-base /dev/cu.usbserial-0001  # ポート明示
+
+# または firmware ディレクトリ内で直接実行する場合
 cd firmware/original-esp32-robot-base
 
 # ビルドのみ
 cargo build --release
 
-# フラッシュ書き込み + シリアルモニタ（macOS: /dev/tty.usbserial-*）
+# フラッシュ書き込み + シリアルモニタ（macOS: /dev/cu.*）
 cargo run --release
-
-# デバイスを明示指定する場合
-espflash flash --port /dev/tty.usbserial-0001 target/xtensa-esp32-none-elf/release/original-esp32-robot-base --monitor
 ```
+
+`flash-esp32.sh` はポートを自動検出します:
+- macOS: `/dev/cu.usbserial-*`, `/dev/cu.SLAB_*`, `/dev/cu.wchusbserial-*` 等
+- Linux: `/dev/ttyUSB*`, `/dev/ttyACM*`
+- WSL2: `espflash.exe` 経由で Windows COM ポートを使用（`ESP32_PORT=COM3 ./scripts/flash-esp32.sh ...`）
 
 ## 期待される出力
 

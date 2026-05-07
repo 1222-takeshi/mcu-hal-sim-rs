@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.18] - 2026-05-10
+
+### Changed
+- `firmware/original-esp32-robot-base/README.md`: updated flash instructions to reference
+  `scripts/flash-esp32.sh`; added macOS/Linux/WSL2 port detection notes
+
+---
+
 ## [0.3.17] - 2026-05-10
 
 ### Changed
