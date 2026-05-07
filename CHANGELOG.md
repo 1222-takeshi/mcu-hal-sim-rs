@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [0.3.21] - 2026-05-10
+
 ### Changed
 - `firmware/arduino-nano-bringup/src/main.rs`: wired through `platform-avr` adapters
   (`AvrOutputPin`, `AvrI2c`) and `core-app::App`; I2C scan still runs at startup, then
