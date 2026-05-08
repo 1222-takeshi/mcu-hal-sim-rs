@@ -440,4 +440,219 @@ mod tests {
             }
         );
     }
+
+    // ── Error-case tests ───────────────────────────────────────────────
+
+    #[derive(Clone)]
+    struct FailingSensor {
+        error: SensorError,
+        calls: Rc<RefCell<u32>>,
+    }
+
+    impl FailingSensor {
+        fn new(error: SensorError) -> Self {
+            Self {
+                error,
+                calls: Rc::new(RefCell::new(0)),
+            }
+        }
+
+        fn call_count(&self) -> u32 {
+            *self.calls.borrow()
+        }
+    }
+
+    impl EnvSensor for FailingSensor {
+        type Error = SensorError;
+
+        fn read(&mut self) -> Result<EnvReading, Self::Error> {
+            *self.calls.borrow_mut() += 1;
+            Err(self.error.clone())
+        }
+    }
+
+    #[derive(Clone)]
+    struct FailingDisplay {
+        error: DisplayError,
+        calls: Rc<RefCell<u32>>,
+    }
+
+    impl FailingDisplay {
+        fn new(error: DisplayError) -> Self {
+            Self {
+                error,
+                calls: Rc::new(RefCell::new(0)),
+            }
+        }
+
+        fn call_count(&self) -> u32 {
+            *self.calls.borrow()
+        }
+    }
+
+    impl TextDisplay16x2 for FailingDisplay {
+        type Error = DisplayError;
+
+        fn render(&mut self, _frame: &TextFrame16x2) -> Result<(), Self::Error> {
+            *self.calls.borrow_mut() += 1;
+            Err(self.error.clone())
+        }
+    }
+
+    #[test]
+    fn sensor_error_propagates_as_climate_display_error() {
+        let sensor = FailingSensor::new(SensorError::BusError);
+        let sensor_observer = sensor.clone();
+        let display = TestDisplay::new();
+        let mut app = ClimateDisplayApp::new(sensor, display);
+
+        let result = app.tick();
+
+        assert_eq!(
+            result,
+            Err(ClimateDisplayError::Sensor(SensorError::BusError))
+        );
+        assert_eq!(sensor_observer.call_count(), 1);
+    }
+
+    #[test]
+    fn display_error_propagates_as_climate_display_error() {
+        let sensor = TestSensor::new(EnvReading::new(2481, 4315, None));
+        let display = FailingDisplay::new(DisplayError::BusError);
+        let display_observer = display.clone();
+        let mut app = ClimateDisplayApp::new(sensor, display);
+
+        let result = app.tick();
+
+        assert_eq!(
+            result,
+            Err(ClimateDisplayError::Display(DisplayError::BusError))
+        );
+        assert_eq!(display_observer.call_count(), 1);
+    }
+
+    #[test]
+    fn sensor_error_does_not_update_last_reading() {
+        let sensor = FailingSensor::new(SensorError::BusError);
+        let display = TestDisplay::new();
+        let mut app = ClimateDisplayApp::new(sensor, display);
+
+        let _ = app.tick();
+
+        assert_eq!(app.last_reading(), None);
+        assert_eq!(app.last_frame(), None);
+    }
+
+    #[test]
+    fn display_error_does_not_update_last_frame() {
+        let sensor = TestSensor::new(EnvReading::new(2481, 4315, None));
+        let display = FailingDisplay::new(DisplayError::InvalidContent);
+        let mut app = ClimateDisplayApp::new(sensor, display);
+
+        let _ = app.tick();
+
+        assert_eq!(app.last_reading(), None);
+        assert_eq!(app.last_frame(), None);
+    }
+
+    #[test]
+    fn tick_count_increments_even_on_sensor_error() {
+        let sensor = FailingSensor::new(SensorError::Busy);
+        let display = TestDisplay::new();
+        let mut app = ClimateDisplayApp::new(sensor, display);
+
+        let _ = app.tick();
+        let _ = app.tick();
+        let _ = app.tick();
+
+        assert_eq!(app.tick_count(), 3);
+    }
+
+    #[test]
+    fn refresh_directly_propagates_sensor_error() {
+        let sensor = FailingSensor::new(SensorError::NotInitialized);
+        let display = TestDisplay::new();
+        let mut app = ClimateDisplayApp::new(sensor, display);
+
+        let result = app.refresh();
+
+        assert_eq!(
+            result,
+            Err(ClimateDisplayError::Sensor(SensorError::NotInitialized))
+        );
+    }
+
+    #[test]
+    fn refresh_directly_propagates_display_error() {
+        let sensor = TestSensor::new(EnvReading::new(2481, 4315, None));
+        let display = FailingDisplay::new(DisplayError::NotInitialized);
+        let mut app = ClimateDisplayApp::new(sensor, display);
+
+        let result = app.refresh();
+
+        assert_eq!(
+            result,
+            Err(ClimateDisplayError::Display(DisplayError::NotInitialized))
+        );
+    }
+
+    #[test]
+    fn climate_display_error_from_sensor_error() {
+        let err: ClimateDisplayError = SensorError::BusError.into();
+        assert_eq!(err, ClimateDisplayError::Sensor(SensorError::BusError));
+    }
+
+    #[test]
+    fn climate_display_error_from_display_error() {
+        let err: ClimateDisplayError = DisplayError::BusError.into();
+        assert_eq!(err, ClimateDisplayError::Display(DisplayError::BusError));
+    }
+
+    #[test]
+    fn sensor_error_is_not_retried_within_period() {
+        let sensor = FailingSensor::new(SensorError::BusError);
+        let sensor_observer = sensor.clone();
+        let display = TestDisplay::new();
+        let display_observer = display.clone();
+        let mut app = ClimateDisplayApp::new_with_config(
+            sensor,
+            display,
+            ClimateDisplayConfig {
+                refresh_period_ticks: 3,
+                refresh_on_first_tick: true,
+            },
+        );
+
+        let results: Vec<_> = (0..6).map(|_| app.tick()).collect();
+
+        assert_eq!(
+            results,
+            vec![
+                Err(ClimateDisplayError::Sensor(SensorError::BusError)),
+                Ok(()),
+                Err(ClimateDisplayError::Sensor(SensorError::BusError)),
+                Ok(()),
+                Ok(()),
+                Err(ClimateDisplayError::Sensor(SensorError::BusError)),
+            ]
+        );
+        // 3 refresh attempts (tick 1, 3, 6), all failed
+        assert_eq!(sensor_observer.call_count(), 3);
+        // display never called because sensor always fails first
+        assert_eq!(display_observer.frames().len(), 0);
+    }
+
+    #[test]
+    fn invalid_reading_sensor_error_variant() {
+        let sensor = FailingSensor::new(SensorError::InvalidReading);
+        let display = TestDisplay::new();
+        let mut app = ClimateDisplayApp::new(sensor, display);
+
+        let result = app.tick();
+
+        assert_eq!(
+            result,
+            Err(ClimateDisplayError::Sensor(SensorError::InvalidReading))
+        );
+    }
 }
