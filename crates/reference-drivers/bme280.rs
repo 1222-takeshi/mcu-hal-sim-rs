@@ -385,6 +385,31 @@ mod tests {
         }
     }
 
+    struct FailingI2c {
+        error: I2cError,
+    }
+
+    impl I2cBus for FailingI2c {
+        type Error = I2cError;
+
+        fn write(&mut self, _addr: u8, _bytes: &[u8]) -> Result<(), Self::Error> {
+            Err(self.error.clone())
+        }
+
+        fn read(&mut self, _addr: u8, _buffer: &mut [u8]) -> Result<(), Self::Error> {
+            Err(self.error.clone())
+        }
+
+        fn write_read(
+            &mut self,
+            _addr: u8,
+            _bytes: &[u8],
+            _buffer: &mut [u8],
+        ) -> Result<(), Self::Error> {
+            Err(self.error.clone())
+        }
+    }
+
     #[test]
     fn sign_extend_12_handles_positive_and_negative_values() {
         assert_eq!(sign_extend_12(0x07F), 127);
@@ -414,6 +439,20 @@ mod tests {
     }
 
     #[test]
+    fn bme280_sensor_maps_i2c_errors_to_sensor_errors() {
+        for (i2c_error, sensor_error) in [
+            (I2cError::InvalidAddress, SensorError::NotInitialized),
+            (I2cError::Timeout, SensorError::Busy),
+            (I2cError::BusError, SensorError::BusError),
+        ] {
+            let mut sensor = Bme280Sensor::new(FailingI2c { error: i2c_error });
+
+            assert_eq!(sensor.read(), Err(sensor_error));
+            assert!(!sensor.is_initialized());
+        }
+    }
+
+    #[test]
     fn bme280_sensor_rejects_unexpected_chip_id() {
         let bus = RecordingI2c::default();
         bus.set_response(REG_CHIP_ID, &[0x00]);
@@ -432,6 +471,21 @@ mod tests {
 
         assert!(reading.temperature_centi_celsius > 0);
         assert!(reading.humidity_centi_percent <= 10_000);
+    }
+
+    #[test]
+    fn bme280_sensor_returns_last_completed_sample_while_measuring_invalid_sample() {
+        let bus = RecordingI2c::with_bme280_defaults();
+        let mut sensor = Bme280Sensor::new(bus.clone());
+        let last_reading = sensor.read().unwrap();
+
+        bus.set_response(REG_STATUS, &[0x01]);
+        bus.set_response(
+            REG_PRESS_MSB,
+            &[0x65, 0x5A, 0xC0, 0x80, 0x00, 0x00, 0x80, 0x00],
+        );
+
+        assert_eq!(sensor.read(), Ok(last_reading));
     }
 
     #[test]
