@@ -7,6 +7,7 @@ members = [
     "crates/platform-pc-sim",
     "crates/platform-avr",
     "crates/platform-esp32",
+    "crates/platform-rp2040",
 ]
 
 [package]

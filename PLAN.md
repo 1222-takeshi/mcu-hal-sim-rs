@@ -3,7 +3,7 @@
 ## 概要
 
 `mcu-hal-sim-rs` は、マイコン向け Rust アプリを **PC simulator で検証し、そのまま実機へ持っていくための基盤 repo** です。
-現時点の reference path は original ESP32 ですが、将来的な `Arduino Nano` / `Raspberry Pi Pico` / `Teensy` / `ESP32-CAM` 展開を見据え、`hal-api` / `core-app` / `platform-*` の責務分離と sim-to-real 契約の固定を主目的にします。
+現時点の reference path は original ESP32 ですが、`Arduino Nano` / `Raspberry Pi Pico` の adapter 層を追加し、`hal-api` / `core-app` / `platform-*` の責務分離と sim-to-real 契約の固定を主目的にします。`Teensy` / `ESP32-CAM` は将来候補として別 repo 先行で進めます。
 
 ## 現状（2026-03 時点）
 
@@ -23,6 +23,8 @@
   - M5StickC を使った USB / button / onboard I2C の診断
 - `firmware/arduino-nano-bringup`
   - classic Arduino Nano (`ATmega328P`) の LED / serial / I2C scan の切り分け
+- `firmware/raspi-pico-bringup`
+  - Raspberry Pi Pico (RP2040) の LED / UART / I2C scan + `core-app` 統合確認
 
 ## この repo のスコープ
 

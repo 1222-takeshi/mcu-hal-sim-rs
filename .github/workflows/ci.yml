@@ -162,6 +162,9 @@ jobs:
       - name: Check platform-avr for no_std target
         run: cargo check -p platform-avr --lib --target $NO_STD_TARGET --no-default-features
 
+      - name: Check platform-rp2040 for no_std target
+        run: cargo check -p platform-rp2040 --lib --target $NO_STD_TARGET --no-default-features
+
       - name: Clippy hal-api for no_std target
         run: cargo clippy -p hal-api --lib --target $NO_STD_TARGET --no-default-features -- -D warnings
 
@@ -176,6 +179,9 @@ jobs:
 
       - name: Clippy platform-avr for no_std target
         run: cargo clippy -p platform-avr --lib --target $NO_STD_TARGET --no-default-features -- -D warnings
+
+      - name: Clippy platform-rp2040 for no_std target
+        run: cargo clippy -p platform-rp2040 --lib --target $NO_STD_TARGET --no-default-features -- -D warnings
 
   esp32c3:
     name: ESP32-C3 Cross Check
