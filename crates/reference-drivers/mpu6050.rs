@@ -350,4 +350,42 @@ mod tests {
 
         assert_eq!(reading.accel_mg[0], 2000);
     }
+
+    #[test]
+    fn mpu6050_maps_write_read_bus_error_during_init() {
+        // WHO_AM_I の read_registers で write_read が失敗
+        // registers 空 → write_read が InvalidAddress を返す
+        // map_sensor_error: InvalidAddress → SensorError::NotInitialized
+        let bus = RecordingI2c::default();
+        let mut sensor = Mpu6050Sensor::new(bus);
+        let err = sensor.read_imu().expect_err("should fail");
+        assert_eq!(err, SensorError::NotInitialized);
+    }
+
+    #[test]
+    fn mpu6050_maps_data_read_failure_to_bus_error() {
+        // init は成功するが ACCEL_XOUT_H が未設定 → データ読み取りで InvalidAddress
+        // map_sensor_error: InvalidAddress → SensorError::NotInitialized
+        let bus = RecordingI2c::with_register(REG_WHO_AM_I, &[WHO_AM_I_MPU6050]);
+        // ACCEL_XOUT_H は未設定
+        let mut sensor = Mpu6050Sensor::new(bus);
+        let err = sensor.read_imu().expect_err("should fail");
+        assert_eq!(err, SensorError::NotInitialized);
+    }
+
+    #[test]
+    fn mpu6050_does_not_reinitialize_after_success() {
+        // 一度 init が成功したら is_initialized が true になり、2 回目の read_imu では init をスキップ
+        let bus = RecordingI2c::with_register(REG_WHO_AM_I, &[WHO_AM_I_MPU6050]);
+        bus.set_register(REG_ACCEL_XOUT_H, &sample_frame());
+        let mut sensor = Mpu6050Sensor::new(bus.clone());
+
+        let _ = sensor.read_imu().unwrap();
+        assert!(sensor.is_initialized());
+
+        let writes_after_first = bus.writes().len();
+        let _ = sensor.read_imu().unwrap();
+        // 2 回目は init の write (4回) が走らない
+        assert_eq!(bus.writes().len(), writes_after_first);
+    }
 }

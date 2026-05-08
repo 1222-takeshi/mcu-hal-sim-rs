@@ -62,6 +62,7 @@ mod tests {
     use hal_api::error::I2cError;
     use hal_api::i2c::I2cBus;
 
+    /// 正常系用 stub: write は成功、read は固定 raw 値を返す
     struct StubI2c {
         raw_high: u8,
         raw_low: u8,
@@ -96,6 +97,57 @@ mod tests {
         }
     }
 
+    /// 異常系用 stub: write または read で即エラーを返す
+    struct FailingI2c {
+        fail_write: bool,
+        fail_read: bool,
+        error: I2cError,
+    }
+
+    impl FailingI2c {
+        fn fail_on_write(error: I2cError) -> Self {
+            Self {
+                fail_write: true,
+                fail_read: false,
+                error,
+            }
+        }
+
+        fn fail_on_read(error: I2cError) -> Self {
+            Self {
+                fail_write: false,
+                fail_read: true,
+                error,
+            }
+        }
+    }
+
+    impl I2cBus for FailingI2c {
+        type Error = I2cError;
+        fn write(&mut self, _addr: u8, _data: &[u8]) -> Result<(), I2cError> {
+            if self.fail_write {
+                Err(self.error.clone())
+            } else {
+                Ok(())
+            }
+        }
+        fn read(&mut self, _addr: u8, _buf: &mut [u8]) -> Result<(), I2cError> {
+            if self.fail_read {
+                Err(self.error.clone())
+            } else {
+                Ok(())
+            }
+        }
+        fn write_read(
+            &mut self,
+            _addr: u8,
+            _write: &[u8],
+            _buf: &mut [u8],
+        ) -> Result<(), I2cError> {
+            Err(self.error.clone())
+        }
+    }
+
     #[test]
     fn bh1750_converts_raw_to_lux_x100() {
         // raw=1200 → lux = 1200/1.2 = 1000 → lux×100 = 100000
@@ -111,5 +163,34 @@ mod tests {
         let mut sensor = Bh1750Sensor::new(i2c, BH1750_ADDRESS_LOW).unwrap();
         let reading = sensor.read_lux().unwrap();
         assert_eq!(reading.lux_x100, 0);
+    }
+
+    #[test]
+    fn bh1750_new_maps_write_error_to_bus_error() {
+        // power_on 内の write が失敗 → SensorError::BusError として伝播
+        let i2c = FailingI2c::fail_on_write(I2cError::BusError);
+        match Bh1750Sensor::new(i2c, BH1750_ADDRESS_LOW) {
+            Err(e) => assert_eq!(e, SensorError::BusError),
+            Ok(_) => panic!("expected Err, got Ok"),
+        }
+    }
+
+    #[test]
+    fn bh1750_read_lux_maps_read_error_to_bus_error() {
+        // 初期化は成功させ、read_lux 時の read が失敗 → SensorError::BusError
+        let i2c = FailingI2c::fail_on_read(I2cError::Timeout);
+        let result = Bh1750Sensor::new(i2c, BH1750_ADDRESS_LOW);
+        assert!(result.is_ok(), "new should succeed when write passes");
+        let mut sensor = result.unwrap();
+        assert_eq!(sensor.read_lux(), Err(SensorError::BusError));
+    }
+
+    #[test]
+    fn bh1750_new_uses_high_address() {
+        let i2c = StubI2c::new(600);
+        let mut sensor = Bh1750Sensor::new(i2c, BH1750_ADDRESS_HIGH).unwrap();
+        // アドレスが高い方でも正常に計測できること
+        let reading = sensor.read_lux().unwrap();
+        assert_eq!(reading.lux_integer(), 500);
     }
 }
