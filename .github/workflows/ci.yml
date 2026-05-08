@@ -133,6 +133,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ env.NO_STD_TARGET }}
+          components: clippy
 
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -156,10 +157,25 @@ jobs:
         run: cargo check -p reference-drivers --lib --target $NO_STD_TARGET --no-default-features
 
       - name: Check platform-esp32 for no_std target
-        run: cargo check -p platform-esp32 --lib --target $NO_STD_TARGET
+        run: cargo check -p platform-esp32 --lib --target $NO_STD_TARGET --no-default-features
 
       - name: Check platform-avr for no_std target
-        run: cargo check -p platform-avr --lib --target $NO_STD_TARGET
+        run: cargo check -p platform-avr --lib --target $NO_STD_TARGET --no-default-features
+
+      - name: Clippy hal-api for no_std target
+        run: cargo clippy -p hal-api --lib --target $NO_STD_TARGET --no-default-features -- -D warnings
+
+      - name: Clippy core-app for no_std target
+        run: cargo clippy -p core-app --lib --target $NO_STD_TARGET --no-default-features -- -D warnings
+
+      - name: Clippy reference-drivers for no_std target
+        run: cargo clippy -p reference-drivers --lib --target $NO_STD_TARGET --no-default-features -- -D warnings
+
+      - name: Clippy platform-esp32 for no_std target
+        run: cargo clippy -p platform-esp32 --lib --target $NO_STD_TARGET --no-default-features -- -D warnings
+
+      - name: Clippy platform-avr for no_std target
+        run: cargo clippy -p platform-avr --lib --target $NO_STD_TARGET --no-default-features -- -D warnings
 
   esp32c3:
     name: ESP32-C3 Cross Check
@@ -172,6 +188,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ env.ESP32C3_TARGET }}
+          components: clippy
 
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -201,7 +218,19 @@ jobs:
         run: cargo check -p reference-drivers --lib --target $ESP32C3_TARGET --no-default-features
 
       - name: Check platform-esp32 for ESP32-C3
-        run: cargo check -p platform-esp32 --lib --target $ESP32C3_TARGET
+        run: cargo check -p platform-esp32 --lib --target $ESP32C3_TARGET --no-default-features
+
+      - name: Clippy hal-api for ESP32-C3
+        run: cargo clippy -p hal-api --lib --target $ESP32C3_TARGET --no-default-features -- -D warnings
+
+      - name: Clippy core-app for ESP32-C3
+        run: cargo clippy -p core-app --lib --target $ESP32C3_TARGET --no-default-features -- -D warnings
+
+      - name: Clippy reference-drivers for ESP32-C3
+        run: cargo clippy -p reference-drivers --lib --target $ESP32C3_TARGET --no-default-features -- -D warnings
+
+      - name: Clippy platform-esp32 for ESP32-C3
+        run: cargo clippy -p platform-esp32 --lib --target $ESP32C3_TARGET --no-default-features -- -D warnings
 
   coverage:
     name: Coverage
