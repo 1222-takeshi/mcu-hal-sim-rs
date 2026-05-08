@@ -315,6 +315,42 @@ mod tests {
     }
 
     #[test]
+    fn ssd1306_init_failure_returns_display_error() {
+        // write が即失敗 → new が DisplayError::BusError を返す
+        let i2c = FailI2c;
+        match Ssd1306Display::new(i2c, SSD1306_ADDRESS_DEFAULT) {
+            Err(e) => assert_eq!(e, DisplayError::BusError),
+            Ok(_) => panic!("expected Err, got Ok"),
+        }
+    }
+
+    #[test]
+    fn ssd1306_alt_address_is_accepted() {
+        let i2c = StubI2c::default();
+        assert!(Ssd1306Display::new(i2c, SSD1306_ADDRESS_ALT).is_ok());
+    }
+
+    // 常に BusError を返す最小 stub
+    struct FailI2c;
+    impl I2cBus for FailI2c {
+        type Error = I2cError;
+        fn write(&mut self, _addr: u8, _data: &[u8]) -> Result<(), I2cError> {
+            Err(I2cError::BusError)
+        }
+        fn read(&mut self, _addr: u8, _buf: &mut [u8]) -> Result<(), I2cError> {
+            Err(I2cError::BusError)
+        }
+        fn write_read(
+            &mut self,
+            _addr: u8,
+            _write: &[u8],
+            _buf: &mut [u8],
+        ) -> Result<(), I2cError> {
+            Err(I2cError::BusError)
+        }
+    }
+
+    #[test]
     fn ssd1306_font_digit_is_nonzero() {
         let table = include_font();
         // Digits '0'-'9' are at index 16-25
