@@ -76,8 +76,8 @@
 
 ### B. 本線の品質維持と拡張しやすさの両立
 
-- `ClimateDisplayApp` の回帰テストを増やす
-- BME280 / LCD1602 / shared I2C の異常系を補強する
+- `ClimateDisplayApp` の回帰テストを維持し、sensor / display error と tick scheduling の契約を固定する
+- BME280 / LCD1602 / shared I2C の異常系テストを維持し、I2C error propagation と fallback behavior を固定する
 - 実機確認済みの手順をドキュメントへ維持する
 - app / sensor / display 差分を config struct で表現し、board 固有差分を core へ漏らしにくくする
 
