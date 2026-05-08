@@ -59,16 +59,16 @@ climate refresh tick=10 temp_cc=2481 hum_cp=4315 line1="Temp    24.8C   " line2=
 
 この出力は simulator 側の expected frame と比較しやすいようにしています。
 
-## この branch での確認範囲
+## 確認範囲
 
 - host 側の `cargo test --workspace --all-targets`
 - host 側の `cargo clippy --workspace --all-targets -- -D warnings`
-- この crate の `cargo build --release`
+- この crate の `cargo check --release` または toolchain / linker が揃った環境での `cargo build --release`
 - `scripts/flash-esp32.sh original-esp32-climate-display` による one-command flash
 - macOS: `/dev/cu.*` の自動検出、Linux: `/dev/ttyUSB*` の自動検出
 - Windows WSL2 環境では `espflash.exe` 経由でのポート指定 flash
 - original ESP32 + `BME280` + `LCD1602` で温湿度表示を実機確認
-- 実機シリアルで `climate refresh tick = ...` の継続出力を確認
+- 実機シリアルで `climate refresh tick=...` の継続出力を確認
 
 ## 既知の前提
 
