@@ -78,6 +78,29 @@ mod tests {
         }
     }
 
+    struct FailingI2c;
+
+    impl I2cBus for FailingI2c {
+        type Error = I2cError;
+
+        fn write(&mut self, _addr: u8, _bytes: &[u8]) -> Result<(), Self::Error> {
+            Err(I2cError::Timeout)
+        }
+
+        fn read(&mut self, _addr: u8, _buffer: &mut [u8]) -> Result<(), Self::Error> {
+            Err(I2cError::Timeout)
+        }
+
+        fn write_read(
+            &mut self,
+            _addr: u8,
+            _bytes: &[u8],
+            _buffer: &mut [u8],
+        ) -> Result<(), Self::Error> {
+            Err(I2cError::Timeout)
+        }
+    }
+
     #[test]
     fn shared_i2c_bus_allows_multiple_handles() {
         let inner = RefCell::new(DummyI2c::default());
@@ -94,5 +117,19 @@ mod tests {
             &[(0x27, vec![0x01]), (0x77, vec![0xF7])]
         );
         assert_eq!(buffer, [0xAA, 0xAA]);
+    }
+
+    #[test]
+    fn shared_i2c_bus_propagates_inner_bus_errors() {
+        let inner = RefCell::new(FailingI2c);
+        let mut bus = SharedI2cBus::new(&inner);
+        let mut buffer = [0u8; 2];
+
+        assert_eq!(bus.write(0x27, &[0x01]), Err(I2cError::Timeout));
+        assert_eq!(bus.read(0x27, &mut buffer), Err(I2cError::Timeout));
+        assert_eq!(
+            bus.write_read(0x77, &[0xF7], &mut buffer),
+            Err(I2cError::Timeout)
+        );
     }
 }

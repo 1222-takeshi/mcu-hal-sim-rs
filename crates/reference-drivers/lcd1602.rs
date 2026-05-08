@@ -383,6 +383,22 @@ mod tests {
     }
 
     #[test]
+    fn lcd1602_display_reports_data_write_failure_after_initialization() {
+        let bus = RecordingI2c::default();
+        let fail_after_writes = bus.fail_after_writes.clone();
+        let delay = DummyDelay::default();
+        let mut display = Lcd1602Display::new(bus, delay);
+        let frame = TextFrame16x2::from_lines("Line 1", "Line 2");
+
+        display.render(&frame).unwrap();
+        assert!(display.is_initialized());
+        *fail_after_writes.borrow_mut() = Some(0);
+
+        assert_eq!(display.render(&frame), Err(DisplayError::BusError));
+        assert!(display.is_initialized());
+    }
+
+    #[test]
     fn lcd1602_display_accepts_custom_config() {
         let bus = RecordingI2c::default();
         let delay = DummyDelay::default();
