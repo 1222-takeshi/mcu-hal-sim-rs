@@ -12,7 +12,7 @@
 platform-pc-sim -> core-app -> platform-esp32 -> original ESP32 + BME280 + LCD1602
 ```
 
-この repo では `hal-api` / `core-app` / `reference-drivers` / `platform-*` の責務分離と、sim-to-real 契約の固定を優先します。`M5StickC` は補助診断ボード、`Arduino Nano` / `Raspberry Pi Pico` / `Teensy` / `ESP32-CAM` は将来候補または別 repo 先行の拡張候補として扱います。
+この repo では `hal-api` / `core-app` / `reference-drivers` / `platform-*` の責務分離と、sim-to-real 契約の固定を優先します。`M5StickC` は補助診断ボード、`Teensy` / `ESP32-CAM` は将来候補または別 repo 先行の拡張候補として扱います。
 
 ## 現在のフェーズ
 
@@ -22,7 +22,8 @@ platform-pc-sim -> core-app -> platform-esp32 -> original ESP32 + BME280 + LCD16
 - ✅ `platform-esp32` の adapter 層と original ESP32 bring-up firmware
 - ✅ `ClimateDisplayApp` の PC simulator と original ESP32 climate display reference path
 - ✅ BME280 / LCD1602 / SharedI2cBus の基本・異常系テスト
-- 🚧 Phase 4: no_std 対応と original ESP32 実機確認手順の維持・拡張
+- ✅ `platform-rp2040` の adapter 層と Raspberry Pi Pico bring-up firmware
+- 🚧 Phase 4: no_std 対応と original ESP32 / Raspberry Pi Pico 実機確認手順の維持・拡張
 
 ## スコープ方針
 
@@ -31,7 +32,7 @@ platform-pc-sim -> core-app -> platform-esp32 -> original ESP32 + BME280 + LCD16
 - `hal-api` の汎用抽象
 - `core-app` の再利用可能なアプリロジック
 - `reference-drivers` の board 非依存 driver
-- `platform-pc-sim` / `platform-avr` / `platform-esp32` の sim-to-real 経路
+- `platform-pc-sim` / `platform-avr` / `platform-esp32` / `platform-rp2040` の sim-to-real 経路
 - original ESP32 + BME280 + LCD1602 の本線シナリオ
 - 共通化価値がある sensor / display / actuator 契約とテスト
 
@@ -94,15 +95,20 @@ mcu-hal-sim-rs/
 │   │   ├── lcd1602.rs       # reference-drivers re-export
 │   │   └── types.rs         # composed type aliases
 │   │
-│   └── platform-avr/        # classic AVR adapter layer
-│       ├── gpio.rs
-│       └── i2c.rs
+│   ├── platform-avr/        # classic AVR adapter layer
+│   │   ├── gpio.rs
+│   │   └── i2c.rs
+│   │
+│   └── platform-rp2040/     # Raspberry Pi Pico (RP2040) adapter layer
+│       ├── gpio.rs          # Rp2040OutputPin / Rp2040InputPin
+│       └── i2c.rs           # Rp2040I2c
 │
 ├── firmware/
 │   ├── original-esp32-bringup/
 │   ├── original-esp32-climate-display/
 │   ├── m5stickc-bringup/
-│   └── arduino-nano-bringup/
+│   ├── arduino-nano-bringup/
+│   └── raspi-pico-bringup/
 ├── docs/
 ├── scripts/
 └── .github/workflows/ci.yml
@@ -111,9 +117,10 @@ mcu-hal-sim-rs/
 ## 依存関係の考え方
 
 ```text
-platform-pc-sim ─┐
-platform-esp32 ──┼─> core-app ─> hal-api
-platform-avr  ───┘
+platform-pc-sim  ─┐
+platform-esp32  ──┼─> core-app ─> hal-api
+platform-avr    ──┤
+platform-rp2040 ──┘
 
 reference-drivers -> hal-api / embedded-hal
 platform-esp32    -> reference-drivers re-export + adapter wrappers
