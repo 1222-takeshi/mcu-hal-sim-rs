@@ -183,6 +183,10 @@ jobs:
       - name: Clippy platform-rp2040 for no_std target
         run: cargo clippy -p platform-rp2040 --lib --target $NO_STD_TARGET --no-default-features -- -D warnings
 
+      - name: Check raspi-pico-climate-display firmware
+        working-directory: firmware/raspi-pico-climate-display
+        run: cargo check --release
+
   esp32c3:
     name: ESP32-C3 Cross Check
     runs-on: ubuntu-latest

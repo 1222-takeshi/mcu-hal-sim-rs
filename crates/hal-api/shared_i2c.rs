@@ -2,7 +2,6 @@
 
 use core::cell::RefCell;
 
-use crate::error::I2cError;
 use crate::i2c::I2cBus;
 
 /// `RefCell` 上の I2C バスを複数デバイスへ共有するための薄いラッパーです。
@@ -17,11 +16,8 @@ impl<'a, B> SharedI2cBus<'a, B> {
     }
 }
 
-impl<B> I2cBus for SharedI2cBus<'_, B>
-where
-    B: I2cBus<Error = I2cError>,
-{
-    type Error = I2cError;
+impl<B: I2cBus> I2cBus for SharedI2cBus<'_, B> {
+    type Error = B::Error;
 
     fn write(&mut self, addr: u8, bytes: &[u8]) -> Result<(), Self::Error> {
         self.inner.borrow_mut().write(addr, bytes)
@@ -42,6 +38,7 @@ extern crate std;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::I2cError;
     use core::cell::RefCell;
     use std::rc::Rc;
     use std::vec;
