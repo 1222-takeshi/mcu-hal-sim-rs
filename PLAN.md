@@ -5,26 +5,32 @@
 `mcu-hal-sim-rs` は、マイコン向け Rust アプリを **PC simulator で検証し、そのまま実機へ持っていくための基盤 repo** です。
 現時点の reference path は original ESP32 ですが、`Arduino Nano` / `Raspberry Pi Pico` の adapter 層を追加し、`hal-api` / `core-app` / `platform-*` の責務分離と sim-to-real 契約の固定を主目的にします。`Teensy` / `ESP32-CAM` は将来候補として別 repo 先行で進めます。
 
-## 現状（2026-03 時点）
+## 現状（2026-05 時点）
 
 ### 成立している本線
 
 - `platform-pc-sim` 上で `ClimateDisplayApp` を動かせる
 - `platform-esp32` を通じて original ESP32 上で `ClimateDisplayApp` を動かせる
-- `BME280 + LCD1602` の climate display を PC simulator と original ESP32 実機で共通ロジックのまま確認できる
+- `platform-rp2040` を通じて Raspberry Pi Pico 上で `ClimateDisplayApp` を動かせる
+- `BME280 + LCD1602` の climate display を PC simulator / original ESP32 / Raspberry Pi Pico で共通ロジックのまま確認できる
 - `hal-api` と `core-app` は `no_std` を維持できている
-- CI / テスト / ドキュメントが基盤として成立している
+- `SharedI2cBus` が `hal_api::shared_i2c` に一元化され、全 platform が re-export で共有している
+- CI / テスト / ドキュメントが基盤として成立している (363 tests)
 
 ### 補助的に持っているもの
 
 - `firmware/original-esp32-bringup`
   - USB / flash / LED / 汎用 I2C の切り分け
+- `firmware/original-esp32-climate-display`
+  - original ESP32 + BME280 + LCD1602 の climate display 実機確認
 - `firmware/m5stickc-bringup`
   - M5StickC を使った USB / button / onboard I2C の診断
 - `firmware/arduino-nano-bringup`
   - classic Arduino Nano (`ATmega328P`) の LED / serial / I2C scan の切り分け
 - `firmware/raspi-pico-bringup`
   - Raspberry Pi Pico (RP2040) の LED / UART / I2C scan + `core-app` 統合確認
+- `firmware/raspi-pico-climate-display`
+  - Raspberry Pi Pico + BME280 + LCD1602 の climate display 実機確認
 
 ## この repo のスコープ
 
@@ -32,7 +38,7 @@
 
 - `hal-api` の汎用抽象
 - `core-app` の再利用可能なアプリロジック
-- `platform-pc-sim` / `platform-avr` / `platform-esp32` の sim-to-real 経路
+- `platform-pc-sim` / `platform-avr` / `platform-esp32` / `platform-rp2040` の sim-to-real 経路
 - original ESP32 を使った本線シナリオの維持
 - 再利用可能な sensor / display driver とそのテスト
 
@@ -48,7 +54,7 @@
 
 ### 1. reference path を安定面として維持する
 
-- 主経路は `platform-pc-sim -> core-app -> platform-esp32 -> original ESP32 + BME280 + LCD1602`
+- 主経路は `platform-pc-sim -> core-app -> platform-esp32 -> original ESP32 + BME280 + LCD1602` および `platform-rp2040 -> Raspberry Pi Pico + BME280 + LCD1602`
 - M5StickC は補助診断ボードであり、本番経路には含めない
 - 新しい board を足すときも、まず既存 reference path を壊さないことを優先する
 
@@ -71,27 +77,30 @@
 
 ## 直近の優先タスク
 
-### A. スコープの固定
+### A. スコープの固定（継続）
 
 - `README` / `PLAN` / AI コンテキストを現状に揃え続ける
 - 本 repo が基盤 repo であることを明文化する
 
-### B. 本線の品質維持と拡張しやすさの両立
+### B. 本線の品質維持と拡張しやすさの両立（継続）
 
 - `ClimateDisplayApp` の回帰テストを維持し、sensor / display error と tick scheduling の契約を固定する
 - BME280 / LCD1602 / shared I2C の異常系テストを維持し、I2C error propagation と fallback behavior を固定する
 - 実機確認済みの手順をドキュメントへ維持する
 - app / sensor / display 差分を config struct で表現し、board 固有差分を core へ漏らしにくくする
 
-### C. 拡張候補の評価
+### C. AVR (Arduino Nano) の ClimateDisplayApp 統合（次フェーズ）
 
-- 次のマイコン案件は別 repo で開始する
-- その repo から本 repo を依存として利用する
-- 共通化が必要な時だけ本 repo に PR を戻す
-- `Arduino Nano` / `Raspberry Pi Pico` / `Teensy` / `ESP32-CAM` の候補は、reference path を壊さない単位で platform / firmware を試作する
-- sensor lineup は、まず `EnvSensor` に載るものから増やす
-- その中では、classic Arduino Nano を AVR 系の最初の bring-up 起点とする
-- `platform-avr` は generic adapter 層として維持し、board helper は必要になった時だけ追加する
+`platform-rp2040` と同じパターンで `platform-avr` を拡張する。
+
+- `platform-avr` に `shared_i2c` / `bme280` / `lcd1602` re-export を追加
+- `tests/climate_bridge.rs` 統合テストを追加
+- `firmware/arduino-nano-climate-display` firmware を追加
+
+### D. Teensy / Nucleo 対応（将来）
+
+- `Teensy` (ARM Cortex-M) / `Nucleo` (STM32) は現時点では scope 外
+- 必要になった時点で `platform-rp2040` の構造をテンプレートとして使う
 
 ## esp32cam の扱い
 
