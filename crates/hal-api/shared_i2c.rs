@@ -37,6 +37,9 @@ where
 }
 
 #[cfg(test)]
+extern crate std;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use core::cell::RefCell;
