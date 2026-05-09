@@ -6,9 +6,9 @@ use core_app::climate_display::{ClimateDisplayApp, ClimateDisplayConfig};
 use embedded_hal::delay::DelayNs;
 use hal_api::error::I2cError;
 use hal_api::i2c::I2cBus;
-use platform_rp2040::bme280::Bme280Sensor;
-use platform_rp2040::lcd1602::{Lcd1602Display, LCD1602_ADDRESS_PRIMARY};
-use platform_rp2040::shared_i2c::SharedI2cBus;
+use platform_avr::bme280::Bme280Sensor;
+use platform_avr::lcd1602::{Lcd1602Display, LCD1602_ADDRESS_PRIMARY};
+use platform_avr::shared_i2c::SharedI2cBus;
 
 const REG_CHIP_ID: u8 = 0xD0;
 const REG_CALIB_1_START: u8 = 0x88;
