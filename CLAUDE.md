@@ -23,6 +23,7 @@ platform-pc-sim -> core-app -> platform-esp32 -> original ESP32 + BME280 + LCD16
 - ✅ `ClimateDisplayApp` の PC simulator と original ESP32 climate display reference path
 - ✅ BME280 / LCD1602 / SharedI2cBus の基本・異常系テスト
 - ✅ `platform-rp2040` の adapter 層と Raspberry Pi Pico bring-up firmware
+- ✅ `ClimateDisplayApp` の Raspberry Pi Pico 実機経路 (`raspi-pico-climate-display`)
 - 🚧 Phase 4: no_std 対応と original ESP32 / Raspberry Pi Pico 実機確認手順の維持・拡張
 
 ## スコープ方針
@@ -101,14 +102,18 @@ mcu-hal-sim-rs/
 │   │
 │   └── platform-rp2040/     # Raspberry Pi Pico (RP2040) adapter layer
 │       ├── gpio.rs          # Rp2040OutputPin / Rp2040InputPin
-│       └── i2c.rs           # Rp2040I2c
+│       ├── i2c.rs           # Rp2040I2c
+│       ├── shared_i2c.rs    # SharedI2cBus
+│       ├── bme280.rs        # reference-drivers re-export
+│       └── lcd1602.rs       # reference-drivers re-export
 │
 ├── firmware/
 │   ├── original-esp32-bringup/
 │   ├── original-esp32-climate-display/
 │   ├── m5stickc-bringup/
 │   ├── arduino-nano-bringup/
-│   └── raspi-pico-bringup/
+│   ├── raspi-pico-bringup/
+│   └── raspi-pico-climate-display/
 ├── docs/
 ├── scripts/
 └── .github/workflows/ci.yml
@@ -142,10 +147,11 @@ cargo clippy --all --all-targets -- -D warnings
 # ローカル CI 相当
 ./scripts/ci-local.sh
 
-# no_std / ESP32 関連チェック
+# no_std チェック
 cargo check -p hal-api --lib --target thumbv6m-none-eabi
 cargo check -p core-app --lib --target thumbv6m-none-eabi
 cargo check -p platform-esp32 --lib --target thumbv6m-none-eabi
+cargo check -p platform-rp2040 --lib --target thumbv6m-none-eabi
 cargo check-esp32
 
 # reference path 周辺の絞り込み
@@ -154,6 +160,8 @@ cargo test -p reference-drivers bme280
 cargo test -p reference-drivers lcd1602
 cargo test -p platform-esp32 shared_i2c
 cargo test -p platform-esp32 --test climate_bridge
+cargo test -p platform-rp2040 shared_i2c
+cargo test -p platform-rp2040 --test climate_bridge
 ```
 
 ## Simulator / firmware の使い分け
@@ -178,11 +186,16 @@ cargo run --release
 cd firmware/original-esp32-climate-display
 cargo check --release
 cargo run --release
+
+# Raspberry Pi Pico climate display
+cd firmware/raspi-pico-climate-display
+cargo check --release
+cargo run --release
 ```
 
-## original ESP32 reference path
+## ClimateDisplayApp reference path
 
-`core_app::climate_display::ClimateDisplayApp` は次の 2 経路で共通利用します。
+`core_app::climate_display::ClimateDisplayApp` は次の 3 経路で共通利用します。
 
 - PC simulator
   - `platform-pc-sim::climate_sim::{SequenceEnvSensor, TerminalDisplay16x2}`
@@ -190,11 +203,22 @@ cargo run --release
 - original ESP32
   - `platform-esp32::{Bme280Sensor, Lcd1602Display, SharedI2cBus}`
   - firmware: `firmware/original-esp32-climate-display`
+- Raspberry Pi Pico
+  - `platform-rp2040::{Bme280Sensor, Lcd1602Display, SharedI2cBus}`
+  - firmware: `firmware/raspi-pico-climate-display`
 
 既定の実機想定:
 
+**original ESP32:**
 - board: original ESP32 / ESP32-WROOM-32 系
 - I2C: `GPIO21` = SDA, `GPIO22` = SCL
+- BME280: `0x77` 優先、必要に応じて `0x76`
+- LCD1602 backpack: `0x27`
+
+**Raspberry Pi Pico:**
+- board: Raspberry Pi Pico (RP2040)
+- I2C: `GPIO4` = SDA, `GPIO5` = SCL
+- UART: `GPIO0` = TX, `GPIO1` = RX (115200)
 - BME280: `0x77` 優先、必要に応じて `0x76`
 - LCD1602 backpack: `0x27`
 
@@ -203,7 +227,7 @@ cargo run --release
 - `core-app` に board 固有分岐を入れない
 - board / sensor / display 差分は config struct に閉じ込める
 - `reference-drivers` は board 非依存を維持する
-- `platform-esp32` は adapter / re-export / type alias を中心に薄く保つ
+- `platform-esp32` / `platform-rp2040` は adapter / re-export / type alias を中心に薄く保つ
 - host simulator で先に contract を固定してから実機経路に接続する
 - 実機手順や wiring 前提を変えたら README / PLAN / firmware README を同期する
 
