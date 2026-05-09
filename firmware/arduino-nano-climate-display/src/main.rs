@@ -50,14 +50,41 @@ impl embedded_hal::delay::DelayNs for AvrDelay {
     }
 }
 
-fn detect_bme280_address(i2c_bus: &mut impl hal_api::i2c::I2cBus<Error = hal_api::error::I2cError>) -> u8 {
+fn detect_bme280_address<B, W>(i2c_bus: &mut B, uart: &mut W) -> u8
+where
+    B: hal_api::i2c::I2cBus<Error = hal_api::error::I2cError>,
+    W: ufmt::uWrite,
+{
     for address in [BME280_ADDRESS_PRIMARY, BME280_ADDRESS_SECONDARY] {
         let mut chip_id = [0u8; 1];
         match i2c_bus.write_read(address, &[BME280_CHIP_ID_REGISTER], &mut chip_id) {
-            Ok(()) if chip_id[0] == BME280_CHIP_ID_VALUE => return address,
-            _ => continue,
+            Ok(()) if chip_id[0] == BME280_CHIP_ID_VALUE => {
+                let _ = ufmt::uwriteln!(
+                    uart,
+                    "BME280 probe: detected at 0x{:02x} (chip-id=0x{:02x})\r",
+                    address,
+                    chip_id[0]
+                );
+                return address;
+            }
+            Ok(()) => {
+                let _ = ufmt::uwriteln!(
+                    uart,
+                    "BME280 probe: 0x{:02x} unexpected chip-id=0x{:02x}\r",
+                    address,
+                    chip_id[0]
+                );
+            }
+            Err(_) => {
+                let _ = ufmt::uwriteln!(uart, "BME280 probe: 0x{:02x} failed\r", address);
+            }
         }
     }
+    let _ = ufmt::uwriteln!(
+        uart,
+        "BME280 probe: falling back to 0x{:02x}\r",
+        BME280_ADDRESS_PRIMARY
+    );
     BME280_ADDRESS_PRIMARY
 }
 
@@ -77,7 +104,7 @@ fn main() -> ! {
     );
 
     let mut avr_i2c = AvrI2c::new(raw_i2c);
-    let bme280_address = detect_bme280_address(&mut avr_i2c);
+    let bme280_address = detect_bme280_address(&mut avr_i2c, &mut serial);
 
     // Wrap in RefCell for shared bus access.
     let shared_bus = RefCell::new(avr_i2c);
