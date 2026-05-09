@@ -162,6 +162,10 @@ cargo test -p platform-esp32 shared_i2c
 cargo test -p platform-esp32 --test climate_bridge
 cargo test -p platform-rp2040 shared_i2c
 cargo test -p platform-rp2040 --test climate_bridge
+
+# platform-avr 絞り込み
+cargo test -p platform-avr --test climate_bridge
+cargo check -p platform-avr --lib --target thumbv6m-none-eabi --no-default-features
 ```
 
 ## Simulator / firmware の使い分け
@@ -191,6 +195,11 @@ cargo run --release
 cd firmware/raspi-pico-climate-display
 cargo check --release
 cargo run --release
+
+# Arduino Nano climate display (実機フラッシュ)
+cd firmware/arduino-nano-climate-display
+cargo check --release
+cargo run --release   # ravedude で Nano に書き込み
 ```
 
 ## ClimateDisplayApp reference path
