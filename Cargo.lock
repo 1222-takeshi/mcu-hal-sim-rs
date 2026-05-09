@@ -67,6 +67,7 @@ dependencies = [
  "core-app",
  "embedded-hal",
  "hal-api",
+ "reference-drivers",
 ]
 
 [[package]]
@@ -90,6 +91,16 @@ dependencies = [
  "platform-esp32",
  "reference-drivers",
  "sha1_smol",
+]
+
+[[package]]
+name = "platform-rp2040"
+version = "0.1.0"
+dependencies = [
+ "core-app",
+ "embedded-hal",
+ "hal-api",
+ "reference-drivers",
 ]
 
 [[package]]
