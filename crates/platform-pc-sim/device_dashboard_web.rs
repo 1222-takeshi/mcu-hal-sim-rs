@@ -1041,8 +1041,10 @@ fn handle_connection(
 /// using only SHA-1 (via `sha1_smol`) and Base64 (`base64`) — no full WS library needed.
 fn handle_websocket(mut stream: TcpStream, request_headers: &str, ctx: Arc<ServerContext>) {
     // ── Handshake ─────────────────────────────────────────────────────────────
+    // Split on \r\n (not .lines()) so lone \n inside Cookie values cannot inject a
+    // spurious Sec-WebSocket-Key line and cause an incorrect Accept hash.
     let ws_key = request_headers
-        .lines()
+        .split("\r\n")
         .find_map(|line| {
             let lower = line.to_ascii_lowercase();
             if lower.starts_with("sec-websocket-key:") {

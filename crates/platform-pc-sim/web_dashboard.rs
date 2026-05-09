@@ -1246,26 +1246,35 @@ pub fn dashboard_html() -> &'static str {
     function connectWs() {
       clearTimeout(wsRetryTimer);
       const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const ws = new WebSocket(proto + '//' + location.host + '/api/ws');
+      const wsUrl = proto + '//' + location.host + '/api/ws';
+      console.log('[WS] connecting to', wsUrl);
+      const ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {
+        console.log('[WS] onopen \u2014 connection established');
         wsRetryDelay = 500;
         setOk();
       };
 
       ws.onmessage = (e) => {
+        console.log('[WS] onmessage len=' + e.data.length);
         if (paused) return;
         const now = Date.now();
         if (now - lastRenderMs < renderIntervalMs) return;
         lastRenderMs = now;
         try { renderState(JSON.parse(e.data)); }
-        catch(err) { setErr(err.message); }
+        catch(err) { console.error('[WS] renderState error:', err); setErr(err.message); }
       };
 
-      ws.onclose = ws.onerror = () => {
+      ws.onclose = (ev) => {
+        console.warn('[WS] onclose code=' + ev.code + ' reason=' + ev.reason + ' wasClean=' + ev.wasClean);
         setErr('WebSocket reconnecting\u2026');
         wsRetryTimer = setTimeout(connectWs, wsRetryDelay);
         wsRetryDelay = Math.min(wsRetryDelay * 2, 10000);
+      };
+
+      ws.onerror = (ev) => {
+        console.error('[WS] onerror', ev);
       };
     }
 
