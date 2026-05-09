@@ -18,6 +18,7 @@ fn map_i2c_error(error: impl EmbeddedI2cError) -> I2cError {
         | EmbeddedI2cErrorKind::NoAcknowledge(NoAcknowledgeSource::Unknown)
         | EmbeddedI2cErrorKind::Overrun
         | EmbeddedI2cErrorKind::Other => I2cError::BusError,
+        // #[non_exhaustive] forward-compat: future variants default to BusError.
         _ => I2cError::BusError,
     }
 }
@@ -199,5 +200,18 @@ mod tests {
         let mut buffer = [0u8; 2];
 
         assert_eq!(i2c.read(0x48, &mut buffer), Err(I2cError::BusError));
+    }
+
+    #[test]
+    fn rp2040_i2c_maps_write_read_errors() {
+        let mut i2c = Rp2040I2c::new(FailingI2c {
+            error: DummyI2cDriverError(EmbeddedI2cErrorKind::ArbitrationLoss),
+        });
+        let mut buffer = [0u8; 2];
+
+        assert_eq!(
+            i2c.write_read(0x48, &[0x01], &mut buffer),
+            Err(I2cError::BusError)
+        );
     }
 }
