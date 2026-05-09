@@ -1,19 +1,17 @@
 //! AVR GPIO アダプタ
 
-use core::cell::{Ref, RefCell, RefMut};
+use core::cell::{Ref, RefCell};
 
 use embedded_hal::digital::{
-    Error as EmbeddedDigitalError, ErrorKind as EmbeddedDigitalErrorKind,
-    InputPin as EmbeddedInputPin, OutputPin as EmbeddedOutputPin,
+    Error as EmbeddedDigitalError, InputPin as EmbeddedInputPin, OutputPin as EmbeddedOutputPin,
 };
 use hal_api::error::GpioError;
 use hal_api::gpio::{InputPin, OutputPin};
 
 fn map_gpio_error(error: impl EmbeddedDigitalError) -> GpioError {
-    match error.kind() {
-        EmbeddedDigitalErrorKind::Other => GpioError::HardwareError,
-        _ => GpioError::HardwareError,
-    }
+    // ErrorKind is #[non_exhaustive]; all variants map to HardwareError.
+    let _ = error.kind();
+    GpioError::HardwareError
 }
 
 /// AVR 向けの出力ピンラッパー。
@@ -68,10 +66,6 @@ impl<P> AvrInputPin<P> {
 
     pub fn borrow_inner(&self) -> Ref<'_, P> {
         self.inner.borrow()
-    }
-
-    pub fn borrow_inner_mut(&self) -> RefMut<'_, P> {
-        self.inner.borrow_mut()
     }
 
     pub fn into_inner(self) -> P {
