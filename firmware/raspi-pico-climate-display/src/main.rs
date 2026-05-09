@@ -88,7 +88,7 @@ where
             Ok(()) if chip_id[0] == BME280_CHIP_ID_VALUE => {
                 let _ = write!(
                     uart,
-                    "BME280 probe: detected at 0x{:02x} (chip-id=0x{:02x})\r\n",
+                    "BME280 probe: detected sensor at 0x{:02x} (chip-id=0x{:02x})\r\n",
                     address, chip_id[0]
                 );
                 return address;
@@ -96,18 +96,22 @@ where
             Ok(()) => {
                 let _ = write!(
                     uart,
-                    "BME280 probe: 0x{:02x} unexpected chip-id=0x{:02x}\r\n",
+                    "BME280 probe: address 0x{:02x} responded with unexpected chip-id=0x{:02x}\r\n",
                     address, chip_id[0]
                 );
             }
-            Err(_) => {
-                let _ = write!(uart, "BME280 probe: 0x{:02x} no response\r\n", address);
+            Err(error) => {
+                let _ = write!(
+                    uart,
+                    "BME280 probe: address 0x{:02x} failed: {:?}\r\n",
+                    address, error
+                );
             }
         }
     }
     let _ = write!(
         uart,
-        "BME280 probe: fallback to 0x{:02x}\r\n",
+        "BME280 probe: falling back to default address 0x{:02x}\r\n",
         BME280_ADDRESS_PRIMARY
     );
     BME280_ADDRESS_PRIMARY
