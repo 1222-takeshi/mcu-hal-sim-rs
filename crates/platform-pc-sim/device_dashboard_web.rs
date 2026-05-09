@@ -1053,7 +1053,7 @@ fn handle_websocket(mut stream: TcpStream, request_headers: &str, ctx: Arc<Serve
         })
         .unwrap_or_default();
 
-    const GUID: &str = "258EAFA5-E914-4789-0000-000000000000";
+    const GUID: &str = "258EAFA5-E914-47DA-9CA2-3926096E866B";
     let accept_input = format!("{ws_key}{GUID}");
     let digest = sha1_smol::Sha1::from(accept_input.as_bytes())
         .digest()
