@@ -52,6 +52,12 @@ impl MultiplexedI2c {
         responses.retain(|(candidate, _)| *candidate != register);
         responses.push((register, bytes.to_vec()));
     }
+
+    fn remove_response(&self, register: u8) {
+        self.responses
+            .borrow_mut()
+            .retain(|(candidate, _)| *candidate != register);
+    }
 }
 
 impl I2cBus for MultiplexedI2c {
@@ -119,4 +125,40 @@ fn climate_display_app_uses_shared_i2c_for_sensor_and_display() {
         .borrow()
         .iter()
         .any(|(addr, _)| *addr == LCD1602_ADDRESS_PRIMARY));
+}
+
+#[test]
+fn tick_propagates_i2c_error_when_sensor_chip_id_unreadable() {
+    // No responses configured → chip-id write_read returns InvalidAddress → tick returns Err
+    let inner = RefCell::new(MultiplexedI2c::default());
+    let sensor = Bme280Sensor::new(SharedI2cBus::new(&inner));
+    let display = Lcd1602Display::new(SharedI2cBus::new(&inner), NoopDelay);
+    let mut app = ClimateDisplayApp::new_with_config(
+        sensor,
+        display,
+        ClimateDisplayConfig {
+            refresh_period_ticks: 1,
+            refresh_on_first_tick: true,
+        },
+    );
+    assert!(app.tick().is_err());
+}
+
+#[test]
+fn tick_propagates_i2c_error_when_sensor_measurement_missing() {
+    // Init responses present but measurement register absent → read returns InvalidAddress
+    let bus = MultiplexedI2c::with_bme280_defaults();
+    bus.remove_response(REG_PRESS_MSB);
+    let inner = RefCell::new(bus);
+    let sensor = Bme280Sensor::new(SharedI2cBus::new(&inner));
+    let display = Lcd1602Display::new(SharedI2cBus::new(&inner), NoopDelay);
+    let mut app = ClimateDisplayApp::new_with_config(
+        sensor,
+        display,
+        ClimateDisplayConfig {
+            refresh_period_ticks: 1,
+            refresh_on_first_tick: true,
+        },
+    );
+    assert!(app.tick().is_err());
 }
