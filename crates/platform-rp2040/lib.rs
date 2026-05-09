@@ -10,5 +10,8 @@
 //! これにより、Raspberry Pi Pico を追加するときも、
 //! `core-app` 側を変えずに platform 層だけで吸収できます。
 
+pub mod bme280;
 pub mod gpio;
 pub mod i2c;
+pub mod lcd1602;
+pub mod shared_i2c;
