@@ -15,7 +15,8 @@
 - `BME280 + LCD1602` の climate display を PC simulator / original ESP32 / Raspberry Pi Pico で共通ロジックのまま確認できる
 - `hal-api` と `core-app` は `no_std` を維持できている
 - `SharedI2cBus` が `hal_api::shared_i2c` に一元化され、全 platform が re-export で共有している
-- CI / テスト / ドキュメントが基盤として成立している (363 tests)
+- `platform-avr` の adapter 層（SharedI2cBus / BME280 / LCD1602 re-export）と `ClimateDisplayApp` 統合テストが成立している
+- CI / テスト / ドキュメントが基盤として成立している (368 tests)
 
 ### 補助的に持っているもの
 
@@ -31,6 +32,8 @@
   - Raspberry Pi Pico (RP2040) の LED / UART / I2C scan + `core-app` 統合確認
 - `firmware/raspi-pico-climate-display`
   - Raspberry Pi Pico + BME280 + LCD1602 の climate display 実機確認
+- `firmware/arduino-nano-climate-display`
+  - Arduino Nano (ATmega328P) + BME280 + LCD1602 の climate display firmware skeleton（実機確認は今後）
 
 ## この repo のスコープ
 
@@ -89,13 +92,16 @@
 - 実機確認済みの手順をドキュメントへ維持する
 - app / sensor / display 差分を config struct で表現し、board 固有差分を core へ漏らしにくくする
 
-### C. AVR (Arduino Nano) の ClimateDisplayApp 統合（次フェーズ）
+### C. AVR (Arduino Nano) の ClimateDisplayApp 統合（完了）
 
-`platform-rp2040` と同じパターンで `platform-avr` を拡張する。
+`platform-rp2040` と同じパターンで `platform-avr` を拡張した。
 
-- `platform-avr` に `shared_i2c` / `bme280` / `lcd1602` re-export を追加
-- `tests/climate_bridge.rs` 統合テストを追加
-- `firmware/arduino-nano-climate-display` firmware を追加
+- ✅ `platform-avr` に `shared_i2c` / `bme280` / `lcd1602` re-export を追加
+- ✅ `tests/climate_bridge.rs` 統合テスト（正常系 + エラーパス）を追加
+- ✅ `firmware/arduino-nano-climate-display` firmware skeleton を追加
+- ✅ CI に AVR nightly ジョブ (`arduino-nano-climate-display` の `cargo check`) を追加
+
+残作業: Arduino Nano 実機での動作確認（`cargo run --release` 経由）
 
 ### D. Teensy / Nucleo 対応（将来）
 
