@@ -45,3 +45,4 @@ pub mod light;
 pub mod pwm;
 pub mod rtc;
 pub mod sensor;
+pub mod shared_i2c;
