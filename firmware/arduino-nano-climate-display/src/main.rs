@@ -40,11 +40,11 @@ impl embedded_hal::delay::DelayNs for AvrDelay {
     }
 
     fn delay_ms(&mut self, ms: u32) {
-        // arduino_hal::delay_ms takes u16; split into chunks if needed.
+        // arduino_hal::delay_ms takes u32 on current arduino-hal.
         let mut remaining = ms;
         while remaining > 0 {
             let chunk = remaining.min(u16::MAX as u32) as u16;
-            arduino_hal::delay_ms(chunk);
+            arduino_hal::delay_ms(chunk.into());
             remaining -= chunk as u32;
         }
     }
@@ -157,6 +157,6 @@ fn main() -> ! {
             }
         }
 
-        arduino_hal::delay_ms(LOOP_DELAY_MS);
+        arduino_hal::delay_ms(LOOP_DELAY_MS.into());
     }
 }
