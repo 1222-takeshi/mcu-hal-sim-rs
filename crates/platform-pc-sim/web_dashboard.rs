@@ -71,6 +71,7 @@ pub struct WiringPanelState {
     pub ground_pin: String,
     pub attached_devices: Vec<String>,
     pub selected_devices: Vec<String>,
+    pub show_bus_labels: bool,
     pub diagram_lines: Vec<String>,
 }
 
@@ -117,7 +118,7 @@ pub fn state_to_json(state: &DeviceDashboardState) -> String {
     let mut output = String::new();
     let _ = write!(
         output,
-        "{{\"board_name\":{},\"mcu_name\":{},\"tick\":{},\"climate\":{{\"temperature_c\":{},\"humidity_percent\":{},\"pressure_pa\":{},\"app_frame\":[{},{}],\"physical_lcd_frame\":[{},{}]}},\"distance\":{{\"distance_mm\":{},\"sensor_name\":{}}},\"imu\":{{\"sensor_name\":{},\"accel_mg\":[{},{},{}],\"gyro_mdps\":[{},{},{}],\"temperature_c\":{}}},\"servo\":{{\"angle_degrees\":{}}},\"motor_driver\":{{\"driver_name\":{},\"left\":{{\"direction\":{},\"duty_percent\":{}}},\"right\":{{\"direction\":{},\"duty_percent\":{}}}}},\"wiring\":{{\"sda_pin\":{},\"scl_pin\":{},\"power_pin\":{},\"ground_pin\":{},\"attached_devices\":[{}],\"selected_devices\":[{}],\"diagram_lines\":[{}]}},\"i2c\":{{\"operation_count\":{},\"recent_operations\":[{}]}},\"light\":{{\"lux_x100\":{},\"lux\":{},\"sensor_name\":{}}},\"camera\":{{\"width\":{},\"height\":{},\"sequence\":{},\"sensor_name\":{}}},\"gas\":{{\"co2_ppm\":{},\"voc_ppb\":{},\"sensor_name\":{}}},\"rtc\":{{\"datetime_str\":{},\"sensor_name\":{}}},\"tof\":{{\"distance_mm\":{},\"sensor_name\":{}}}}}",
+        "{{\"board_name\":{},\"mcu_name\":{},\"tick\":{},\"climate\":{{\"temperature_c\":{},\"humidity_percent\":{},\"pressure_pa\":{},\"app_frame\":[{},{}],\"physical_lcd_frame\":[{},{}]}},\"distance\":{{\"distance_mm\":{},\"sensor_name\":{}}},\"imu\":{{\"sensor_name\":{},\"accel_mg\":[{},{},{}],\"gyro_mdps\":[{},{},{}],\"temperature_c\":{}}},\"servo\":{{\"angle_degrees\":{}}},\"motor_driver\":{{\"driver_name\":{},\"left\":{{\"direction\":{},\"duty_percent\":{}}},\"right\":{{\"direction\":{},\"duty_percent\":{}}}}},\"wiring\":{{\"sda_pin\":{},\"scl_pin\":{},\"power_pin\":{},\"ground_pin\":{},\"attached_devices\":[{}],\"selected_devices\":[{}],\"show_bus_labels\":{},\"diagram_lines\":[{}]}},\"i2c\":{{\"operation_count\":{},\"recent_operations\":[{}]}},\"light\":{{\"lux_x100\":{},\"lux\":{},\"sensor_name\":{}}},\"camera\":{{\"width\":{},\"height\":{},\"sequence\":{},\"sensor_name\":{}}},\"gas\":{{\"co2_ppm\":{},\"voc_ppb\":{},\"sensor_name\":{}}},\"rtc\":{{\"datetime_str\":{},\"sensor_name\":{}}},\"tof\":{{\"distance_mm\":{},\"sensor_name\":{}}}}}",
         json_string(&state.board_name),
         json_string(&state.mcu_name),
         state.tick,
@@ -150,6 +151,7 @@ pub fn state_to_json(state: &DeviceDashboardState) -> String {
         json_string(&state.wiring.ground_pin),
         join_json_strings(&state.wiring.attached_devices),
         join_json_strings(&state.wiring.selected_devices),
+        state.wiring.show_bus_labels,
         join_json_strings(&state.wiring.diagram_lines),
         state.i2c.operation_count,
         join_json_strings(&state.i2c.recent_operations),
@@ -813,6 +815,10 @@ pub fn dashboard_html() -> &'static str {
           </select>
         </h2>
         <div id="device-toggle-list" class="toggle-grid"></div>
+        <label class="device-toggle" style="margin-top:10px;display:inline-flex">
+          <input id="show-bus-labels-toggle" type="checkbox" />
+          <span>Show bus labels</span>
+        </label>
         <div id="wiring-svg-wrap" style="width:100%;overflow-x:auto;min-height:180px"></div>
         <div class="footer" style="margin-top:6px">
           Attached: <span id="wiring-devices" style="font-family:monospace">--</span>
@@ -1095,9 +1101,11 @@ pub fn dashboard_html() -> &'static str {
     function changeWiringConfig() {
       const profileSel = $("sensor-profile-select");
       const boardSel = $("board-select");
+      const showBusLabelsToggle = $("show-bus-labels-toggle");
       const body = {};
       if (boardSel) body.board = boardSel.value;
       if (profileSel) body.sensor_profile = profileSel.value;
+      if (showBusLabelsToggle) body.show_bus_labels = showBusLabelsToggle.checked;
       return queueWiringUpdate(async () => {
         try {
           const response = await fetch("/api/wiring", {
@@ -1118,11 +1126,13 @@ pub fn dashboard_html() -> &'static str {
     function changeDeviceToggle() {
       const boardSel = $("board-select");
       const profileSel = $("sensor-profile-select");
+      const showBusLabelsToggle = $("show-bus-labels-toggle");
       const selectedDevices = Array.from(document.querySelectorAll('#device-toggle-list input[data-device-kind]:checked'))
         .map(input => input.dataset.deviceKind);
       const body = { selected_devices: selectedDevices };
       if (boardSel) body.board = boardSel.value;
       if (profileSel) body.sensor_profile = profileSel.value;
+      if (showBusLabelsToggle) body.show_bus_labels = showBusLabelsToggle.checked;
       return queueWiringUpdate(async () => {
         try {
           const response = await fetch("/api/wiring", {
@@ -1140,13 +1150,37 @@ pub fn dashboard_html() -> &'static str {
         }
       });
     }
+    function changeBusLabelToggle() {
+      const showBusLabelsToggle = $("show-bus-labels-toggle");
+      const body = {
+        show_bus_labels: !!(showBusLabelsToggle && showBusLabelsToggle.checked),
+      };
+      return queueWiringUpdate(async () => {
+        try {
+          const response = await fetch("/api/wiring", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          if (!response.ok) {
+            throw new Error(`update returned HTTP ${response.status}`);
+          }
+          await refreshWiringUi();
+          clearErr();
+        } catch(err) {
+          setErr(wiringErrorMessage("Bus label toggle update", err));
+        }
+      });
+    }
     async function loadWiringConfig() {
       try {
         const data = await fetchJsonOrThrow("/api/wiring", "load wiring config");
         const boardSel = $("board-select");
         const profileSel = $("sensor-profile-select");
+        const showBusLabelsToggle = $("show-bus-labels-toggle");
         if (boardSel) boardSel.value = data.board === "nano" ? "arduino-nano" : "original-esp32";
         if (profileSel) profileSel.value = data.sensor_profile;
+        if (showBusLabelsToggle) showBusLabelsToggle.checked = !!data.show_bus_labels;
         renderDeviceToggles(data.available_devices || []);
         applyDeviceSelection(data.selected_devices || []);
       } catch(err) {
@@ -1169,6 +1203,8 @@ pub fn dashboard_html() -> &'static str {
     if (boardSel) boardSel.addEventListener("change", changeWiringConfig);
     const profileSel = $("sensor-profile-select");
     if (profileSel) profileSel.addEventListener("change", changeWiringConfig);
+    const showBusLabelsToggle = $("show-bus-labels-toggle");
+    if (showBusLabelsToggle) showBusLabelsToggle.addEventListener("change", changeBusLabelToggle);
     queueWiringUpdate(async () => {
       await initProfileSelect();
       await refreshWiringUi();
@@ -1792,6 +1828,8 @@ mod tests {
         assert!(html.contains("device-toggle-list"));
         assert!(html.contains("renderDeviceToggles"));
         assert!(html.contains("changeDeviceToggle"));
+        assert!(html.contains("show-bus-labels-toggle"));
+        assert!(html.contains("changeBusLabelToggle"));
         assert!(html.contains("applyDeviceSelection"));
         assert!(html.contains(r#"id="led-hw-item""#));
         assert!(html.contains(r#"id="servo-hw-item""#));
@@ -1849,6 +1887,7 @@ mod tests {
                 ground_pin: "GND".to_string(),
                 attached_devices: vec!["0x27".to_string(), "0x77".to_string()],
                 selected_devices: vec!["bme280".to_string(), "servo".to_string()],
+                show_bus_labels: false,
                 diagram_lines: vec![],
             },
             i2c: I2cPanelState {

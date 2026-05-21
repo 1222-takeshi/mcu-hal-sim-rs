@@ -302,6 +302,7 @@ impl DeviceSpec {
 pub struct WiringConfig {
     pub board: BoardProfile,
     pub sensor_profile: SensorProfile,
+    pub show_bus_labels: bool,
     pub sda_pin: String,
     pub scl_pin: String,
     pub power_pin: String,
@@ -347,6 +348,7 @@ impl WiringConfig {
         Self {
             sda_pin: board.sda_pin().to_string(),
             scl_pin: board.scl_pin().to_string(),
+            show_bus_labels: false,
             power_pin: board.power_pin().to_string(),
             ground_pin: "GND".to_string(),
             trig_pin: board.trig_pin().to_string(),
@@ -361,6 +363,11 @@ impl WiringConfig {
             board,
             sensor_profile,
         }
+    }
+
+    pub fn with_bus_labels(mut self, show_bus_labels: bool) -> Self {
+        self.show_bus_labels = show_bus_labels;
+        self
     }
 
     /// Build the standard wiring config for a board profile with all devices.
@@ -420,6 +427,7 @@ impl WiringConfig {
         format!(
             concat!(
                 r#"{{"board":"{board}","sensor_profile":"{sp}","#,
+                r#""show_bus_labels":{show_bus_labels},"#,
                 r#""selected_devices":[{selected}],"available_devices":[{available}],"#,
                 r#""sda_pin":"{sda}","scl_pin":"{scl}","#,
                 r#""power_pin":"{vcc}","ground_pin":"{gnd}","#,
@@ -429,6 +437,7 @@ impl WiringConfig {
             ),
             board = board_str,
             sp = self.sensor_profile.slug(),
+            show_bus_labels = self.show_bus_labels,
             selected = selected_devices.join(","),
             available = available_devices.join(","),
             sda = json_escape(&self.sda_pin),
@@ -732,6 +741,17 @@ mod tests {
         assert!(json.contains(r#""available_devices":["#));
         assert!(json.contains(r#""kind":"bme280","label":"BME280","enabled":true"#));
         assert!(json.contains(r#""kind":"lcd1602","label":"LCD1602","enabled":false"#));
+    }
+
+    #[test]
+    fn wiring_config_json_tracks_bus_label_visibility() {
+        let compact_json = WiringConfig::from_board(BoardProfile::OriginalEsp32).to_json();
+        assert!(compact_json.contains(r#""show_bus_labels":false"#));
+
+        let detailed_json = WiringConfig::from_board(BoardProfile::OriginalEsp32)
+            .with_bus_labels(true)
+            .to_json();
+        assert!(detailed_json.contains(r#""show_bus_labels":true"#));
     }
 
     #[test]

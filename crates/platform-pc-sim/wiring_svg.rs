@@ -80,6 +80,7 @@ fn render(out: &mut String, config: &WiringConfig) {
 .dev-box{{fill:#1a2333;stroke:#3a5888;stroke-width:1.5}}
 .dev-lbl{{fill:#7ab0e8;font:bold 10px monospace}}
 .dev-sub{{fill:#6888aa;font:9px monospace}}
+.dev-pin{{fill:#8899bb;font:8px monospace}}
 .profile-lbl{{fill:#a0c8a0;font:bold 10px monospace;opacity:0.85}}
 .w-sda{{fill:none;stroke:#4488ff;stroke-width:2.2;stroke-dasharray:8 4;animation:wiring-flow 1.2s linear infinite}}
 .w-scl{{fill:none;stroke:#ffdd44;stroke-width:1.8;stroke-dasharray:8 4;animation:wiring-flow 1.7s linear infinite reverse}}
@@ -232,6 +233,7 @@ fn render(out: &mut String, config: &WiringConfig) {
     for (dev, dy, mid_y) in layouts {
         let conn = dev.kind.connection_type();
         let cp = BOARD_R + (DEV_X - BOARD_R) * 6 / 10;
+        let bus_label_x = DEV_X - 8;
 
         // Device box
         let _ = write!(
@@ -261,6 +263,15 @@ fn render(out: &mut String, config: &WiringConfig) {
 <circle cx="{DEV_X}" cy="{y_vcc}" r="3" class="dot-vcc"/>
 "#,
         );
+        if config.show_bus_labels {
+            let _ = write!(
+                out,
+                r#"<text x="{}" y="{}" text-anchor="end" class="dev-pin">VCC</text>
+"#,
+                bus_label_x,
+                y_vcc - 2,
+            );
+        }
 
         // GND wire + entry dot
         let y_gnd = dy + DEV_H - 8;
@@ -270,6 +281,15 @@ fn render(out: &mut String, config: &WiringConfig) {
 <circle cx="{DEV_X}" cy="{y_gnd}" r="3" class="dot-gnd"/>
 "#,
         );
+        if config.show_bus_labels {
+            let _ = write!(
+                out,
+                r#"<text x="{}" y="{}" text-anchor="end" class="dev-pin">GND</text>
+"#,
+                bus_label_x,
+                y_gnd + 8,
+            );
+        }
 
         match conn {
             ConnectionType::I2c => {
@@ -283,6 +303,18 @@ fn render(out: &mut String, config: &WiringConfig) {
 <circle cx="{DEV_X}" cy="{y_scl}" r="3" class="dot-scl"/>
 "#,
                 );
+                if config.show_bus_labels {
+                    let _ = write!(
+                        out,
+                        r#"<text x="{}" y="{}" text-anchor="end" class="dev-pin">SDA</text>
+<text x="{}" y="{}" text-anchor="end" class="dev-pin">SCL</text>
+"#,
+                        bus_label_x,
+                        y_sda - 2,
+                        bus_label_x,
+                        y_scl - 2,
+                    );
+                }
             }
             ConnectionType::Gpio => {
                 let trig_pin = &config.trig_pin;
@@ -450,6 +482,31 @@ mod tests {
         assert_eq!(svg.matches(r#"class="w-gnd w-bus-branch""#).count(), 2);
         assert_eq!(svg.matches(r#"class="w-sda w-bus-branch""#).count(), 2);
         assert_eq!(svg.matches(r#"class="w-scl w-bus-branch""#).count(), 2);
+    }
+
+    #[test]
+    fn wiring_svg_renders_device_pin_labels_when_enabled() {
+        let cfg = WiringConfig::from_board(BoardProfile::OriginalEsp32).with_bus_labels(true);
+        let svg = wiring_svg(&cfg);
+        assert!(svg.contains(r#"class="dev-pin""#));
+        assert!(svg.contains(">VCC<"));
+        assert!(svg.contains(">GND<"));
+        assert!(svg.contains(">SDA<"));
+        assert!(svg.contains(">SCL<"));
+    }
+
+    #[test]
+    fn wiring_svg_places_bus_labels_left_of_device_boxes_when_enabled() {
+        let cfg = WiringConfig::from_board(BoardProfile::OriginalEsp32).with_bus_labels(true);
+        let svg = wiring_svg(&cfg);
+        assert!(
+            svg.contains(r#"text-anchor="end" class="dev-pin""#),
+            "device pin labels should anchor from the left-side bus margin"
+        );
+        assert!(
+            !svg.contains(&format!(r#"<text x="{}" y=""#, DEV_X + 6)),
+            "device pin labels should not be rendered inside the device box"
+        );
     }
 
     #[test]
