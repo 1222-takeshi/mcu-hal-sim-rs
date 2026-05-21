@@ -57,14 +57,17 @@ struct WiringState {
     board: BoardProfile,
     sensor_profile: SensorProfile,
     selected_devices: Vec<DeviceKind>,
+    show_bus_labels: bool,
 }
 
 fn dashboard_wiring_config(
     board: BoardProfile,
     sensor_profile: SensorProfile,
     selected_devices: &[DeviceKind],
+    show_bus_labels: bool,
 ) -> WiringConfig {
     WiringConfig::from_board_with_selected_devices(board, sensor_profile, selected_devices)
+        .with_bus_labels(show_bus_labels)
 }
 
 /// Shared server state passed to every connection-handler thread.
@@ -92,6 +95,7 @@ impl ServerContext {
                 board,
                 sensor_profile: SensorProfile::Full,
                 selected_devices: SensorProfile::Full.device_kinds(),
+                show_bus_labels: false,
             }),
             editor_json: Mutex::new("{}".into()),
         })
@@ -448,6 +452,7 @@ impl DeviceSimulationRig {
             wiring_state.board,
             wiring_state.sensor_profile,
             &wiring_state.selected_devices,
+            wiring_state.show_bus_labels,
         );
         let attached_devices = wiring_config
             .devices
@@ -588,6 +593,7 @@ impl DeviceSimulationRig {
                     .iter()
                     .map(|kind| kind.slug().to_string())
                     .collect(),
+                show_bus_labels: wiring_state.show_bus_labels,
             },
             i2c: I2cPanelState {
                 operation_count: self.bus.operation_count(),
@@ -875,6 +881,19 @@ fn parse_json_string_array_field(json: &str, key: &str) -> Option<Vec<String>> {
             })
             .collect(),
     )
+}
+
+fn parse_json_bool_field(json: &str, key: &str) -> Option<bool> {
+    let key_literal = format!("\"{key}\"");
+    let after_key = json.split(key_literal.as_str()).nth(1)?;
+    let after_colon = after_key.split(':').nth(1)?.trim_start();
+    if after_colon.starts_with("true") {
+        Some(true)
+    } else if after_colon.starts_with("false") {
+        Some(false)
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]
@@ -1244,12 +1263,16 @@ fn handle_connection(
                         .filter_map(|slug| DeviceKind::from_slug(&slug))
                         .collect();
                 }
+                if let Some(show_bus_labels) = parse_json_bool_field(body, "show_bus_labels") {
+                    ws.show_bus_labels = show_bus_labels;
+                }
                 ws.clone()
             };
             let payload = dashboard_wiring_config(
                 wiring.board,
                 wiring.sensor_profile,
                 &wiring.selected_devices,
+                wiring.show_bus_labels,
             )
             .to_json();
             respond(
@@ -1291,6 +1314,7 @@ fn handle_connection(
                 wiring.board,
                 wiring.sensor_profile,
                 &wiring.selected_devices,
+                wiring.show_bus_labels,
             )
             .to_json();
             respond(
@@ -1306,6 +1330,7 @@ fn handle_connection(
                 wiring.board,
                 wiring.sensor_profile,
                 &wiring.selected_devices,
+                wiring.show_bus_labels,
             );
             let svg = wiring_svg(&cfg);
             respond(&mut stream, "200 OK", "image/svg+xml; charset=utf-8", &svg);
@@ -1619,12 +1644,54 @@ mod tests {
     }
 
     #[test]
+    fn wiring_endpoint_persists_bus_label_toggle_and_svg() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("listener should bind");
+        let addr = listener
+            .local_addr()
+            .expect("listener should have local addr");
+        let ctx = ServerContext::new(BoardProfile::OriginalEsp32);
+
+        let (board_tx, board_rx) = mpsc::channel::<BoardProfile>();
+        drop(board_rx);
+
+        let ctx_for_thread = Arc::clone(&ctx);
+        let server = thread::spawn(move || {
+            for _ in 0..3 {
+                let (stream, _) = listener.accept().expect("test client should connect");
+                handle_connection(stream, Arc::clone(&ctx_for_thread), board_tx.clone());
+            }
+        });
+
+        let body = r#"{"show_bus_labels":true}"#;
+        let post_request = format!(
+            "POST /api/wiring HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let post_response = send_request(addr, &post_request);
+        assert!(post_response.contains(r#""show_bus_labels":true"#));
+
+        let wiring_response =
+            send_request(addr, "GET /api/wiring HTTP/1.1\r\nHost: localhost\r\n\r\n");
+        assert!(wiring_response.contains(r#""show_bus_labels":true"#));
+
+        let svg_response = send_request(
+            addr,
+            "GET /api/wiring/svg HTTP/1.1\r\nHost: localhost\r\n\r\n",
+        );
+        assert!(svg_response.contains(r#"class="dev-pin""#));
+
+        server.join().expect("server thread should exit");
+    }
+
+    #[test]
     fn device_simulation_rig_only_polls_selected_devices() {
         let mut rig = DeviceSimulationRig::new(BoardProfile::OriginalEsp32);
         let wiring_state = WiringState {
             board: BoardProfile::OriginalEsp32,
             sensor_profile: SensorProfile::Minimal,
             selected_devices: vec![DeviceKind::Bme280, DeviceKind::Lcd1602],
+            show_bus_labels: false,
         };
 
         let state = rig.step(&wiring_state);
@@ -1657,6 +1724,7 @@ mod tests {
             board: BoardProfile::OriginalEsp32,
             sensor_profile: SensorProfile::Minimal,
             selected_devices: vec![DeviceKind::Bme280],
+            show_bus_labels: false,
         };
 
         let state = rig.step(&wiring_state);
@@ -1679,6 +1747,7 @@ mod tests {
             board: BoardProfile::OriginalEsp32,
             sensor_profile: SensorProfile::Minimal,
             selected_devices: vec![DeviceKind::Lcd1602],
+            show_bus_labels: false,
         };
 
         let state = rig.step(&wiring_state);
@@ -1700,6 +1769,7 @@ mod tests {
             board: BoardProfile::OriginalEsp32,
             sensor_profile: SensorProfile::ClimateStation,
             selected_devices: vec![DeviceKind::Ds3231],
+            show_bus_labels: false,
         };
 
         let state = rig.step(&wiring_state);
@@ -1739,6 +1809,7 @@ mod tests {
                 DeviceKind::Servo,
                 DeviceKind::L298n,
             ],
+            show_bus_labels: false,
         };
 
         let active_state = rig.step(&active_wiring_state);
@@ -1752,6 +1823,7 @@ mod tests {
             board: BoardProfile::OriginalEsp32,
             sensor_profile: SensorProfile::ClimateStation,
             selected_devices: vec![DeviceKind::Ds3231],
+            show_bus_labels: false,
         };
 
         let disabled_state = rig.step(&disabled_wiring_state);

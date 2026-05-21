@@ -74,6 +74,29 @@ async function expectNoStandaloneBusLabels(page) {
   expect(deviceSideTextNodes).not.toContain("SCL");
 }
 
+async function expectBusLabelsLeftOfDeviceBoxes(page) {
+  await expect
+    .poll(async () => {
+      return page.locator("#wiring-svg-wrap svg").evaluate((svg) => {
+        const boxes = Array.from(svg.querySelectorAll(".dev-box"));
+        const labels = Array.from(svg.querySelectorAll(".dev-pin"));
+        if (!boxes.length || !labels.length) {
+          return { ready: false, violations: -1 };
+        }
+        const minBoxX = Math.min(...boxes.map((box) => box.getBBox().x));
+        if (minBoxX <= 0) {
+          return { ready: false, violations: -1 };
+        }
+        const violations = labels.filter((label) => {
+          const bbox = label.getBBox();
+          return bbox.x + bbox.width >= minBoxX - 2;
+        }).length;
+        return { ready: true, violations };
+      });
+    })
+    .toEqual({ ready: true, violations: 0 });
+}
+
 async function waitForDashboardReady(page) {
   await page.waitForFunction(() => {
     const stext = document.querySelector("#stext");
@@ -84,11 +107,12 @@ async function waitForDashboardReady(page) {
 test.describe("device dashboard", () => {
   test.beforeEach(async ({ page }) => {
     await gotoDashboard(page);
-    await postWiring(page, { sensor_profile: "full" });
+    await postWiring(page, { sensor_profile: "full", show_bus_labels: false });
     await page.reload({ waitUntil: "load" });
     await waitForDashboardReady(page);
     await expect(page.locator("#device-toggle-list input[data-device-kind]:checked")).toHaveCount(11);
     await expect(page.locator("#light-card")).toHaveJSProperty("hidden", false);
+    await expect(page.locator("#show-bus-labels-toggle")).not.toBeChecked();
   });
 
   test("renders the live dashboard with shared bus wiring", async ({ page }) => {
@@ -133,6 +157,117 @@ test.describe("device dashboard", () => {
           selected_devices: ["bme280", "lcd1602"],
         }),
       );
+  });
+
+  test("toggles device-side bus labels for hardware reference view", async ({ page }) => {
+    await expect(page.locator("#show-bus-labels-toggle")).not.toBeChecked();
+    await expect(page.locator("#wiring-svg-wrap svg .dev-pin")).toHaveCount(0);
+
+    await page.locator("#show-bus-labels-toggle").check();
+
+    await expect
+      .poll(async () => {
+        const data = await getWiring(page);
+        return data.show_bus_labels;
+      })
+      .toBe(true);
+    await expect(page.locator("#wiring-svg-wrap svg .dev-pin")).toHaveCount(36);
+    await expectBusLabelsLeftOfDeviceBoxes(page);
+
+    await page.locator("#show-bus-labels-toggle").uncheck();
+
+    await expect
+      .poll(async () => {
+        const data = await getWiring(page);
+        return data.show_bus_labels;
+      })
+      .toBe(false);
+    await expect(page.locator("#wiring-svg-wrap svg .dev-pin")).toHaveCount(0);
+  });
+
+  test("keeps detailed bus labels outside device boxes across board/profile variants", async ({ page }) => {
+    const combos = [
+      ["original-esp32", "minimal"],
+      ["original-esp32", "climate"],
+      ["original-esp32", "robot"],
+      ["arduino-nano", "full"],
+      ["arduino-nano", "minimal"],
+      ["arduino-nano", "climate"],
+      ["arduino-nano", "robot"],
+    ];
+
+    for (const [board, profile] of combos) {
+      await page.selectOption("#board-select", board);
+      await page.selectOption("#sensor-profile-select", profile);
+      await page.evaluate(() => {
+        const toggle = document.getElementById("show-bus-labels-toggle");
+        if (!toggle) throw new Error("show bus labels toggle missing");
+        if (!toggle.checked) {
+          toggle.checked = true;
+          toggle.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+      });
+      await expect(page.locator("#show-bus-labels-toggle")).toBeChecked();
+      await expect
+        .poll(async () => page.locator("#wiring-svg-wrap svg .dev-pin").count())
+        .toBeGreaterThan(0);
+      await expectBusLabelsLeftOfDeviceBoxes(page);
+    }
+  });
+
+  test("keeps the latest profile device selection when bus labels are toggled immediately after a profile change", async ({ page }) => {
+    await page.locator("#sensor-profile-select").selectOption("minimal");
+    await page.locator("#show-bus-labels-toggle").check();
+
+    await expect
+      .poll(async () => {
+        const data = await getWiring(page);
+        return JSON.stringify({
+          sensor_profile: data.sensor_profile,
+          selected_devices: data.selected_devices,
+          show_bus_labels: data.show_bus_labels,
+        });
+      })
+      .toBe(
+        JSON.stringify({
+          sensor_profile: "minimal",
+          selected_devices: ["bme280", "lcd1602"],
+          show_bus_labels: true,
+        }),
+      );
+
+    await expect(page.locator("#device-toggle-list input[data-device-kind]:checked")).toHaveCount(2);
+    await expect(page.locator("#wiring-svg-wrap svg .dev-pin")).toHaveCount(8);
+  });
+
+  test("keeps detailed bus labels enabled when device selection changes", async ({ page }) => {
+    await page.locator("#show-bus-labels-toggle").check();
+    await expect
+      .poll(async () => {
+        const data = await getWiring(page);
+        return data.show_bus_labels;
+      })
+      .toBe(true);
+
+    await page.locator('#device-toggle-list input[data-device-kind="bh1750"]').uncheck();
+
+    await expect
+      .poll(async () => {
+        const data = await getWiring(page);
+        return JSON.stringify({
+          show_bus_labels: data.show_bus_labels,
+          has_bh1750: data.selected_devices.includes("bh1750"),
+        });
+      })
+      .toBe(
+        JSON.stringify({
+          show_bus_labels: true,
+          has_bh1750: false,
+        }),
+      );
+
+    await expect(page.locator("#show-bus-labels-toggle")).toBeChecked();
+    await expect(page.locator("#wiring-svg-wrap svg .dev-pin")).toHaveCount(32);
   });
 
   test("persists device toggle overrides and refreshes the diagram", async ({ page }) => {
