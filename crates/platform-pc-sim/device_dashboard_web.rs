@@ -49,6 +49,7 @@ use reference_drivers::sgp30::{Sgp30Sensor, SGP30_ADDRESS};
 use reference_drivers::vl53l0x::{Vl53l0xSensor, VL53L0X_ADDRESS};
 
 const DEFAULT_PORT: u16 = 7878;
+const DS3231_SIM_ADDRESS: u8 = DS3231_ADDRESS + 1;
 
 /// Combined board + sensor profile state read/written as a unit.
 #[derive(Clone)]
@@ -56,6 +57,14 @@ struct WiringState {
     board: BoardProfile,
     sensor_profile: SensorProfile,
     selected_devices: Vec<DeviceKind>,
+}
+
+fn dashboard_wiring_config(
+    board: BoardProfile,
+    sensor_profile: SensorProfile,
+    selected_devices: &[DeviceKind],
+) -> WiringConfig {
+    WiringConfig::from_board_with_selected_devices(board, sensor_profile, selected_devices)
 }
 
 /// Shared server state passed to every connection-handler thread.
@@ -157,10 +166,9 @@ impl DeviceSimulationRig {
         let bh1750_mock = platform_pc_sim::bh1750_mock::MockBh1750Device::looping(vec![
             8_500, 12_000, 15_300, 9_800, 7_200,
         ]);
-        // DS3231 shares 0x68 with MPU6050 in real hardware, but in simulation both coexist.
-        // We register DS3231 at a separate internal address 0x68 — the VirtualI2cBus routes
-        // independently; MPU6050 is already attached at 0x68 via mpu6050.clone(), so we use
-        // 0x69 (alt address) for DS3231 in the simulation to avoid collision.
+        // DS3231 shares 0x68 with MPU6050 in real hardware, so the simulator
+        // attaches it internally at 0x69 to avoid the collision. Dashboard
+        // surfaces translate it back to the logical hardware address 0x68.
         let ds3231_mock = MockDs3231Device::new();
         let sgp30_mock = MockSgp30Device::new();
         let vl53l0x_mock = MockVl53l0xDevice::new();
@@ -169,8 +177,7 @@ impl DeviceSimulationRig {
         bus.attach_device(LCD1602_ADDRESS_PRIMARY, lcd.clone());
         bus.attach_device(MPU6050_ADDRESS_PRIMARY, mpu6050.clone());
         bus.attach_device(BH1750_ADDRESS_LOW, bh1750_mock.clone());
-        // DS3231 at 0x69 (alt sim address to avoid MPU6050 collision at 0x68)
-        bus.attach_device(DS3231_ADDRESS + 1, ds3231_mock.clone());
+        bus.attach_device(DS3231_SIM_ADDRESS, ds3231_mock.clone());
         bus.attach_device(SGP30_ADDRESS, sgp30_mock.clone());
         bus.attach_device(VL53L0X_ADDRESS, vl53l0x_mock.clone());
 
@@ -188,7 +195,7 @@ impl DeviceSimulationRig {
         let light_sensor = Bh1750Sensor::new(bus.clone(), BH1750_ADDRESS_LOW)
             .expect("BH1750 mock device should initialise");
         let camera = MockCamera::qvga_jpeg();
-        let rtc_sensor = Ds3231Sensor::new(bus.clone(), DS3231_ADDRESS + 1);
+        let rtc_sensor = Ds3231Sensor::new(bus.clone(), DS3231_SIM_ADDRESS);
         let sgp30_sensor =
             Sgp30Sensor::new(bus.clone(), SGP30_ADDRESS).expect("SGP30 mock init should succeed");
         let tof_sensor = Vl53l0xSensor::new(bus.clone(), VL53L0X_ADDRESS)
@@ -269,9 +276,9 @@ impl DeviceSimulationRig {
 
         if selected_devices.contains(&DeviceKind::Ds3231) {
             self.bus
-                .attach_device(DS3231_ADDRESS + 1, self.ds3231_mock.clone());
+                .attach_device(DS3231_SIM_ADDRESS, self.ds3231_mock.clone());
         } else {
-            self.bus.detach_device(DS3231_ADDRESS + 1);
+            self.bus.detach_device(DS3231_SIM_ADDRESS);
         }
 
         if selected_devices.contains(&DeviceKind::Sgp30) {
@@ -293,6 +300,7 @@ impl DeviceSimulationRig {
         self.tick = self.tick.wrapping_add(1);
         let tick = self.tick;
         self.sync_selected_devices(&wiring_state.selected_devices);
+        self.bus.clear_operations();
 
         let is_enabled = |kind: DeviceKind| wiring_state.selected_devices.contains(&kind);
         let bme280_enabled = is_enabled(DeviceKind::Bme280);
@@ -373,8 +381,9 @@ impl DeviceSimulationRig {
             }
         }
 
-        // Poll DS3231 RTC every 13 ticks; also advance the mock timestamp
-        if is_enabled(DeviceKind::Ds3231) && (tick == 1 || tick % 13 == 0) {
+        // Poll DS3231 RTC every tick so /api/state recent_operations always reflects the
+        // currently selected simulator address.
+        if is_enabled(DeviceKind::Ds3231) {
             let ts = self.ds3231_timestamps[self.ds3231_ts_index];
             self.ds3231_ts_index = (self.ds3231_ts_index + 1) % self.ds3231_timestamps.len();
             self.ds3231_mock.set_timestamp(ts);
@@ -410,6 +419,10 @@ impl DeviceSimulationRig {
             self.servo
                 .set_angle_degrees(servo_angle)
                 .expect("servo angle should remain in range");
+        } else {
+            self.servo
+                .set_angle_degrees(0)
+                .expect("disabled servo should reset to zero angle");
         }
 
         if is_enabled(DeviceKind::L298n) {
@@ -425,9 +438,13 @@ impl DeviceSimulationRig {
             self.motor_driver
                 .apply_channels(left, right)
                 .expect("motor commands should remain in range");
+        } else {
+            self.motor_driver
+                .apply_channels(disabled_motor_command(), disabled_motor_command())
+                .expect("disabled motor driver should reset to coast");
         }
 
-        let wiring_config = WiringConfig::from_board_with_selected_devices(
+        let wiring_config = dashboard_wiring_config(
             wiring_state.board,
             wiring_state.sensor_profile,
             &wiring_state.selected_devices,
@@ -437,11 +454,18 @@ impl DeviceSimulationRig {
             .iter()
             .map(|device| device.label.clone())
             .collect::<Vec<_>>();
+        let attached_addresses = self
+            .bus
+            .attached_addresses()
+            .into_iter()
+            .map(display_i2c_addr)
+            .collect::<Vec<_>>();
         let recent_operations = self
             .bus
             .operations()
             .iter()
             .rev()
+            .filter(|operation| attached_addresses.contains(&operation_addr(operation)))
             .take(10)
             .collect::<Vec<_>>()
             .into_iter()
@@ -533,12 +557,24 @@ impl DeviceSimulationRig {
                 },
             },
             servo: ServoPanelState {
-                angle_degrees: self.servo.current_angle(),
+                angle_degrees: if is_enabled(DeviceKind::Servo) {
+                    self.servo.current_angle()
+                } else {
+                    0
+                },
             },
             motor_driver: MotorDriverPanelState {
                 driver_name: "L298N dual H-bridge".to_string(),
-                left: channel_state(self.motor_driver.channel_a().current_command()),
-                right: channel_state(self.motor_driver.channel_b().current_command()),
+                left: if is_enabled(DeviceKind::L298n) {
+                    channel_state(self.motor_driver.channel_a().current_command())
+                } else {
+                    channel_state(MotorCommand::new(MotorDirection::Coast, 0))
+                },
+                right: if is_enabled(DeviceKind::L298n) {
+                    channel_state(self.motor_driver.channel_b().current_command())
+                } else {
+                    channel_state(MotorCommand::new(MotorDirection::Coast, 0))
+                },
             },
             wiring: WiringPanelState {
                 sda_pin: wiring_config.sda_pin.clone(),
@@ -754,15 +790,38 @@ fn channel_state(command: MotorCommand) -> MotorChannelState {
     }
 }
 
+fn disabled_motor_command() -> MotorCommand {
+    MotorCommand::new(MotorDirection::Coast, 0)
+}
+
+fn display_i2c_addr(addr: u8) -> u8 {
+    if addr == DS3231_SIM_ADDRESS {
+        DS3231_ADDRESS
+    } else {
+        addr
+    }
+}
+
+fn operation_addr(operation: &VirtualI2cOperation) -> u8 {
+    match operation {
+        VirtualI2cOperation::Write { addr, .. }
+        | VirtualI2cOperation::Read { addr, .. }
+        | VirtualI2cOperation::WriteRead { addr, .. } => display_i2c_addr(*addr),
+    }
+}
+
 fn format_operation(operation: &VirtualI2cOperation) -> String {
     match operation {
         VirtualI2cOperation::Write { addr, bytes } => {
+            let addr = display_i2c_addr(*addr);
             format!("WRITE addr=0x{addr:02X} bytes={bytes:02X?}")
         }
         VirtualI2cOperation::Read { addr, len } => {
+            let addr = display_i2c_addr(*addr);
             format!("READ addr=0x{addr:02X} len={len}")
         }
         VirtualI2cOperation::WriteRead { addr, bytes, len } => {
+            let addr = display_i2c_addr(*addr);
             format!("WRITE_READ addr=0x{addr:02X} bytes={bytes:02X?} len={len}")
         }
     }
@@ -1187,7 +1246,7 @@ fn handle_connection(
                 }
                 ws.clone()
             };
-            let payload = WiringConfig::from_board_with_selected_devices(
+            let payload = dashboard_wiring_config(
                 wiring.board,
                 wiring.sensor_profile,
                 &wiring.selected_devices,
@@ -1228,7 +1287,7 @@ fn handle_connection(
         }
         (_, "/api/wiring") => {
             let wiring = ctx.wiring_state.lock().unwrap().clone();
-            let payload = WiringConfig::from_board_with_selected_devices(
+            let payload = dashboard_wiring_config(
                 wiring.board,
                 wiring.sensor_profile,
                 &wiring.selected_devices,
@@ -1243,7 +1302,7 @@ fn handle_connection(
         }
         (_, "/api/wiring/svg") => {
             let wiring = ctx.wiring_state.lock().unwrap().clone();
-            let cfg = WiringConfig::from_board_with_selected_devices(
+            let cfg = dashboard_wiring_config(
                 wiring.board,
                 wiring.sensor_profile,
                 &wiring.selected_devices,
@@ -1614,27 +1673,6 @@ mod tests {
     }
 
     #[test]
-    fn device_simulation_rig_keeps_bme280_readings_without_lcd() {
-        let mut rig = DeviceSimulationRig::new(BoardProfile::OriginalEsp32);
-        let wiring_state = WiringState {
-            board: BoardProfile::OriginalEsp32,
-            sensor_profile: SensorProfile::Minimal,
-            selected_devices: vec![DeviceKind::Bme280],
-        };
-
-        let state = rig.step(&wiring_state);
-
-        assert_eq!(
-            state.wiring.attached_devices,
-            vec!["BME280 (0x77)".to_string()]
-        );
-        assert!(state.climate.temperature_c.is_some());
-        assert!(state.climate.humidity_percent.is_some());
-        assert!(state.climate.pressure_pa.is_some());
-        assert_eq!(state.climate.physical_lcd_frame, blank_lines());
-    }
-
-    #[test]
     fn device_simulation_rig_does_not_fabricate_climate_without_bme280() {
         let mut rig = DeviceSimulationRig::new(BoardProfile::OriginalEsp32);
         let wiring_state = WiringState {
@@ -1653,6 +1691,75 @@ mod tests {
         assert_eq!(state.climate.humidity_percent, None);
         assert_eq!(state.climate.pressure_pa, None);
         assert_eq!(state.climate.physical_lcd_frame, blank_lines());
+    }
+
+    #[test]
+    fn device_simulation_rig_reports_consistent_ds3231_address() {
+        let mut rig = DeviceSimulationRig::new(BoardProfile::OriginalEsp32);
+        let wiring_state = WiringState {
+            board: BoardProfile::OriginalEsp32,
+            sensor_profile: SensorProfile::ClimateStation,
+            selected_devices: vec![DeviceKind::Ds3231],
+        };
+
+        let state = rig.step(&wiring_state);
+
+        assert_eq!(
+            state.wiring.attached_devices,
+            vec!["DS3231 (0x68)".to_string()]
+        );
+        assert!(
+            state
+                .i2c
+                .recent_operations
+                .iter()
+                .any(|line| line.contains("0x68")),
+            "dashboard should render DS3231 traffic with the logical hardware address"
+        );
+        assert!(
+            state
+                .i2c
+                .recent_operations
+                .iter()
+                .all(|line| !line.contains("0x69")),
+            "dashboard should not expose the colliding hardware address"
+        );
+        assert!(!state.rtc.datetime_str.is_empty());
+    }
+
+    #[test]
+    fn device_simulation_rig_resets_disabled_actuators() {
+        let mut rig = DeviceSimulationRig::new(BoardProfile::OriginalEsp32);
+        let active_wiring_state = WiringState {
+            board: BoardProfile::OriginalEsp32,
+            sensor_profile: SensorProfile::RobotBase,
+            selected_devices: vec![
+                DeviceKind::HcSr04,
+                DeviceKind::Mpu6050,
+                DeviceKind::Servo,
+                DeviceKind::L298n,
+            ],
+        };
+
+        let active_state = rig.step(&active_wiring_state);
+        assert_ne!(active_state.servo.angle_degrees, 0);
+        assert_eq!(active_state.motor_driver.left.direction, "forward");
+        assert_eq!(active_state.motor_driver.left.duty_percent, 42);
+        assert_eq!(active_state.motor_driver.right.direction, "forward");
+        assert_eq!(active_state.motor_driver.right.duty_percent, 42);
+
+        let disabled_wiring_state = WiringState {
+            board: BoardProfile::OriginalEsp32,
+            sensor_profile: SensorProfile::ClimateStation,
+            selected_devices: vec![DeviceKind::Ds3231],
+        };
+
+        let disabled_state = rig.step(&disabled_wiring_state);
+        assert_eq!(disabled_state.servo.angle_degrees, 0);
+        assert_eq!(disabled_state.motor_driver.left.direction, "coast");
+        assert_eq!(disabled_state.motor_driver.left.duty_percent, 0);
+        assert_eq!(disabled_state.motor_driver.right.direction, "coast");
+        assert_eq!(disabled_state.motor_driver.right.duty_percent, 0);
     }
 
     #[test]

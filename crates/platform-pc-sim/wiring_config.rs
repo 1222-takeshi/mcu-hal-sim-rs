@@ -369,8 +369,12 @@ impl WiringConfig {
     ///
     /// Returns the full simulator configuration matching `DeviceSimulationRig`:
     /// BME280 (0x77), MPU6050 (0x68), LCD1602 (0x27), BH1750 (0x23),
-    /// DS3231 (0x68; sim uses 0x69 to avoid MPU6050 collision), SGP30 (0x58),
-    /// VL53L0X (0x29) on I²C; Servo and L298N on PWM; HC-SR04 and ESP32-CAM on GPIO.
+    /// DS3231 (0x68), VL53L0X (0x29) on I2C; Servo and L298N on PWM; HC-SR04
+    /// and ESP32-CAM on GPIO.
+    ///
+    /// The simulator attaches DS3231 internally at `0x69` to avoid colliding
+    /// with MPU6050 on the virtual bus, but dashboard-facing wiring/state
+    /// surfaces translate it back to the logical hardware address `0x68`.
     pub fn from_board(board: BoardProfile) -> Self {
         Self::from_board_with_sensors(board, SensorProfile::Full)
     }
@@ -685,6 +689,20 @@ mod tests {
         let kinds: Vec<_> = cfg.devices.iter().map(|d| d.kind).collect();
         assert_eq!(kinds, vec![DeviceKind::Bme280, DeviceKind::Servo]);
         assert_eq!(cfg.sensor_profile, SensorProfile::Minimal);
+    }
+
+    #[test]
+    fn wiring_config_uses_simulated_ds3231_address() {
+        let cfg = WiringConfig::from_board_with_selected_devices(
+            BoardProfile::OriginalEsp32,
+            SensorProfile::ClimateStation,
+            &[DeviceKind::Ds3231],
+        );
+
+        assert_eq!(cfg.devices.len(), 1);
+        assert_eq!(cfg.devices[0].kind, DeviceKind::Ds3231);
+        assert_eq!(cfg.devices[0].address, Some(0x68));
+        assert_eq!(cfg.devices[0].label, "DS3231 (0x68)");
     }
 
     #[test]

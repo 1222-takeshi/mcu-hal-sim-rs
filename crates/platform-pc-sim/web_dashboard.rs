@@ -904,13 +904,15 @@ pub fn dashboard_html() -> &'static str {
 
     // ── Status bar ──
     let lastOkMs = null, errCount = 0;
+    function clearErr() {
+      document.getElementById("serr").textContent = "";
+    }
     function setOk() {
       const now = Date.now();
       const ago = lastOkMs ? (now - lastOkMs) + " ms ago" : "just now";
       lastOkMs = now; errCount = 0;
       document.getElementById("sdot").className = "sdot ok";
       document.getElementById("stext").textContent = "Online \u00B7 updated " + ago;
-      document.getElementById("serr").textContent = "";
     }
     function setErr(msg) {
       errCount++;
@@ -1054,14 +1056,30 @@ pub fn dashboard_html() -> &'static str {
     }
 
     // ── Wiring diagram (loaded once at startup, then refreshed every 5s) ──
+    function wiringErrorMessage(action, err) {
+      return `${action} failed: ${err && err.message ? err.message : "unknown error"}`;
+    }
+    async function fetchJsonOrThrow(url, action) {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`${action} returned HTTP ${response.status}`);
+      return response.json();
+    }
+    async function fetchTextOrThrow(url, action) {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`${action} returned HTTP ${response.status}`);
+      return response.text();
+    }
     async function loadWiringDiagram() {
       try {
-        const r = await fetch("/api/wiring/svg");
-        if (!r.ok) return;
-        const svg = await r.text();
+        const svg = await fetchTextOrThrow("/api/wiring/svg", "load wiring diagram");
         const wrap = $("wiring-svg-wrap");
-        if (wrap) wrap.innerHTML = svg;
-      } catch(_) {}
+        if (wrap) {
+          wrap.innerHTML = svg;
+          clearErr();
+        }
+      } catch(err) {
+        setErr(wiringErrorMessage("Wiring diagram", err));
+      }
     }
     async function refreshWiringUi() {
       await loadWiringConfig();
@@ -1082,13 +1100,19 @@ pub fn dashboard_html() -> &'static str {
       if (profileSel) body.sensor_profile = profileSel.value;
       return queueWiringUpdate(async () => {
         try {
-          await fetch("/api/wiring", {
+          const response = await fetch("/api/wiring", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body),
           });
+          if (!response.ok) {
+            throw new Error(`update returned HTTP ${response.status}`);
+          }
           await refreshWiringUi();
-        } catch(_) {}
+          clearErr();
+        } catch(err) {
+          setErr(wiringErrorMessage("Wiring update", err));
+        }
       });
     }
     function changeDeviceToggle() {
@@ -1101,37 +1125,45 @@ pub fn dashboard_html() -> &'static str {
       if (profileSel) body.sensor_profile = profileSel.value;
       return queueWiringUpdate(async () => {
         try {
-          await fetch("/api/wiring", {
+          const response = await fetch("/api/wiring", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body),
           });
+          if (!response.ok) {
+            throw new Error(`update returned HTTP ${response.status}`);
+          }
           await refreshWiringUi();
-        } catch(_) {}
+          clearErr();
+        } catch(err) {
+          setErr(wiringErrorMessage("Device toggle update", err));
+        }
       });
     }
     async function loadWiringConfig() {
       try {
-        const res = await fetch("/api/wiring");
-        const data = await res.json();
+        const data = await fetchJsonOrThrow("/api/wiring", "load wiring config");
         const boardSel = $("board-select");
         const profileSel = $("sensor-profile-select");
         if (boardSel) boardSel.value = data.board === "nano" ? "arduino-nano" : "original-esp32";
         if (profileSel) profileSel.value = data.sensor_profile;
         renderDeviceToggles(data.available_devices || []);
         applyDeviceSelection(data.selected_devices || []);
-      } catch(_) {}
+      } catch(err) {
+        setErr(wiringErrorMessage("Wiring config", err));
+      }
     }
     async function initProfileSelect() {
       try {
-        const res = await fetch("/api/wiring/profiles");
-        const data = await res.json();
+        const data = await fetchJsonOrThrow("/api/wiring/profiles", "load wiring profiles");
         const sel = $("sensor-profile-select");
         if (!sel) return;
         sel.innerHTML = data.profiles
           .map(p => `<option value="${p.slug}">${p.name}</option>`)
           .join("");
-      } catch(_) {}
+      } catch(err) {
+        setErr(wiringErrorMessage("Wiring profiles", err));
+      }
     }
     const boardSel = $("board-select");
     if (boardSel) boardSel.addEventListener("change", changeWiringConfig);

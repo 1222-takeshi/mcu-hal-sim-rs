@@ -142,11 +142,103 @@ test.describe("device dashboard", () => {
         }),
       );
   });
+
+  test("keeps DS3231 wiring and disabled actuator state consistent across APIs", async ({
+    page,
+  }) => {
+    await postWiring(page, { selected_devices: ["ds3231"] });
+    await page.reload({ waitUntil: "load" });
+
+    await expect
+      .poll(async () => {
+        const [wiring, svg, state] = await page.evaluate(async () => {
+          const [wiringResponse, svgResponse, stateResponse] = await Promise.all([
+            fetch("/api/wiring"),
+            fetch("/api/wiring/svg"),
+            fetch("/api/state"),
+          ]);
+          return Promise.all([
+            wiringResponse.json(),
+            svgResponse.text(),
+            stateResponse.json(),
+          ]);
+        });
+
+        return JSON.stringify({
+          wiringAddress: wiring.devices.find((device) => device.kind === "ds3231")?.address,
+          svgHasDs3231LogicalAddress: svg.includes("DS3231") && svg.includes("0x68"),
+          recentOperationsUseLogicalAddress:
+            state.i2c.recent_operations.length > 0 &&
+            state.i2c.recent_operations.every((line) => line.includes("0x68")),
+          servoAngle: state.servo.angle_degrees,
+          leftMotor: state.motor_driver.left,
+          rightMotor: state.motor_driver.right,
+        });
+      })
+      .toBe(
+        JSON.stringify({
+          wiringAddress: "0x68",
+          svgHasDs3231LogicalAddress: true,
+          recentOperationsUseLogicalAddress: true,
+          servoAngle: 0,
+          leftMotor: { direction: "coast", duty_percent: 0 },
+          rightMotor: { direction: "coast", duty_percent: 0 },
+        }),
+      );
+  });
+
+  test("resets actuator state after deselection", async ({ page }) => {
+    await expect(page.locator("#servo-value")).not.toHaveText("-- deg");
+    await postWiring(page, { selected_devices: ["ds3231"] });
+    await page.reload({ waitUntil: "load" });
+
+    await expect(page.locator("#servo-hw-item")).toHaveJSProperty("hidden", true);
+    await expect(page.locator("#motor-left-item")).toHaveJSProperty("hidden", true);
+
+    await expect
+      .poll(async () => {
+        const state = await page.evaluate(async () => {
+          const response = await fetch("/api/state");
+          return response.json();
+        });
+        return JSON.stringify({
+          servo: state.servo.angle_degrees,
+          left: state.motor_driver.left,
+          right: state.motor_driver.right,
+        });
+      })
+      .toBe(
+        JSON.stringify({
+          servo: 0,
+          left: { direction: "coast", duty_percent: 0 },
+          right: { direction: "coast", duty_percent: 0 },
+        }),
+      );
+  });
+
+  test("surfaces wiring update failures in the status bar", async ({ page }) => {
+    await page.route("**/api/wiring", async (route) => {
+      const request = route.request();
+      if (request.method() !== "POST") {
+        await route.continue();
+        return;
+      }
+      const body = request.postDataJSON();
+      if (Array.isArray(body.selected_devices) && body.selected_devices.includes("bh1750")) {
+        await route.fulfill({ status: 500, body: "boom" });
+        return;
+      }
+      await route.continue();
+    });
+
+    await postWiring(page, { sensor_profile: "minimal" });
+    await page.reload({ waitUntil: "load" });
+    await page.locator('#device-toggle-list input[data-device-kind="bh1750"]').check();
+    await expect(page.locator("#serr")).toContainText("Device toggle update failed");
+  });
 });
 
-test("serializes rapid profile and device toggle updates so the latest choice wins", async ({
-  page,
-}) => {
+test("serializes rapid profile and device toggle updates so the latest choice wins", async ({ page }) => {
   await page.addInitScript(() => {
     const nativeFetch = window.fetch.bind(window);
     window.fetch = async (input, init) => {
@@ -188,10 +280,10 @@ test("serializes rapid profile and device toggle updates so the latest choice wi
     }
 
     bh1750Toggle.checked = true;
-    const first = changeDeviceToggle();
+    const first = bh1750Toggle.dispatchEvent(new Event("change", { bubbles: true }));
     profileSel.value = "full";
-    const second = changeWiringConfig();
-    return Promise.all([first, second]);
+    const second = profileSel.dispatchEvent(new Event("change", { bubbles: true }));
+    return { first, second };
   });
 
   await expect
