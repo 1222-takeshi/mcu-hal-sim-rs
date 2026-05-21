@@ -24,10 +24,19 @@ async function postWiring(page, body) {
 }
 
 async function getWiring(page) {
-  return page.evaluate(async () => {
-    const response = await fetch("/api/wiring");
-    return response.json();
-  });
+  let lastError;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await page.evaluate(async () => {
+        const response = await fetch("/api/wiring");
+        return response.json();
+      });
+    } catch (error) {
+      lastError = error;
+      await page.waitForTimeout(100);
+    }
+  }
+  throw lastError;
 }
 
 async function gotoDashboard(page) {
@@ -46,6 +55,23 @@ async function gotoDashboard(page) {
   await expect(page.locator("#device-toggle-list input[data-device-kind]")).toHaveCount(11);
   await expect(page.locator("#wiring-svg-wrap svg")).toBeVisible();
   await expect(page.locator("#stext")).toContainText("Online");
+}
+
+async function expectNoStandaloneBusLabels(page) {
+  const deviceSideTextNodes = await page.locator("#wiring-svg-wrap svg text").evaluateAll((nodes) =>
+    nodes
+      .map((node) => ({
+        text: node.textContent.replace(/\s+/g, " ").trim(),
+        x: Number(node.getAttribute("x") ?? Number.NaN),
+      }))
+      .filter(({ text, x }) => text && Number.isFinite(x) && x >= 330)
+      .map(({ text }) => text),
+  );
+
+  expect(deviceSideTextNodes).not.toContain("VCC");
+  expect(deviceSideTextNodes).not.toContain("GND");
+  expect(deviceSideTextNodes).not.toContain("SDA");
+  expect(deviceSideTextNodes).not.toContain("SCL");
 }
 
 async function waitForDashboardReady(page) {
@@ -73,6 +99,7 @@ test.describe("device dashboard", () => {
     await expect(page.locator("#wiring-svg-wrap svg .w-sda.w-bus-trunk")).toHaveCount(1);
     await expect(page.locator("#wiring-svg-wrap svg .w-scl.w-bus-trunk")).toHaveCount(1);
     await expect(page.locator("#wiring-svg-wrap svg .dev-pin")).toHaveCount(0);
+    await expectNoStandaloneBusLabels(page);
   });
 
   test("applies profile presets to the page and wiring endpoint", async ({ page }) => {
@@ -87,6 +114,7 @@ test.describe("device dashboard", () => {
     await expect(page.locator("#wiring-svg-wrap svg .w-gnd.w-bus-branch")).toHaveCount(2);
     await expect(page.locator("#wiring-svg-wrap svg .w-sda.w-bus-branch")).toHaveCount(2);
     await expect(page.locator("#wiring-svg-wrap svg .w-scl.w-bus-branch")).toHaveCount(2);
+    await expectNoStandaloneBusLabels(page);
 
     await expect
       .poll(async () => {
