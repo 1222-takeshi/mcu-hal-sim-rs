@@ -80,7 +80,6 @@ fn render(out: &mut String, config: &WiringConfig) {
 .dev-box{{fill:#1a2333;stroke:#3a5888;stroke-width:1.5}}
 .dev-lbl{{fill:#7ab0e8;font:bold 10px monospace}}
 .dev-sub{{fill:#6888aa;font:9px monospace}}
-.dev-pin{{fill:#8899bb;font:8px monospace}}
 .profile-lbl{{fill:#a0c8a0;font:bold 10px monospace;opacity:0.85}}
 .w-sda{{fill:none;stroke:#4488ff;stroke-width:2.2;stroke-dasharray:8 4;animation:wiring-flow 1.2s linear infinite}}
 .w-scl{{fill:none;stroke:#ffdd44;stroke-width:1.8;stroke-dasharray:8 4;animation:wiring-flow 1.7s linear infinite reverse}}
@@ -260,10 +259,7 @@ fn render(out: &mut String, config: &WiringConfig) {
             out,
             r#"<path class="w-vcc w-bus-branch" d="M {VCC_RAIL_X} {y_vcc} L {DEV_X} {y_vcc}"/>
 <circle cx="{DEV_X}" cy="{y_vcc}" r="3" class="dot-vcc"/>
-<text x="{}" y="{}" class="dev-pin">VCC</text>
 "#,
-            DEV_X + 6,
-            y_vcc - 2,
         );
 
         // GND wire + entry dot
@@ -272,10 +268,7 @@ fn render(out: &mut String, config: &WiringConfig) {
             out,
             r#"<path class="w-gnd w-bus-branch" d="M {GND_RAIL_X} {y_gnd} L {DEV_X} {y_gnd}"/>
 <circle cx="{DEV_X}" cy="{y_gnd}" r="3" class="dot-gnd"/>
-<text x="{}" y="{}" class="dev-pin">GND</text>
 "#,
-            DEV_X + 6,
-            y_gnd + 8,
         );
 
         match conn {
@@ -286,15 +279,9 @@ fn render(out: &mut String, config: &WiringConfig) {
                     out,
                     r#"<path class="w-sda w-bus-branch" d="M {SDA_RAIL_X} {y_sda} L {DEV_X} {y_sda}"/>
 <circle cx="{DEV_X}" cy="{y_sda}" r="3" class="dot-sda"/>
-<text x="{}" y="{}" class="dev-pin">SDA</text>
 <path class="w-scl w-bus-branch" d="M {SCL_RAIL_X} {y_scl} L {DEV_X} {y_scl}"/>
 <circle cx="{DEV_X}" cy="{y_scl}" r="3" class="dot-scl"/>
-<text x="{}" y="{}" class="dev-pin">SCL</text>
 "#,
-                    DEV_X + 6,
-                    y_sda - 2,
-                    DEV_X + 6,
-                    y_scl - 2,
                 );
             }
             ConnectionType::Gpio => {
@@ -433,13 +420,36 @@ mod tests {
     }
 
     #[test]
-    fn wiring_svg_contains_device_pin_labels() {
+    fn wiring_svg_omits_redundant_device_pin_labels() {
         let cfg = WiringConfig::from_board(BoardProfile::OriginalEsp32);
         let svg = wiring_svg(&cfg);
-        assert!(svg.contains(">SDA<"), "missing SDA device pin label");
-        assert!(svg.contains(">SCL<"), "missing SCL device pin label");
-        assert!(svg.contains(">VCC<"), "missing VCC device pin label");
-        assert!(svg.contains(">GND<"), "missing GND device pin label");
+        assert!(
+            !svg.contains(r#"class="dev-pin""#),
+            "shared-bus layouts should not repeat per-device pin text labels"
+        );
+    }
+
+    #[test]
+    fn wiring_svg_omits_redundant_device_pin_labels_in_compact_profile() {
+        use crate::wiring_config::SensorProfile;
+
+        let cfg = WiringConfig::from_board_with_sensors(
+            BoardProfile::OriginalEsp32,
+            SensorProfile::Minimal,
+        );
+        let svg = wiring_svg(&cfg);
+        assert!(
+            !svg.contains(r#"class="dev-pin""#),
+            "compact shared-bus layouts should not reintroduce per-device pin text labels"
+        );
+        assert_eq!(svg.matches(r#"class="w-vcc w-bus-trunk""#).count(), 1);
+        assert_eq!(svg.matches(r#"class="w-gnd w-bus-trunk""#).count(), 1);
+        assert_eq!(svg.matches(r#"class="w-sda w-bus-trunk""#).count(), 1);
+        assert_eq!(svg.matches(r#"class="w-scl w-bus-trunk""#).count(), 1);
+        assert_eq!(svg.matches(r#"class="w-vcc w-bus-branch""#).count(), 2);
+        assert_eq!(svg.matches(r#"class="w-gnd w-bus-branch""#).count(), 2);
+        assert_eq!(svg.matches(r#"class="w-sda w-bus-branch""#).count(), 2);
+        assert_eq!(svg.matches(r#"class="w-scl w-bus-branch""#).count(), 2);
     }
 
     #[test]

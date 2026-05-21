@@ -1,22 +1,42 @@
 const { test, expect } = require("@playwright/test");
 
 async function postWiring(page, body) {
-  const status = await page.evaluate(async (payload) => {
-    const response = await fetch("/api/wiring", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    return response.status;
-  }, body);
-  expect(status).toBe(200);
+  let lastError;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const status = await page.evaluate(async (payload) => {
+        const response = await fetch("/api/wiring", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        return response.status;
+      }, body);
+      expect(status).toBe(200);
+      lastError = undefined;
+      break;
+    } catch (error) {
+      lastError = error;
+      await page.waitForTimeout(100);
+    }
+  }
+  if (lastError) throw lastError;
 }
 
 async function getWiring(page) {
-  return page.evaluate(async () => {
-    const response = await fetch("/api/wiring");
-    return response.json();
-  });
+  let lastError;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await page.evaluate(async () => {
+        const response = await fetch("/api/wiring");
+        return response.json();
+      });
+    } catch (error) {
+      lastError = error;
+      await page.waitForTimeout(100);
+    }
+  }
+  throw lastError;
 }
 
 async function gotoDashboard(page) {
@@ -37,11 +57,36 @@ async function gotoDashboard(page) {
   await expect(page.locator("#stext")).toContainText("Online");
 }
 
+async function expectNoStandaloneBusLabels(page) {
+  const deviceSideTextNodes = await page.locator("#wiring-svg-wrap svg text").evaluateAll((nodes) =>
+    nodes
+      .map((node) => ({
+        text: node.textContent.replace(/\s+/g, " ").trim(),
+        x: Number(node.getAttribute("x") ?? Number.NaN),
+      }))
+      .filter(({ text, x }) => text && Number.isFinite(x) && x >= 330)
+      .map(({ text }) => text),
+  );
+
+  expect(deviceSideTextNodes).not.toContain("VCC");
+  expect(deviceSideTextNodes).not.toContain("GND");
+  expect(deviceSideTextNodes).not.toContain("SDA");
+  expect(deviceSideTextNodes).not.toContain("SCL");
+}
+
+async function waitForDashboardReady(page) {
+  await page.waitForFunction(() => {
+    const stext = document.querySelector("#stext");
+    return stext && stext.textContent.includes("Online");
+  }, { timeout: 5000 });
+}
+
 test.describe("device dashboard", () => {
   test.beforeEach(async ({ page }) => {
     await gotoDashboard(page);
     await postWiring(page, { sensor_profile: "full" });
     await page.reload({ waitUntil: "load" });
+    await waitForDashboardReady(page);
     await expect(page.locator("#device-toggle-list input[data-device-kind]:checked")).toHaveCount(11);
     await expect(page.locator("#light-card")).toHaveJSProperty("hidden", false);
   });
@@ -53,6 +98,8 @@ test.describe("device dashboard", () => {
     await expect(page.locator("#wiring-svg-wrap svg .w-gnd.w-bus-trunk")).toHaveCount(1);
     await expect(page.locator("#wiring-svg-wrap svg .w-sda.w-bus-trunk")).toHaveCount(1);
     await expect(page.locator("#wiring-svg-wrap svg .w-scl.w-bus-trunk")).toHaveCount(1);
+    await expect(page.locator("#wiring-svg-wrap svg .dev-pin")).toHaveCount(0);
+    await expectNoStandaloneBusLabels(page);
   });
 
   test("applies profile presets to the page and wiring endpoint", async ({ page }) => {
@@ -62,6 +109,12 @@ test.describe("device dashboard", () => {
     await expect(page.locator("#servo-hw-item")).toHaveJSProperty("hidden", true);
     await expect(page.locator("#device-toggle-list input[data-device-kind]:checked")).toHaveCount(2);
     await expect(page.locator("#wiring-svg-wrap svg")).toHaveAttribute("viewBox", "0 0 580 520");
+    await expect(page.locator("#wiring-svg-wrap svg .dev-pin")).toHaveCount(0);
+    await expect(page.locator("#wiring-svg-wrap svg .w-vcc.w-bus-branch")).toHaveCount(2);
+    await expect(page.locator("#wiring-svg-wrap svg .w-gnd.w-bus-branch")).toHaveCount(2);
+    await expect(page.locator("#wiring-svg-wrap svg .w-sda.w-bus-branch")).toHaveCount(2);
+    await expect(page.locator("#wiring-svg-wrap svg .w-scl.w-bus-branch")).toHaveCount(2);
+    await expectNoStandaloneBusLabels(page);
 
     await expect
       .poll(async () => {
@@ -115,6 +168,7 @@ test.describe("device dashboard", () => {
   test("keeps BME280 values live when the LCD is disabled", async ({ page }) => {
     await postWiring(page, { selected_devices: ["bme280"] });
     await page.reload({ waitUntil: "load" });
+    await waitForDashboardReady(page);
 
     await expect(page.locator("#device-toggle-list input[data-device-kind]:checked")).toHaveCount(1);
     await expect(page.locator("#device-toggle-list input[data-device-kind=\"bme280\"]")).toBeChecked();
@@ -148,6 +202,7 @@ test.describe("device dashboard", () => {
   }) => {
     await postWiring(page, { selected_devices: ["ds3231"] });
     await page.reload({ waitUntil: "load" });
+    await waitForDashboardReady(page);
 
     await expect
       .poll(async () => {
@@ -191,6 +246,7 @@ test.describe("device dashboard", () => {
     await expect(page.locator("#servo-value")).not.toHaveText("-- deg");
     await postWiring(page, { selected_devices: ["ds3231"] });
     await page.reload({ waitUntil: "load" });
+    await waitForDashboardReady(page);
 
     await expect(page.locator("#servo-hw-item")).toHaveJSProperty("hidden", true);
     await expect(page.locator("#motor-left-item")).toHaveJSProperty("hidden", true);
@@ -233,6 +289,7 @@ test.describe("device dashboard", () => {
 
     await postWiring(page, { sensor_profile: "minimal" });
     await page.reload({ waitUntil: "load" });
+    await waitForDashboardReady(page);
     await page.locator('#device-toggle-list input[data-device-kind="bh1750"]').check();
     await expect(page.locator("#serr")).toContainText("Device toggle update failed");
   });
@@ -265,6 +322,7 @@ test("serializes rapid profile and device toggle updates so the latest choice wi
   await gotoDashboard(page);
   await postWiring(page, { sensor_profile: "minimal" });
   await page.reload({ waitUntil: "load" });
+  await waitForDashboardReady(page);
   await expect(page.locator("#sensor-profile-select")).toHaveValue("minimal");
   await expect(
     page.locator('#device-toggle-list input[data-device-kind="bh1750"]'),
