@@ -235,6 +235,13 @@ impl DeviceKind {
         }
     }
 
+    pub fn supported_on(self, board: BoardProfile) -> bool {
+        !matches!(
+            (board, self),
+            (BoardProfile::ArduinoNano, DeviceKind::Esp32Cam)
+        )
+    }
+
     fn default_address(self) -> Option<u8> {
         match self {
             DeviceKind::Bme280 => Some(0x77),
@@ -345,6 +352,7 @@ impl WiringConfig {
         sensor_profile: SensorProfile,
         selected_devices: &[DeviceKind],
     ) -> Self {
+        let selected_devices = normalize_supported_device_selection(board, selected_devices);
         Self {
             sda_pin: board.sda_pin().to_string(),
             scl_pin: board.scl_pin().to_string(),
@@ -356,7 +364,7 @@ impl WiringConfig {
             cam_pin: board.cam_pin().to_string(),
             servo_pin: board.servo_pwm_pin().to_string(),
             motor_pin: board.motor_ena_pin().to_string(),
-            devices: normalize_device_selection(selected_devices)
+            devices: selected_devices
                 .into_iter()
                 .map(device_spec_from_kind)
                 .collect(),
@@ -399,12 +407,14 @@ impl WiringConfig {
             .collect();
         let available_devices: Vec<String> = DeviceKind::all()
             .iter()
+            .copied()
+            .filter(|kind| kind.supported_on(self.board))
             .map(|kind| {
                 format!(
                     r#"{{"kind":"{}","label":"{}","enabled":{}}}"#,
                     kind.slug(),
                     json_escape(kind.label()),
-                    self.devices.iter().any(|device| device.kind == *kind)
+                    self.devices.iter().any(|device| device.kind == kind)
                 )
             })
             .collect();
@@ -470,6 +480,16 @@ fn normalize_device_selection(selected_devices: &[DeviceKind]) -> Vec<DeviceKind
         .iter()
         .copied()
         .filter(|kind| selected_devices.contains(kind))
+        .collect()
+}
+
+pub fn normalize_supported_device_selection(
+    board: BoardProfile,
+    selected_devices: &[DeviceKind],
+) -> Vec<DeviceKind> {
+    normalize_device_selection(selected_devices)
+        .into_iter()
+        .filter(|kind| kind.supported_on(board))
         .collect()
 }
 
@@ -643,6 +663,15 @@ mod tests {
     }
 
     #[test]
+    fn wiring_config_nano_full_omits_unsupported_camera_device() {
+        let cfg = WiringConfig::from_board(BoardProfile::ArduinoNano);
+        let kinds: Vec<_> = cfg.devices.iter().map(|d| d.kind).collect();
+
+        assert_eq!(cfg.devices.len(), 10);
+        assert!(!kinds.contains(&DeviceKind::Esp32Cam));
+    }
+
+    #[test]
     fn sensor_profile_from_slug_roundtrips() {
         for (slug, _) in SensorProfile::all() {
             let parsed = SensorProfile::from_slug(slug);
@@ -752,6 +781,14 @@ mod tests {
             .with_bus_labels(true)
             .to_json();
         assert!(detailed_json.contains(r#""show_bus_labels":true"#));
+    }
+
+    #[test]
+    fn wiring_config_json_omits_unsupported_camera_from_nano_dashboard_payload() {
+        let json = WiringConfig::from_board(BoardProfile::ArduinoNano).to_json();
+
+        assert!(!json.contains(r#""kind":"esp32_cam""#));
+        assert!(!json.contains(r#""label":"ESP32-CAM""#));
     }
 
     #[test]

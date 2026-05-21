@@ -35,7 +35,9 @@ use platform_pc_sim::web_dashboard::{
     MotorChannelState, MotorDriverPanelState, RtcPanelState, ServoPanelState, TofPanelState,
     WiringPanelState,
 };
-use platform_pc_sim::wiring_config::{ConnectionType, DeviceKind, SensorProfile, WiringConfig};
+use platform_pc_sim::wiring_config::{
+    normalize_supported_device_selection, ConnectionType, DeviceKind, SensorProfile, WiringConfig,
+};
 use platform_pc_sim::wiring_svg::wiring_svg;
 use reference_drivers::bh1750::{Bh1750Sensor, BH1750_ADDRESS_LOW};
 use reference_drivers::bme280::{Bme280Sensor, BME280_ADDRESS_PRIMARY};
@@ -94,7 +96,10 @@ impl ServerContext {
             wiring_state: Mutex::new(WiringState {
                 board,
                 sensor_profile: SensorProfile::Full,
-                selected_devices: SensorProfile::Full.device_kinds(),
+                selected_devices: normalize_supported_device_selection(
+                    board,
+                    &SensorProfile::Full.device_kinds(),
+                ),
                 show_bus_labels: false,
             }),
             editor_json: Mutex::new("{}".into()),
@@ -303,10 +308,14 @@ impl DeviceSimulationRig {
     fn step(&mut self, wiring_state: &WiringState) -> DeviceDashboardState {
         self.tick = self.tick.wrapping_add(1);
         let tick = self.tick;
-        self.sync_selected_devices(&wiring_state.selected_devices);
+        let selected_devices = normalize_supported_device_selection(
+            wiring_state.board,
+            &wiring_state.selected_devices,
+        );
+        self.sync_selected_devices(&selected_devices);
         self.bus.clear_operations();
 
-        let is_enabled = |kind: DeviceKind| wiring_state.selected_devices.contains(&kind);
+        let is_enabled = |kind: DeviceKind| selected_devices.contains(&kind);
         let bme280_enabled = is_enabled(DeviceKind::Bme280);
         let lcd_enabled = is_enabled(DeviceKind::Lcd1602);
 
@@ -451,7 +460,7 @@ impl DeviceSimulationRig {
         let wiring_config = dashboard_wiring_config(
             wiring_state.board,
             wiring_state.sensor_profile,
-            &wiring_state.selected_devices,
+            &selected_devices,
             wiring_state.show_bus_labels,
         );
         let attached_devices = wiring_config
@@ -588,8 +597,7 @@ impl DeviceSimulationRig {
                 ground_pin: wiring_config.ground_pin.clone(),
                 diagram_lines: build_wiring_diagram(&wiring_config),
                 attached_devices,
-                selected_devices: wiring_state
-                    .selected_devices
+                selected_devices: selected_devices
                     .iter()
                     .map(|kind| kind.slug().to_string())
                     .collect(),
@@ -1266,6 +1274,8 @@ fn handle_connection(
                 if let Some(show_bus_labels) = parse_json_bool_field(body, "show_bus_labels") {
                     ws.show_bus_labels = show_bus_labels;
                 }
+                ws.selected_devices =
+                    normalize_supported_device_selection(ws.board, &ws.selected_devices);
                 ws.clone()
             };
             let payload = dashboard_wiring_config(
@@ -1911,6 +1921,50 @@ mod tests {
         assert!(svg_response.contains("BME280"));
         assert!(svg_response.contains("Servo"));
         assert!(!svg_response.contains("MPU6050"));
+
+        server.join().expect("server thread should exit");
+    }
+
+    #[test]
+    fn wiring_endpoint_filters_unsupported_camera_from_arduino_nano() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("listener should bind");
+        let addr = listener
+            .local_addr()
+            .expect("listener should have local addr");
+        let ctx = ServerContext::new(BoardProfile::OriginalEsp32);
+
+        let (board_tx, board_rx) = mpsc::channel::<BoardProfile>();
+        drop(board_rx);
+
+        let ctx_for_thread = Arc::clone(&ctx);
+        let server = thread::spawn(move || {
+            for _ in 0..3 {
+                let (stream, _) = listener.accept().expect("test client should connect");
+                handle_connection(stream, Arc::clone(&ctx_for_thread), board_tx.clone());
+            }
+        });
+
+        let body = r#"{"board":"arduino-nano","sensor_profile":"full"}"#;
+        let post_request = format!(
+            "POST /api/wiring HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let post_response = send_request(addr, &post_request);
+        assert!(post_response.contains("\"board\":\"nano\""));
+        assert!(!post_response.contains("\"esp32_cam\""));
+        assert!(!post_response.contains("ESP32-CAM"));
+
+        let wiring_response =
+            send_request(addr, "GET /api/wiring HTTP/1.1\r\nHost: localhost\r\n\r\n");
+        assert!(!wiring_response.contains("\"esp32_cam\""));
+
+        let svg_response = send_request(
+            addr,
+            "GET /api/wiring/svg HTTP/1.1\r\nHost: localhost\r\n\r\n",
+        );
+        assert!(!svg_response.contains("CAM/N/A"));
+        assert!(!svg_response.contains("GPIO:N/A"));
 
         server.join().expect("server thread should exit");
     }

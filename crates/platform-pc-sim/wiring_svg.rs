@@ -137,7 +137,31 @@ fn render(out: &mut String, config: &WiringConfig) {
             cy + 4,
         );
     }
-    for (cy, dot_cls) in [(P_PWM, "dot-pwm"), (P_MOT, "dot-pwm"), (P_GPIO, "dot-gpio")] {
+    let has_servo = config
+        .devices
+        .iter()
+        .any(|device| device.kind == DeviceKind::Servo);
+    let has_motor = config
+        .devices
+        .iter()
+        .any(|device| device.kind == DeviceKind::L298n);
+    let has_sonar = config
+        .devices
+        .iter()
+        .any(|device| device.kind == DeviceKind::HcSr04);
+    let has_camera = config
+        .devices
+        .iter()
+        .any(|device| device.kind == DeviceKind::Esp32Cam);
+
+    for (enabled, cy, dot_cls) in [
+        (has_servo, P_PWM, "dot-pwm"),
+        (has_motor, P_MOT, "dot-pwm"),
+        (has_sonar || has_camera, P_GPIO, "dot-gpio"),
+    ] {
+        if !enabled {
+            continue;
+        }
         let _ = write!(
             out,
             r#"<circle cx="{BOARD_R}" cy="{cy}" r="4" class="{dot_cls}"/>
@@ -146,44 +170,78 @@ fn render(out: &mut String, config: &WiringConfig) {
     }
 
     // GPIO pin group label block
-    let gpio_y = BOARD_Y + 330;
-    let _ = write!(
-        out,
-        r#"<text x="{}" y="{}" class="pcb-sub" text-anchor="middle">GPIO</text>
-<text x="{}" y="{}" class="pcb-pin" text-anchor="end">TRIG/{}</text>
-<text x="{}" y="{}" class="pcb-pin" text-anchor="end">ECHO/{}</text>
-<text x="{}" y="{}" class="pcb-pin" text-anchor="end">CAM/{}</text>
+    if has_sonar || has_camera {
+        let gpio_y = BOARD_Y + 330;
+        let _ = write!(
+            out,
+            r#"<text x="{}" y="{}" class="pcb-sub" text-anchor="middle">GPIO</text>
 "#,
-        cx,
-        gpio_y - 6,
-        BOARD_R - 7,
-        gpio_y + 8,
-        config.trig_pin,
-        BOARD_R - 7,
-        gpio_y + 22,
-        config.echo_pin,
-        BOARD_R - 7,
-        gpio_y + 36,
-        config.cam_pin,
-    );
+            cx,
+            gpio_y - 6,
+        );
+        let mut gpio_line_index = 0;
+        if has_sonar {
+            let trig_y = gpio_y + 8 + gpio_line_index * 14;
+            let echo_y = trig_y + 14;
+            let _ = write!(
+                out,
+                r#"<text x="{}" y="{}" class="pcb-pin" text-anchor="end">TRIG/{}</text>
+<text x="{}" y="{}" class="pcb-pin" text-anchor="end">ECHO/{}</text>
+"#,
+                BOARD_R - 7,
+                trig_y,
+                config.trig_pin,
+                BOARD_R - 7,
+                echo_y,
+                config.echo_pin,
+            );
+            gpio_line_index += 2;
+        }
+        if has_camera {
+            let cam_y = gpio_y + 8 + gpio_line_index * 14;
+            let _ = write!(
+                out,
+                r#"<text x="{}" y="{}" class="pcb-pin" text-anchor="end">CAM/{}</text>
+"#,
+                BOARD_R - 7,
+                cam_y,
+                config.cam_pin,
+            );
+        }
+    }
 
     // PWM pin group label block
-    let pwm_y = BOARD_Y + 255;
-    let _ = write!(
-        out,
-        r#"<text x="{}" y="{}" class="pcb-sub" text-anchor="middle">PWM</text>
-<text x="{}" y="{}" class="pcb-pin" text-anchor="end">SRV/{}</text>
-<text x="{}" y="{}" class="pcb-pin" text-anchor="end">MOT/{}</text>
+    if has_servo || has_motor {
+        let pwm_y = BOARD_Y + 255;
+        let _ = write!(
+            out,
+            r#"<text x="{}" y="{}" class="pcb-sub" text-anchor="middle">PWM</text>
 "#,
-        cx,
-        pwm_y - 6,
-        BOARD_R - 7,
-        pwm_y + 8,
-        config.servo_pin,
-        BOARD_R - 7,
-        pwm_y + 22,
-        config.motor_pin,
-    );
+            cx,
+            pwm_y - 6,
+        );
+        if has_servo {
+            let _ = write!(
+                out,
+                r#"<text x="{}" y="{}" class="pcb-pin" text-anchor="end">SRV/{}</text>
+"#,
+                BOARD_R - 7,
+                pwm_y + 8,
+                config.servo_pin,
+            );
+        }
+        if has_motor {
+            let mot_y = if has_servo { pwm_y + 22 } else { pwm_y + 8 };
+            let _ = write!(
+                out,
+                r#"<text x="{}" y="{}" class="pcb-pin" text-anchor="end">MOT/{}</text>
+"#,
+                BOARD_R - 7,
+                mot_y,
+                config.motor_pin,
+            );
+        }
+    }
 
     let draw_bus_feed = |out: &mut String, cls: &str, board_y: i32, rail_x: i32, dot_cls: &str| {
         let cp = BOARD_R + (rail_x - BOARD_R) * 6 / 10;
@@ -565,5 +623,47 @@ mod tests {
             svg.contains(r#"viewBox="0 0 580 520""#),
             "minimal wiring SVG should keep the compact default height"
         );
+    }
+
+    #[test]
+    fn wiring_svg_hides_unused_pwm_and_gpio_groups_in_minimal_profile() {
+        use crate::wiring_config::SensorProfile;
+
+        let cfg = WiringConfig::from_board_with_sensors(
+            BoardProfile::OriginalEsp32,
+            SensorProfile::Minimal,
+        );
+        let svg = wiring_svg(&cfg);
+
+        assert!(!svg.contains(">PWM<"));
+        assert!(!svg.contains(">GPIO<"));
+        assert!(!svg.contains("SRV/GPIO13"));
+        assert!(!svg.contains("MOT/GPIO25"));
+        assert!(!svg.contains("TRIG/GPIO5"));
+        assert!(!svg.contains("CAM/GPIO0"));
+    }
+
+    #[test]
+    fn wiring_svg_hides_camera_board_label_when_camera_is_not_selected() {
+        use crate::wiring_config::SensorProfile;
+
+        let cfg = WiringConfig::from_board_with_sensors(
+            BoardProfile::OriginalEsp32,
+            SensorProfile::RobotBase,
+        );
+        let svg = wiring_svg(&cfg);
+
+        assert!(svg.contains("TRIG/GPIO5"));
+        assert!(svg.contains("ECHO/GPIO18"));
+        assert!(!svg.contains("CAM/GPIO0"));
+    }
+
+    #[test]
+    fn wiring_svg_hides_nano_camera_placeholder_when_unsupported() {
+        let cfg = WiringConfig::from_board(BoardProfile::ArduinoNano);
+        let svg = wiring_svg(&cfg);
+
+        assert!(!svg.contains("CAM/N/A"));
+        assert!(!svg.contains("GPIO:N/A"));
     }
 }

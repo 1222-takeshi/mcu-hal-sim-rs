@@ -52,7 +52,9 @@ async function gotoDashboard(page) {
     }
   }
   if (lastError) throw lastError;
-  await expect(page.locator("#device-toggle-list input[data-device-kind]")).toHaveCount(11);
+  await expect
+    .poll(async () => page.locator("#device-toggle-list input[data-device-kind]").count())
+    .toBeGreaterThan(0);
   await expect(page.locator("#wiring-svg-wrap svg")).toBeVisible();
   await expect(page.locator("#stext")).toContainText("Online");
 }
@@ -104,10 +106,22 @@ async function waitForDashboardReady(page) {
   }, { timeout: 5000 });
 }
 
+async function wiringTextNodes(page) {
+  return page.locator("#wiring-svg-wrap svg text").evaluateAll((nodes) =>
+    nodes
+      .map((node) => node.textContent.replace(/\s+/g, " ").trim())
+      .filter(Boolean),
+  );
+}
+
 test.describe("device dashboard", () => {
   test.beforeEach(async ({ page }) => {
     await gotoDashboard(page);
-    await postWiring(page, { sensor_profile: "full", show_bus_labels: false });
+    await postWiring(page, {
+      board: "original-esp32",
+      sensor_profile: "full",
+      show_bus_labels: false,
+    });
     await page.reload({ waitUntil: "load" });
     await waitForDashboardReady(page);
     await expect(page.locator("#device-toggle-list input[data-device-kind]:checked")).toHaveCount(11);
@@ -238,6 +252,96 @@ test.describe("device dashboard", () => {
 
     await expect(page.locator("#device-toggle-list input[data-device-kind]:checked")).toHaveCount(2);
     await expect(page.locator("#wiring-svg-wrap svg .dev-pin")).toHaveCount(8);
+  });
+
+  test("filters unsupported camera wiring from Arduino Nano full profile", async ({ page }) => {
+    await page.selectOption("#board-select", "arduino-nano");
+
+    await expect(page.locator('#device-toggle-list input[data-device-kind="esp32_cam"]')).toHaveCount(0);
+    await expect(page.locator("#camera-card")).toHaveJSProperty("hidden", true);
+
+    await expect
+      .poll(async () => {
+        const data = await getWiring(page);
+        return JSON.stringify({
+          selected_devices: data.selected_devices,
+          available_devices: data.available_devices.map((device) => device.kind),
+        });
+      })
+      .toBe(
+        JSON.stringify({
+          selected_devices: [
+            "bme280",
+            "mpu6050",
+            "lcd1602",
+            "bh1750",
+            "ds3231",
+            "sgp30",
+            "vl53l0x",
+            "servo",
+            "l298n",
+            "hc_sr04",
+          ],
+          available_devices: [
+            "bme280",
+            "mpu6050",
+            "lcd1602",
+            "bh1750",
+            "ds3231",
+            "sgp30",
+            "vl53l0x",
+            "servo",
+            "l298n",
+            "hc_sr04",
+          ],
+        }),
+      );
+
+    const textNodes = await wiringTextNodes(page);
+    expect(textNodes).not.toContain("ESP32-CAM");
+    expect(textNodes).not.toContain("CAM/N/A");
+    expect(textNodes).not.toContain("GPIO:N/A");
+  });
+
+  test("hides unused board pin groups outside full hardware layouts", async ({ page }) => {
+    await page.selectOption("#sensor-profile-select", "minimal");
+    await expect(page.locator("#device-toggle-list input[data-device-kind]:checked")).toHaveCount(2);
+    await expect
+      .poll(async () => {
+        const data = await getWiring(page);
+        return data.sensor_profile;
+      })
+      .toBe("minimal");
+
+    let textNodes = await wiringTextNodes(page);
+    expect(textNodes).not.toContain("PWM");
+    expect(textNodes).not.toContain("GPIO");
+    expect(textNodes).not.toContain("SRV/GPIO13");
+    expect(textNodes).not.toContain("TRIG/GPIO5");
+    expect(textNodes).not.toContain("CAM/GPIO0");
+
+    await page.selectOption("#sensor-profile-select", "robot");
+    await expect
+      .poll(async () => {
+        const data = await getWiring(page);
+        return JSON.stringify({
+          sensor_profile: data.sensor_profile,
+          selected_devices: [...data.selected_devices].sort(),
+        });
+      })
+      .toBe(
+        JSON.stringify({
+          sensor_profile: "robot",
+          selected_devices: ["mpu6050", "vl53l0x", "hc_sr04", "servo", "l298n"].sort(),
+        }),
+      );
+
+    textNodes = await wiringTextNodes(page);
+    expect(textNodes).toContain("PWM");
+    expect(textNodes).toContain("GPIO");
+    expect(textNodes).toContain("TRIG/GPIO5");
+    expect(textNodes).toContain("ECHO/GPIO18");
+    expect(textNodes).not.toContain("CAM/GPIO0");
   });
 
   test("keeps detailed bus labels enabled when device selection changes", async ({ page }) => {
