@@ -70,6 +70,7 @@ pub struct WiringPanelState {
     pub power_pin: String,
     pub ground_pin: String,
     pub attached_devices: Vec<String>,
+    pub selected_devices: Vec<String>,
     pub diagram_lines: Vec<String>,
 }
 
@@ -116,7 +117,7 @@ pub fn state_to_json(state: &DeviceDashboardState) -> String {
     let mut output = String::new();
     let _ = write!(
         output,
-        "{{\"board_name\":{},\"mcu_name\":{},\"tick\":{},\"climate\":{{\"temperature_c\":{},\"humidity_percent\":{},\"pressure_pa\":{},\"app_frame\":[{},{}],\"physical_lcd_frame\":[{},{}]}},\"distance\":{{\"distance_mm\":{},\"sensor_name\":{}}},\"imu\":{{\"sensor_name\":{},\"accel_mg\":[{},{},{}],\"gyro_mdps\":[{},{},{}],\"temperature_c\":{}}},\"servo\":{{\"angle_degrees\":{}}},\"motor_driver\":{{\"driver_name\":{},\"left\":{{\"direction\":{},\"duty_percent\":{}}},\"right\":{{\"direction\":{},\"duty_percent\":{}}}}},\"wiring\":{{\"sda_pin\":{},\"scl_pin\":{},\"power_pin\":{},\"ground_pin\":{},\"attached_devices\":[{}],\"diagram_lines\":[{}]}},\"i2c\":{{\"operation_count\":{},\"recent_operations\":[{}]}},\"light\":{{\"lux_x100\":{},\"lux\":{},\"sensor_name\":{}}},\"camera\":{{\"width\":{},\"height\":{},\"sequence\":{},\"sensor_name\":{}}},\"gas\":{{\"co2_ppm\":{},\"voc_ppb\":{},\"sensor_name\":{}}},\"rtc\":{{\"datetime_str\":{},\"sensor_name\":{}}},\"tof\":{{\"distance_mm\":{},\"sensor_name\":{}}}}}",
+        "{{\"board_name\":{},\"mcu_name\":{},\"tick\":{},\"climate\":{{\"temperature_c\":{},\"humidity_percent\":{},\"pressure_pa\":{},\"app_frame\":[{},{}],\"physical_lcd_frame\":[{},{}]}},\"distance\":{{\"distance_mm\":{},\"sensor_name\":{}}},\"imu\":{{\"sensor_name\":{},\"accel_mg\":[{},{},{}],\"gyro_mdps\":[{},{},{}],\"temperature_c\":{}}},\"servo\":{{\"angle_degrees\":{}}},\"motor_driver\":{{\"driver_name\":{},\"left\":{{\"direction\":{},\"duty_percent\":{}}},\"right\":{{\"direction\":{},\"duty_percent\":{}}}}},\"wiring\":{{\"sda_pin\":{},\"scl_pin\":{},\"power_pin\":{},\"ground_pin\":{},\"attached_devices\":[{}],\"selected_devices\":[{}],\"diagram_lines\":[{}]}},\"i2c\":{{\"operation_count\":{},\"recent_operations\":[{}]}},\"light\":{{\"lux_x100\":{},\"lux\":{},\"sensor_name\":{}}},\"camera\":{{\"width\":{},\"height\":{},\"sequence\":{},\"sensor_name\":{}}},\"gas\":{{\"co2_ppm\":{},\"voc_ppb\":{},\"sensor_name\":{}}},\"rtc\":{{\"datetime_str\":{},\"sensor_name\":{}}},\"tof\":{{\"distance_mm\":{},\"sensor_name\":{}}}}}",
         json_string(&state.board_name),
         json_string(&state.mcu_name),
         state.tick,
@@ -148,6 +149,7 @@ pub fn state_to_json(state: &DeviceDashboardState) -> String {
         json_string(&state.wiring.power_pin),
         json_string(&state.wiring.ground_pin),
         join_json_strings(&state.wiring.attached_devices),
+        join_json_strings(&state.wiring.selected_devices),
         join_json_strings(&state.wiring.diagram_lines),
         state.i2c.operation_count,
         join_json_strings(&state.i2c.recent_operations),
@@ -380,6 +382,9 @@ pub fn dashboard_html() -> &'static str {
     .lcd-line { white-space: pre; }
     /* ── Wiring / I2C ── */
     .wiring { font-family: "IBM Plex Mono",monospace; white-space: pre-wrap; line-height: 1.45; font-size: 13px; }
+    .toggle-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:8px; margin:10px 0 8px; }
+    .device-toggle { display:flex; align-items:center; gap:8px; padding:8px 10px; border:1px solid var(--line); border-radius:10px; background:var(--paper); font-size:12px; color:var(--ink); }
+    .device-toggle input { accent-color:#4caf50; }
     .ops { margin: 0; padding: 0; list-style: none; font-family: "IBM Plex Mono",monospace; font-size: 13px; }
     .ops li { padding: 8px 0; border-bottom: 1px solid var(--line); }
     /* ── IMU axes ── */
@@ -469,7 +474,7 @@ pub fn dashboard_html() -> &'static str {
         <h1 class="hero-title" id="board-name">Device Dashboard</h1>
         <p class="hero-sub">
           Reference-path GUI for climate, distance, IMU, servo, and motor-driver simulation.
-          The page receives real-time push updates from the host simulator via WebSocket.
+          The page receives real-time push updates from the host simulator via Server-Sent Events.
         </p>
         <div class="hero-meta">
           <span class="chip" id="mcu-name">MCU</span>
@@ -484,7 +489,7 @@ pub fn dashboard_html() -> &'static str {
           <div class="label">Servo</div>
           <div class="big" id="servo-value">-- deg</div>
         </div>
-        <div class="label">WebSocket live updates via <code>/api/ws</code></div>
+        <div class="label">SSE live updates via <code>/api/events</code></div>
       </aside>
     </section>
 
@@ -492,7 +497,7 @@ pub fn dashboard_html() -> &'static str {
     <section class="grid">
 
       <!-- Climate -->
-      <article class="panel card span-6">
+      <article class="panel card span-6" id="climate-card">
         <h2>Climate</h2>
         <div class="metric-row">
           <div class="metric">
@@ -526,7 +531,7 @@ pub fn dashboard_html() -> &'static str {
       </article>
 
       <!-- LCD -->
-      <article class="panel card span-6">
+      <article class="panel card span-6" id="lcd-card">
         <h2>LCD</h2>
         <div class="lcd">
           <div class="lcd-line" id="lcd-line-1">                </div>
@@ -536,7 +541,7 @@ pub fn dashboard_html() -> &'static str {
       </article>
 
       <!-- HC-SR04 -->
-      <article class="panel card span-4">
+      <article class="panel card span-4" id="distance-card">
         <h2>HC-SR04</h2>
         <div class="metric">
           <div class="name" id="distance-sensor-name">Distance Sensor</div>
@@ -575,7 +580,7 @@ pub fn dashboard_html() -> &'static str {
       </article>
 
       <!-- MPU6050 -->
-      <article class="panel card span-4">
+      <article class="panel card span-4" id="imu-card">
         <h2>MPU6050</h2>
         <div class="axis">
           <div><div class="name">Accel X</div><div class="val" id="accel-x">--</div></div>
@@ -607,7 +612,7 @@ pub fn dashboard_html() -> &'static str {
       </article>
 
       <!-- Motor Driver -->
-      <article class="panel card span-4">
+      <article class="panel card span-4" id="motor-card">
         <h2>Motor Driver</h2>
         <div class="motor">
           <div class="metric">
@@ -622,7 +627,7 @@ pub fn dashboard_html() -> &'static str {
       </article>
 
       <!-- Light Sensor (BH1750) -->
-      <article class="panel card span-4">
+      <article class="panel card span-4" id="light-card">
         <h2 id="light-sensor-name">BH1750</h2>
         <div class="metric">
           <div class="name">Illuminance</div>
@@ -638,7 +643,7 @@ pub fn dashboard_html() -> &'static str {
       </article>
 
       <!-- Camera (ESP32-CAM) -->
-      <article class="panel card span-4">
+      <article class="panel card span-4" id="camera-card">
         <h2 id="camera-sensor-name">ESP32-CAM</h2>
         <div class="metric">
           <div class="name">Resolution</div>
@@ -652,7 +657,7 @@ pub fn dashboard_html() -> &'static str {
       </article>
 
       <!-- Gas Sensor (SGP30) -->
-      <article class="panel card span-4">
+      <article class="panel card span-4" id="gas-card">
         <h2 id="gas-sensor-name">SGP30</h2>
         <div class="metric">
           <div class="name">CO&#x2082;</div>
@@ -666,7 +671,7 @@ pub fn dashboard_html() -> &'static str {
       </article>
 
       <!-- RTC (DS3231) -->
-      <article class="panel card span-4">
+      <article class="panel card span-4" id="rtc-card">
         <h2 id="rtc-sensor-name">DS3231</h2>
         <div class="metric">
           <div class="name">DateTime</div>
@@ -676,7 +681,7 @@ pub fn dashboard_html() -> &'static str {
       </article>
 
       <!-- ToF Distance (VL53L0X) -->
-      <article class="panel card span-4">
+      <article class="panel card span-4" id="tof-card">
         <h2 id="tof-sensor-name">VL53L0X</h2>
         <div class="metric">
           <div class="name">Distance</div>
@@ -691,7 +696,7 @@ pub fn dashboard_html() -> &'static str {
         <div class="hw-sim-grid">
 
           <!-- LED -->
-          <div class="hw-item">
+          <div class="hw-item" id="led-hw-item">
             <div class="hw-name">&#x1F4A1; LED</div>
             <svg id="led-svg" viewBox="0 0 80 100" width="80" height="100">
               <defs>
@@ -728,7 +733,7 @@ pub fn dashboard_html() -> &'static str {
           </div>
 
           <!-- Servo -->
-          <div class="hw-item">
+          <div class="hw-item" id="servo-hw-item">
             <div class="hw-name">&#x2699; Servo</div>
             <svg id="servo-svg" viewBox="0 0 120 114" width="120" height="114">
               <rect x="20" y="62" width="80" height="42" rx="6" fill="#1e2a3a" stroke="#445"/>
@@ -750,7 +755,7 @@ pub fn dashboard_html() -> &'static str {
           </div>
 
           <!-- Motor Left -->
-          <div class="hw-item">
+          <div class="hw-item" id="motor-left-item">
             <div class="hw-name">&#x1F504; Motor L</div>
             <svg viewBox="0 0 90 104" width="90" height="104">
               <circle cx="45" cy="45" r="36" fill="#111820" stroke="#334" stroke-width="1.5"/>
@@ -772,7 +777,7 @@ pub fn dashboard_html() -> &'static str {
           </div>
 
           <!-- Motor Right -->
-          <div class="hw-item">
+          <div class="hw-item" id="motor-right-item">
             <div class="hw-name">&#x1F504; Motor R</div>
             <svg viewBox="0 0 90 104" width="90" height="104">
               <circle cx="45" cy="45" r="36" fill="#111820" stroke="#334" stroke-width="1.5"/>
@@ -807,6 +812,7 @@ pub fn dashboard_html() -> &'static str {
           <select id="sensor-profile-select" style="font-size:12px;background:#1a2a1a;color:#7bc47b;border:1px solid #3d7a3d;border-radius:4px;padding:2px 6px;cursor:pointer">
           </select>
         </h2>
+        <div id="device-toggle-list" class="toggle-grid"></div>
         <div id="wiring-svg-wrap" style="width:100%;overflow-x:auto;min-height:180px"></div>
         <div class="footer" style="margin-top:6px">
           Attached: <span id="wiring-devices" style="font-family:monospace">--</span>
@@ -898,13 +904,15 @@ pub fn dashboard_html() -> &'static str {
 
     // ── Status bar ──
     let lastOkMs = null, errCount = 0;
+    function clearErr() {
+      document.getElementById("serr").textContent = "";
+    }
     function setOk() {
       const now = Date.now();
       const ago = lastOkMs ? (now - lastOkMs) + " ms ago" : "just now";
       lastOkMs = now; errCount = 0;
       document.getElementById("sdot").className = "sdot ok";
       document.getElementById("stext").textContent = "Online \u00B7 updated " + ago;
-      document.getElementById("serr").textContent = "";
     }
     function setErr(msg) {
       errCount++;
@@ -916,7 +924,46 @@ pub fn dashboard_html() -> &'static str {
     // ── DOM helpers ──
     const $ = id => document.getElementById(id);
     const fmt = (v, sfx) => v == null ? "--" : v + sfx;
+    const LCD_BLANK = "                ";
     const lcdLines = ["lcd-line-1","lcd-line-2"].map(id => $(id));
+    function setSectionVisible(id, visible) {
+      const el = $(id);
+      if (el) el.hidden = !visible;
+    }
+    function renderDeviceToggles(devices) {
+      const host = $("device-toggle-list");
+      if (!host) return;
+      host.innerHTML = "";
+      devices.forEach(device => {
+        const label = document.createElement("label");
+        label.className = "device-toggle";
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.checked = !!device.enabled;
+        input.dataset.deviceKind = device.kind;
+        input.addEventListener("change", changeDeviceToggle);
+        const text = document.createElement("span");
+        text.textContent = device.label;
+        label.appendChild(input);
+        label.appendChild(text);
+        host.appendChild(label);
+      });
+    }
+    function applyDeviceSelection(selectedDevices) {
+      const enabled = new Set(selectedDevices || []);
+      setSectionVisible("distance-card", enabled.has("hc_sr04"));
+      setSectionVisible("imu-card", enabled.has("mpu6050"));
+      setSectionVisible("motor-card", enabled.has("l298n"));
+      setSectionVisible("light-card", enabled.has("bh1750"));
+      setSectionVisible("camera-card", enabled.has("esp32_cam"));
+      setSectionVisible("gas-card", enabled.has("sgp30"));
+      setSectionVisible("rtc-card", enabled.has("ds3231"));
+      setSectionVisible("tof-card", enabled.has("vl53l0x"));
+      setSectionVisible("servo-hw-item", enabled.has("servo"));
+      setSectionVisible("motor-left-item", enabled.has("l298n"));
+      setSectionVisible("motor-right-item", enabled.has("l298n"));
+      return enabled;
+    }
 
     // ── Motor animation (requestAnimationFrame loop) ──
     const mAngle = { left: 0, right: 0 };
@@ -1009,48 +1056,128 @@ pub fn dashboard_html() -> &'static str {
     }
 
     // ── Wiring diagram (loaded once at startup, then refreshed every 5s) ──
+    function wiringErrorMessage(action, err) {
+      return `${action} failed: ${err && err.message ? err.message : "unknown error"}`;
+    }
+    async function fetchJsonOrThrow(url, action) {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`${action} returned HTTP ${response.status}`);
+      return response.json();
+    }
+    async function fetchTextOrThrow(url, action) {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`${action} returned HTTP ${response.status}`);
+      return response.text();
+    }
     async function loadWiringDiagram() {
       try {
-        const r = await fetch("/api/wiring/svg");
-        if (!r.ok) return;
-        const svg = await r.text();
+        const svg = await fetchTextOrThrow("/api/wiring/svg", "load wiring diagram");
         const wrap = $("wiring-svg-wrap");
-        if (wrap) wrap.innerHTML = svg;
-      } catch(_) {}
+        if (wrap) {
+          wrap.innerHTML = svg;
+          clearErr();
+        }
+      } catch(err) {
+        setErr(wiringErrorMessage("Wiring diagram", err));
+      }
     }
-    async function changeWiringConfig() {
+    async function refreshWiringUi() {
+      await loadWiringConfig();
+      await loadWiringDiagram();
+    }
+    let wiringUpdatePromise = Promise.resolve();
+    function queueWiringUpdate(task) {
+      wiringUpdatePromise = wiringUpdatePromise
+        .catch(() => {})
+        .then(task);
+      return wiringUpdatePromise;
+    }
+    function changeWiringConfig() {
+      const profileSel = $("sensor-profile-select");
+      const boardSel = $("board-select");
+      const body = {};
+      if (boardSel) body.board = boardSel.value;
+      if (profileSel) body.sensor_profile = profileSel.value;
+      return queueWiringUpdate(async () => {
+        try {
+          const response = await fetch("/api/wiring", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          if (!response.ok) {
+            throw new Error(`update returned HTTP ${response.status}`);
+          }
+          await refreshWiringUi();
+          clearErr();
+        } catch(err) {
+          setErr(wiringErrorMessage("Wiring update", err));
+        }
+      });
+    }
+    function changeDeviceToggle() {
+      const boardSel = $("board-select");
+      const profileSel = $("sensor-profile-select");
+      const selectedDevices = Array.from(document.querySelectorAll('#device-toggle-list input[data-device-kind]:checked'))
+        .map(input => input.dataset.deviceKind);
+      const body = { selected_devices: selectedDevices };
+      if (boardSel) body.board = boardSel.value;
+      if (profileSel) body.sensor_profile = profileSel.value;
+      return queueWiringUpdate(async () => {
+        try {
+          const response = await fetch("/api/wiring", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          if (!response.ok) {
+            throw new Error(`update returned HTTP ${response.status}`);
+          }
+          await refreshWiringUi();
+          clearErr();
+        } catch(err) {
+          setErr(wiringErrorMessage("Device toggle update", err));
+        }
+      });
+    }
+    async function loadWiringConfig() {
       try {
+        const data = await fetchJsonOrThrow("/api/wiring", "load wiring config");
         const boardSel = $("board-select");
         const profileSel = $("sensor-profile-select");
-        const body = {};
-        if (boardSel) body.board = boardSel.value;
-        if (profileSel) body.sensor_profile = profileSel.value;
-        await fetch("/api/wiring", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-        await loadWiringDiagram();
-      } catch(_) {}
+        if (boardSel) boardSel.value = data.board === "nano" ? "arduino-nano" : "original-esp32";
+        if (profileSel) profileSel.value = data.sensor_profile;
+        renderDeviceToggles(data.available_devices || []);
+        applyDeviceSelection(data.selected_devices || []);
+      } catch(err) {
+        setErr(wiringErrorMessage("Wiring config", err));
+      }
     }
     async function initProfileSelect() {
       try {
-        const res = await fetch("/api/wiring/profiles");
-        const data = await res.json();
+        const data = await fetchJsonOrThrow("/api/wiring/profiles", "load wiring profiles");
         const sel = $("sensor-profile-select");
         if (!sel) return;
         sel.innerHTML = data.profiles
           .map(p => `<option value="${p.slug}">${p.name}</option>`)
           .join("");
-      } catch(_) {}
+      } catch(err) {
+        setErr(wiringErrorMessage("Wiring profiles", err));
+      }
     }
     const boardSel = $("board-select");
     if (boardSel) boardSel.addEventListener("change", changeWiringConfig);
     const profileSel = $("sensor-profile-select");
     if (profileSel) profileSel.addEventListener("change", changeWiringConfig);
-    initProfileSelect();
-    loadWiringDiagram();
-    setInterval(loadWiringDiagram, 5000);
+    queueWiringUpdate(async () => {
+      await initProfileSelect();
+      await refreshWiringUi();
+    });
+    setInterval(() => {
+      queueWiringUpdate(async () => {
+        await loadWiringDiagram();
+      });
+    }, 5000);
 
     // ── Reactive wiring flash: I2C activity → SDA/SCL glow ──
     let lastI2cFirstOp = '';
@@ -1073,39 +1200,51 @@ pub fn dashboard_html() -> &'static str {
       }, 180);
     }
 
-    // ── Main render (called from WebSocket messages) ──
+    // ── Main render (called from SSE messages) ──
     let paused = false;
     function renderState(s) {
       if (paused) return;
+      const enabled = applyDeviceSelection(s.wiring.selected_devices);
+      const bme280Enabled = enabled.has("bme280");
+      const lcdEnabled = enabled.has("lcd1602");
+      const hcSr04Enabled = enabled.has("hc_sr04");
+      const imuEnabled = enabled.has("mpu6050");
+      const servoEnabled = enabled.has("servo");
+      const motorEnabled = enabled.has("l298n");
+      const lightEnabled = enabled.has("bh1750");
+      const cameraEnabled = enabled.has("esp32_cam");
+      const gasEnabled = enabled.has("sgp30");
+      const rtcEnabled = enabled.has("ds3231");
+      const tofEnabled = enabled.has("vl53l0x");
 
       $("board-name").textContent = s.board_name;
       $("mcu-name").textContent   = s.mcu_name;
       $("tick-chip").textContent  = "tick=" + s.tick;
       $("i2c-chip").textContent   = "i2c ops=" + s.i2c.operation_count;
 
-      $("temp-value").textContent  = fmt(s.climate.temperature_c,    " \u00B0C");
-      $("hum-value").textContent   = fmt(s.climate.humidity_percent, " %");
-      $("press-value").textContent = fmt(s.climate.pressure_pa,      " Pa");
-      lcdLines[0].textContent = s.climate.physical_lcd_frame[0];
-      lcdLines[1].textContent = s.climate.physical_lcd_frame[1];
+      $("temp-value").textContent  = bme280Enabled ? fmt(s.climate.temperature_c,    " \u00B0C") : "--";
+      $("hum-value").textContent   = bme280Enabled ? fmt(s.climate.humidity_percent, " %") : "--";
+      $("press-value").textContent = bme280Enabled ? fmt(s.climate.pressure_pa,      " Pa") : "--";
+      lcdLines[0].textContent = lcdEnabled ? s.climate.physical_lcd_frame[0] : LCD_BLANK;
+      lcdLines[1].textContent = lcdEnabled ? s.climate.physical_lcd_frame[1] : LCD_BLANK;
 
-      $("distance-value").textContent       = fmt(s.distance.distance_mm, " mm");
-      $("distance-metric").textContent      = fmt(s.distance.distance_mm, " mm");
+      $("distance-value").textContent       = hcSr04Enabled ? fmt(s.distance.distance_mm, " mm") : "-- mm";
+      $("distance-metric").textContent      = hcSr04Enabled ? fmt(s.distance.distance_mm, " mm") : "-- mm";
       $("distance-sensor-name").textContent = s.distance.sensor_name;
-      $("servo-value").textContent          = s.servo.angle_degrees + " deg";
+      $("servo-value").textContent          = servoEnabled ? s.servo.angle_degrees + " deg" : "-- deg";
 
-      $("accel-x").textContent = s.imu.accel_mg[0]  + " mg";
-      $("accel-y").textContent = s.imu.accel_mg[1]  + " mg";
-      $("accel-z").textContent = s.imu.accel_mg[2]  + " mg";
-      $("gyro-x").textContent  = s.imu.gyro_mdps[0] + " mdps";
-      $("gyro-y").textContent  = s.imu.gyro_mdps[1] + " mdps";
-      $("gyro-z").textContent  = s.imu.gyro_mdps[2] + " mdps";
+      $("accel-x").textContent = imuEnabled ? s.imu.accel_mg[0]  + " mg" : "--";
+      $("accel-y").textContent = imuEnabled ? s.imu.accel_mg[1]  + " mg" : "--";
+      $("accel-z").textContent = imuEnabled ? s.imu.accel_mg[2]  + " mg" : "--";
+      $("gyro-x").textContent  = imuEnabled ? s.imu.gyro_mdps[0] + " mdps" : "--";
+      $("gyro-y").textContent  = imuEnabled ? s.imu.gyro_mdps[1] + " mdps" : "--";
+      $("gyro-z").textContent  = imuEnabled ? s.imu.gyro_mdps[2] + " mdps" : "--";
 
-      $("motor-left").textContent  = s.motor_driver.left.direction  + " " + s.motor_driver.left.duty_percent  + "%";
-      $("motor-right").textContent = s.motor_driver.right.direction + " " + s.motor_driver.right.duty_percent + "%";
+      $("motor-left").textContent  = motorEnabled ? (s.motor_driver.left.direction  + " " + s.motor_driver.left.duty_percent  + "%") : "--";
+      $("motor-right").textContent = motorEnabled ? (s.motor_driver.right.direction + " " + s.motor_driver.right.duty_percent + "%") : "--";
 
       // Light sensor (BH1750)
-      if (s.light) {
+      if (lightEnabled && s.light) {
         const lux = (s.light.lux_x100 / 100).toFixed(2);
         $("light-lux").textContent = lux + " lx";
         $("light-raw").textContent = "raw lux\u00D7100: " + s.light.lux_x100;
@@ -1113,36 +1252,49 @@ pub fn dashboard_html() -> &'static str {
         if (el) el.textContent = s.light.sensor_name;
         push("lux", s.light.lux_x100 / 100);
         sparkline("spark-lux", hist.lux);
+      } else {
+        $("light-lux").textContent = "-- lx";
+        $("light-raw").textContent = "raw lux\u00D7100: --";
       }
 
       // Camera (ESP32-CAM)
-      if (s.camera) {
+      if (cameraEnabled && s.camera) {
         $("camera-resolution").textContent = s.camera.width + "\u00D7" + s.camera.height;
         $("camera-sequence").textContent   = "#" + s.camera.sequence;
         const el = $("camera-sensor-name");
         if (el) el.textContent = s.camera.sensor_name;
+      } else {
+        $("camera-resolution").textContent = "--\u00D7--";
+        $("camera-sequence").textContent = "--";
       }
 
       // Gas sensor (SGP30)
-      if (s.gas) {
+      if (gasEnabled && s.gas) {
         $("gas-co2").textContent = s.gas.co2_ppm != null ? s.gas.co2_ppm + " ppm" : "-- ppm";
         $("gas-voc").textContent = s.gas.voc_ppb != null ? s.gas.voc_ppb + " ppb" : "-- ppb";
         const el = $("gas-sensor-name");
         if (el) el.textContent = s.gas.sensor_name;
+      } else {
+        $("gas-co2").textContent = "-- ppm";
+        $("gas-voc").textContent = "-- ppb";
       }
 
       // RTC (DS3231)
-      if (s.rtc) {
+      if (rtcEnabled && s.rtc) {
         $("rtc-datetime").textContent = s.rtc.datetime_str || "--";
         const el = $("rtc-sensor-name");
         if (el) el.textContent = s.rtc.sensor_name;
+      } else {
+        $("rtc-datetime").textContent = "--";
       }
 
       // ToF distance (VL53L0X)
-      if (s.tof) {
+      if (tofEnabled && s.tof) {
         $("tof-distance").textContent = s.tof.distance_mm != null ? s.tof.distance_mm + " mm" : "-- mm";
         const el = $("tof-sensor-name");
         if (el) el.textContent = s.tof.sensor_name;
+      } else {
+        $("tof-distance").textContent = "-- mm";
       }
 
       const devEl = $("wiring-devices");
@@ -1157,11 +1309,17 @@ pub fn dashboard_html() -> &'static str {
       }
 
       // history + sparklines
-      push("temp",   s.climate.temperature_c);
-      push("hum",    s.climate.humidity_percent);
-      push("press",  s.climate.pressure_pa);
-      push("dist",   s.distance.distance_mm);
-      push("accelz", s.imu.accel_mg[2]);
+      if (bme280Enabled) {
+        push("temp", s.climate.temperature_c);
+        push("hum", s.climate.humidity_percent);
+        push("press", s.climate.pressure_pa);
+      }
+      if (hcSr04Enabled) {
+        push("dist", s.distance.distance_mm);
+      }
+      if (imuEnabled) {
+        push("accelz", s.imu.accel_mg[2]);
+      }
       sparkline("spark-temp",   hist.temp);
       sparkline("spark-hum",    hist.hum);
       sparkline("spark-press",  hist.press);
@@ -1171,10 +1329,10 @@ pub fn dashboard_html() -> &'static str {
       // visual simulation
       setLed(s.tick);
       setServo(s.servo.angle_degrees);
-      setMotorViz("left",  s.motor_driver.left.direction,  s.motor_driver.left.duty_percent);
-      setMotorViz("right", s.motor_driver.right.direction, s.motor_driver.right.duty_percent);
-      setSonar(s.distance.distance_mm);
-      setImuLevel(s.imu.accel_mg[0], s.imu.accel_mg[1]);
+      setMotorViz("left",  s.motor_driver.left.direction,  motorEnabled ? s.motor_driver.left.duty_percent : 0);
+      setMotorViz("right", s.motor_driver.right.direction, motorEnabled ? s.motor_driver.right.duty_percent : 0);
+      setSonar(hcSr04Enabled ? s.distance.distance_mm : null);
+      setImuLevel(imuEnabled ? s.imu.accel_mg[0] : 0, imuEnabled ? s.imu.accel_mg[1] : 0);
 
       // flash SDA/SCL wires when a new I2C operation is detected
       const curOp = s.i2c.recent_operations[0] || '';
@@ -1239,35 +1397,20 @@ pub fn dashboard_html() -> &'static str {
     let lastRenderMs = 0;
     $("isel").addEventListener("change", e => { renderIntervalMs = +e.target.value; });
 
-    // ── WebSocket with exponential-backoff reconnect ──
-    let wsRetryDelay = 500;
-    let wsRetryTimer = null;
+    const evtSrc = new EventSource('/api/events');
 
-    function connectWs() {
-      clearTimeout(wsRetryTimer);
-      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const ws = new WebSocket(proto + '//' + location.host + '/api/ws');
+    evtSrc.onopen = () => { setOk(); };
 
-      ws.onopen = () => {
-        wsRetryDelay = 500;
-        setOk();
-      };
+    evtSrc.onmessage = (e) => {
+      if (paused) return;
+      const now = Date.now();
+      if (now - lastRenderMs < renderIntervalMs) return;
+      lastRenderMs = now;
+      try { renderState(JSON.parse(e.data)); }
+      catch(err) { setErr(err.message); }
+    };
 
-      ws.onmessage = (e) => {
-        if (paused) return;
-        const now = Date.now();
-        if (now - lastRenderMs < renderIntervalMs) return;
-        lastRenderMs = now;
-        try { renderState(JSON.parse(e.data)); }
-        catch(err) { setErr(err.message); }
-      };
-
-      ws.onclose = ws.onerror = () => {
-        setErr('WebSocket reconnecting\u2026');
-        wsRetryTimer = setTimeout(connectWs, wsRetryDelay);
-        wsRetryDelay = Math.min(wsRetryDelay * 2, 10000);
-      };
-    }
+    evtSrc.onerror = () => { setErr('SSE reconnecting\u2026'); };
 
     // ── Pause/resume ──
     $("pbtn").addEventListener("click", () => {
@@ -1554,8 +1697,6 @@ pub fn dashboard_html() -> &'static str {
     }
 
     flashRefreshPorts();
-    // ── Boot ──
-    connectWs();
   </script>
 </body>
 </html>
@@ -1569,8 +1710,9 @@ mod tests {
     #[test]
     fn html_contains_api_endpoint() {
         let html = dashboard_html();
-        // The dashboard uses WebSocket (/api/ws); /api/state remains as HTTP fallback.
-        assert!(html.contains("/api/ws"));
+        // The dashboard uses SSE (/api/events); /api/state remains as HTTP fallback.
+        assert!(html.contains("/api/events"));
+        assert!(!html.contains("/api/ws"));
         assert!(html.contains("Device Dashboard"));
     }
 
@@ -1600,6 +1742,7 @@ mod tests {
         assert!(html.contains("sensor-profile-select"));
         assert!(html.contains("initProfileSelect"));
         assert!(html.contains("changeWiringConfig"));
+        assert!(html.contains("applyDeviceSelection(data.selected_devices || [])"));
         // E2E test runner
         assert!(html.contains("/api/test/stream"));
         assert!(html.contains("run-tests-btn"));
@@ -1641,6 +1784,21 @@ mod tests {
         // IMU bubble level
         assert!(html.contains("imu-bubble"));
         assert!(html.contains("setImuLevel"));
+    }
+
+    #[test]
+    fn html_contains_device_toggle_controls() {
+        let html = dashboard_html();
+        assert!(html.contains("device-toggle-list"));
+        assert!(html.contains("renderDeviceToggles"));
+        assert!(html.contains("changeDeviceToggle"));
+        assert!(html.contains("applyDeviceSelection"));
+        assert!(html.contains(r#"id="led-hw-item""#));
+        assert!(html.contains(r#"id="servo-hw-item""#));
+        assert!(html.contains(r#"id="motor-left-item""#));
+        assert!(html.contains(r#"id="motor-right-item""#));
+        let servo_pos = html.find(r#"id="servo-hw-item""#).unwrap();
+        assert!(html[servo_pos..].contains("servo-svg"));
     }
 
     #[test]
@@ -1690,6 +1848,7 @@ mod tests {
                 power_pin: "5V".to_string(),
                 ground_pin: "GND".to_string(),
                 attached_devices: vec!["0x27".to_string(), "0x77".to_string()],
+                selected_devices: vec!["bme280".to_string(), "servo".to_string()],
                 diagram_lines: vec![],
             },
             i2c: I2cPanelState {
@@ -1724,6 +1883,7 @@ mod tests {
         assert!(json.contains("\"board_name\":\"Arduino Nano\""));
         assert!(json.contains("\"sensor_name\":\"HC-SR04\""));
         assert!(json.contains("\"operation_count\":12"));
+        assert!(json.contains("\"selected_devices\":[\"bme280\",\"servo\"]"));
         // Light and camera panel assertions
         assert!(
             json.contains("\"lux_x100\":5000"),

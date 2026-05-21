@@ -17,7 +17,7 @@ pub fn wiring_svg(config: &WiringConfig) -> String {
 
 // ── layout constants ────────────────────────────────────────────────────────
 const W: i32 = 580;
-const H: i32 = 520;
+const BASE_H: i32 = 520;
 
 const BOARD_X: i32 = 16;
 const BOARD_Y: i32 = 44;
@@ -45,12 +45,33 @@ const DEV_W: i32 = 160;
 const DEV_H: i32 = 42;
 const DEV_GAP: i32 = 10;
 
+const VCC_RAIL_X: i32 = 214;
+const GND_RAIL_X: i32 = 240;
+const SDA_RAIL_X: i32 = 280;
+const SCL_RAIL_X: i32 = 306;
+
 #[allow(clippy::write_with_newline)]
 fn render(out: &mut String, config: &WiringConfig) {
+    let device_rows = config.devices.len().max(1) as i32;
+    let total_h = device_rows * (DEV_H + DEV_GAP) - DEV_GAP;
+    let content_h = total_h.max(BOARD_H);
+    let svg_h = (BOARD_Y + content_h + 56).max(BASE_H);
+    let dev_start_y = BOARD_Y + (content_h - total_h) / 2;
+    let layouts: Vec<_> = config
+        .devices
+        .iter()
+        .enumerate()
+        .map(|(i, dev)| {
+            let dy = dev_start_y + i as i32 * (DEV_H + DEV_GAP);
+            let mid_y = dy + DEV_H / 2;
+            (dev, dy, mid_y)
+        })
+        .collect();
+
     // SVG open + styles
     let _ = write!(
         out,
-        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {H}" style="width:100%;max-height:{H}px;background:#0c1a12;border-radius:8px;display:block">
+        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {svg_h}" style="width:100%;height:auto;background:#0c1a12;border-radius:8px;display:block">
 <defs><style>
 .pcb-board{{fill:#152e15;stroke:#3d7a3d;stroke-width:2}}
 .pcb-lbl{{fill:#7bc47b;font:bold 11px monospace}}
@@ -67,6 +88,9 @@ fn render(out: &mut String, config: &WiringConfig) {
 .w-gnd{{fill:none;stroke:#556;stroke-width:1.6}}
 .w-gpio{{fill:none;stroke:#ff9944;stroke-width:1.8;stroke-dasharray:6 3;animation:wiring-flow 2s linear infinite}}
 .w-pwm{{fill:none;stroke:#bb88ff;stroke-width:1.8;stroke-dasharray:6 3;animation:wiring-flow 1.5s linear infinite}}
+.w-bus-feed{{opacity:0.9}}
+.w-bus-trunk{{opacity:0.95}}
+.w-bus-branch{{opacity:0.92}}
 @keyframes wiring-flow{{from{{stroke-dashoffset:24}}to{{stroke-dashoffset:0}}}}
 .dot-sda{{fill:#4488ff}}.dot-scl{{fill:#ffdd44}}.dot-vcc{{fill:#e55}}.dot-gnd{{fill:#556}}.dot-gpio{{fill:#ff9944}}.dot-pwm{{fill:#bb88ff}}
 .leg{{fill:#888;font:9px monospace}}
@@ -103,9 +127,6 @@ fn render(out: &mut String, config: &WiringConfig) {
         (P_SCL, "dot-scl", format!("SCL/{}", config.scl_pin)),
         (P_VCC, "dot-vcc", config.power_pin.clone()),
         (P_GND, "dot-gnd", config.ground_pin.clone()),
-        (P_PWM, "dot-pwm", format!("SRV/{}", config.servo_pin)),
-        (P_MOT, "dot-pwm", format!("MOT/{}", config.motor_pin)),
-        (P_GPIO, "dot-gpio", format!("GPIO/{}", config.trig_pin)),
     ] {
         let _ = write!(
             out,
@@ -114,6 +135,13 @@ fn render(out: &mut String, config: &WiringConfig) {
 "#,
             BOARD_R - 7,
             cy + 4,
+        );
+    }
+    for (cy, dot_cls) in [(P_PWM, "dot-pwm"), (P_MOT, "dot-pwm"), (P_GPIO, "dot-gpio")] {
+        let _ = write!(
+            out,
+            r#"<circle cx="{BOARD_R}" cy="{cy}" r="4" class="{dot_cls}"/>
+"#
         );
     }
 
@@ -157,17 +185,53 @@ fn render(out: &mut String, config: &WiringConfig) {
         config.motor_pin,
     );
 
-    // Devices
-    let n = config.devices.len().max(1);
-    let total_h = n as i32 * (DEV_H + DEV_GAP) - DEV_GAP;
-    let dev_start_y = BOARD_Y + (BOARD_H - total_h) / 2;
+    let draw_bus_feed = |out: &mut String, cls: &str, board_y: i32, rail_x: i32, dot_cls: &str| {
+        let cp = BOARD_R + (rail_x - BOARD_R) * 6 / 10;
+        let _ = write!(
+            out,
+            r#"<path class="{cls} w-bus-feed" d="M {BOARD_R} {board_y} C {cp} {board_y} {cp} {board_y} {rail_x} {board_y}"/>
+<circle cx="{rail_x}" cy="{board_y}" r="3" class="{dot_cls}"/>
+"#
+        );
+    };
+    let draw_bus_trunk = |out: &mut String, cls: &str, rail_x: i32, top_y: i32, bottom_y: i32| {
+        let _ = write!(
+            out,
+            r#"<path class="{cls} w-bus-trunk" d="M {rail_x} {top_y} L {rail_x} {bottom_y}"/>
+"#
+        );
+    };
 
-    for (i, dev) in config.devices.iter().enumerate() {
-        let dy = dev_start_y + i as i32 * (DEV_H + DEV_GAP);
-        let mid_y = dy + DEV_H / 2;
+    let power_top = layouts.iter().map(|(_, dy, _)| dy + 8).min();
+    let power_bottom = layouts.iter().map(|(_, dy, _)| dy + DEV_H - 8).max();
+    if let (Some(top_y), Some(bottom_y)) = (power_top, power_bottom) {
+        draw_bus_feed(out, "w-vcc", P_VCC, VCC_RAIL_X, "dot-vcc");
+        draw_bus_trunk(out, "w-vcc", VCC_RAIL_X, top_y, bottom_y);
+        draw_bus_feed(out, "w-gnd", P_GND, GND_RAIL_X, "dot-gnd");
+        draw_bus_trunk(out, "w-gnd", GND_RAIL_X, top_y, bottom_y);
+    }
+
+    let i2c_top = layouts
+        .iter()
+        .filter_map(|(dev, _, mid_y)| {
+            (dev.kind.connection_type() == ConnectionType::I2c).then_some(mid_y - 6)
+        })
+        .min();
+    let i2c_bottom = layouts
+        .iter()
+        .filter_map(|(dev, _, mid_y)| {
+            (dev.kind.connection_type() == ConnectionType::I2c).then_some(mid_y + 4)
+        })
+        .max();
+    if let (Some(top_y), Some(bottom_y)) = (i2c_top, i2c_bottom) {
+        draw_bus_feed(out, "w-sda", P_SDA, SDA_RAIL_X, "dot-sda");
+        draw_bus_trunk(out, "w-sda", SDA_RAIL_X, top_y, bottom_y);
+        draw_bus_feed(out, "w-scl", P_SCL, SCL_RAIL_X, "dot-scl");
+        draw_bus_trunk(out, "w-scl", SCL_RAIL_X, top_y, bottom_y);
+    }
+
+    for (dev, dy, mid_y) in layouts {
         let conn = dev.kind.connection_type();
-
-        // Control point x for Bezier curves (~60% of the way)
         let cp = BOARD_R + (DEV_X - BOARD_R) * 6 / 10;
 
         // Device box
@@ -194,7 +258,7 @@ fn render(out: &mut String, config: &WiringConfig) {
         let y_vcc = dy + 8;
         let _ = write!(
             out,
-            r#"<path class="w-vcc" d="M {BOARD_R} {P_VCC} C {cp} {P_VCC} {cp} {y_vcc} {DEV_X} {y_vcc}"/>
+            r#"<path class="w-vcc w-bus-branch" d="M {VCC_RAIL_X} {y_vcc} L {DEV_X} {y_vcc}"/>
 <circle cx="{DEV_X}" cy="{y_vcc}" r="3" class="dot-vcc"/>
 <text x="{}" y="{}" class="dev-pin">VCC</text>
 "#,
@@ -206,7 +270,7 @@ fn render(out: &mut String, config: &WiringConfig) {
         let y_gnd = dy + DEV_H - 8;
         let _ = write!(
             out,
-            r#"<path class="w-gnd" d="M {BOARD_R} {P_GND} C {cp} {P_GND} {cp} {y_gnd} {DEV_X} {y_gnd}"/>
+            r#"<path class="w-gnd w-bus-branch" d="M {GND_RAIL_X} {y_gnd} L {DEV_X} {y_gnd}"/>
 <circle cx="{DEV_X}" cy="{y_gnd}" r="3" class="dot-gnd"/>
 <text x="{}" y="{}" class="dev-pin">GND</text>
 "#,
@@ -220,10 +284,10 @@ fn render(out: &mut String, config: &WiringConfig) {
                 let y_scl = mid_y + 4;
                 let _ = write!(
                     out,
-                    r#"<path class="w-sda" d="M {BOARD_R} {P_SDA} C {cp} {P_SDA} {cp} {y_sda} {DEV_X} {y_sda}"/>
+                    r#"<path class="w-sda w-bus-branch" d="M {SDA_RAIL_X} {y_sda} L {DEV_X} {y_sda}"/>
 <circle cx="{DEV_X}" cy="{y_sda}" r="3" class="dot-sda"/>
 <text x="{}" y="{}" class="dev-pin">SDA</text>
-<path class="w-scl" d="M {BOARD_R} {P_SCL} C {cp} {P_SCL} {cp} {y_scl} {DEV_X} {y_scl}"/>
+<path class="w-scl w-bus-branch" d="M {SCL_RAIL_X} {y_scl} L {DEV_X} {y_scl}"/>
 <circle cx="{DEV_X}" cy="{y_scl}" r="3" class="dot-scl"/>
 <text x="{}" y="{}" class="dev-pin">SCL</text>
 "#,
@@ -273,7 +337,7 @@ fn render(out: &mut String, config: &WiringConfig) {
     }
 
     // Legend at bottom
-    let leg_y = H - 10;
+    let leg_y = svg_h - 10;
     let _ = write!(
         out,
         r#"<text x="{}" y="{leg_y}" class="leg" text-anchor="middle"><tspan class="dot-sda">━━</tspan> SDA <tspan dx="6" class="dot-scl">━━</tspan> SCL <tspan dx="6" class="dot-vcc">━━</tspan> VCC <tspan dx="6" class="dot-gnd">━━</tspan> GND <tspan dx="6" class="dot-gpio">━━</tspan> GPIO <tspan dx="6" class="dot-pwm">━━</tspan> PWM</text>
@@ -384,5 +448,55 @@ mod tests {
         let svg = wiring_svg(&cfg);
         assert!(svg.contains("dot-vcc"), "missing VCC dots");
         assert!(svg.contains("dot-gnd"), "missing GND dots");
+    }
+
+    #[test]
+    fn wiring_svg_uses_shared_bus_trunks_for_dense_layout() {
+        let cfg = WiringConfig::from_board(BoardProfile::OriginalEsp32);
+        let svg = wiring_svg(&cfg);
+        assert_eq!(svg.matches(r#"class="w-vcc w-bus-trunk""#).count(), 1);
+        assert_eq!(svg.matches(r#"class="w-gnd w-bus-trunk""#).count(), 1);
+        assert_eq!(svg.matches(r#"class="w-sda w-bus-trunk""#).count(), 1);
+        assert_eq!(svg.matches(r#"class="w-scl w-bus-trunk""#).count(), 1);
+        assert_eq!(svg.matches(r#"class="w-vcc w-bus-branch""#).count(), 11);
+        assert_eq!(svg.matches(r#"class="w-sda w-bus-branch""#).count(), 7);
+        assert_eq!(svg.matches(r#"class="w-scl w-bus-branch""#).count(), 7);
+    }
+
+    #[test]
+    fn wiring_svg_keeps_pwm_and_gpio_pin_labels_single_sourced() {
+        let cfg = WiringConfig::from_board(BoardProfile::OriginalEsp32);
+        let svg = wiring_svg(&cfg);
+        assert_eq!(svg.matches("SRV/GPIO13").count(), 1);
+        assert_eq!(svg.matches("MOT/GPIO25").count(), 1);
+        assert!(
+            !svg.contains("GPIO/GPIO23"),
+            "generic GPIO label should not duplicate the dedicated GPIO block"
+        );
+    }
+
+    #[test]
+    fn wiring_svg_expands_height_for_large_device_sets() {
+        let cfg = WiringConfig::from_board(BoardProfile::OriginalEsp32);
+        let svg = wiring_svg(&cfg);
+        assert!(
+            svg.contains(r#"viewBox="0 0 580 662""#),
+            "full wiring SVG should expand vertically for dense layouts"
+        );
+    }
+
+    #[test]
+    fn wiring_svg_keeps_base_height_for_small_device_sets() {
+        use crate::wiring_config::SensorProfile;
+
+        let cfg = WiringConfig::from_board_with_sensors(
+            BoardProfile::OriginalEsp32,
+            SensorProfile::Minimal,
+        );
+        let svg = wiring_svg(&cfg);
+        assert!(
+            svg.contains(r#"viewBox="0 0 580 520""#),
+            "minimal wiring SVG should keep the compact default height"
+        );
     }
 }

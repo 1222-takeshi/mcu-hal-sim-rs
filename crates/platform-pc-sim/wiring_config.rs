@@ -107,46 +107,43 @@ impl SensorProfile {
             .collect()
     }
 
-    /// Device kinds included in this profile.
-    pub(crate) fn devices(self) -> Vec<DeviceSpec> {
+    /// Device kinds included in this profile, in canonical dashboard order.
+    pub fn device_kinds(self) -> Vec<DeviceKind> {
         match self {
             Self::Full => vec![
-                DeviceSpec::i2c(DeviceKind::Bme280, 0x77),
-                DeviceSpec::i2c(DeviceKind::Mpu6050, 0x68),
-                DeviceSpec::i2c(DeviceKind::Lcd1602, 0x27),
-                DeviceSpec::i2c(DeviceKind::Bh1750, 0x23),
-                DeviceSpec::i2c(DeviceKind::Ds3231, 0x68),
-                DeviceSpec::i2c(DeviceKind::Sgp30, 0x58),
-                DeviceSpec::i2c(DeviceKind::Vl53l0x, 0x29),
-                DeviceSpec::pwm(DeviceKind::Servo),
-                DeviceSpec::pwm(DeviceKind::L298n),
-                DeviceSpec::gpio(DeviceKind::HcSr04),
-                DeviceSpec::gpio(DeviceKind::Esp32Cam),
+                DeviceKind::Bme280,
+                DeviceKind::Mpu6050,
+                DeviceKind::Lcd1602,
+                DeviceKind::Bh1750,
+                DeviceKind::Ds3231,
+                DeviceKind::Sgp30,
+                DeviceKind::Vl53l0x,
+                DeviceKind::Servo,
+                DeviceKind::L298n,
+                DeviceKind::HcSr04,
+                DeviceKind::Esp32Cam,
             ],
             Self::ClimateStation => vec![
-                DeviceSpec::i2c(DeviceKind::Bme280, 0x77),
-                DeviceSpec::i2c(DeviceKind::Bh1750, 0x23),
-                DeviceSpec::i2c(DeviceKind::Sgp30, 0x58),
-                DeviceSpec::i2c(DeviceKind::Ds3231, 0x68),
-                DeviceSpec::i2c(DeviceKind::Lcd1602, 0x27),
+                DeviceKind::Bme280,
+                DeviceKind::Bh1750,
+                DeviceKind::Sgp30,
+                DeviceKind::Ds3231,
+                DeviceKind::Lcd1602,
             ],
             Self::RobotBase => vec![
-                DeviceSpec::i2c(DeviceKind::Mpu6050, 0x68),
-                DeviceSpec::i2c(DeviceKind::Vl53l0x, 0x29),
-                DeviceSpec::gpio(DeviceKind::HcSr04),
-                DeviceSpec::pwm(DeviceKind::Servo),
-                DeviceSpec::pwm(DeviceKind::L298n),
+                DeviceKind::Mpu6050,
+                DeviceKind::Vl53l0x,
+                DeviceKind::HcSr04,
+                DeviceKind::Servo,
+                DeviceKind::L298n,
             ],
-            Self::Minimal => vec![
-                DeviceSpec::i2c(DeviceKind::Bme280, 0x77),
-                DeviceSpec::i2c(DeviceKind::Lcd1602, 0x27),
-            ],
+            Self::Minimal => vec![DeviceKind::Bme280, DeviceKind::Lcd1602],
         }
     }
 }
 
 /// Physical device type attached to the board.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DeviceKind {
     Bme280,
     Mpu6050,
@@ -165,6 +162,55 @@ pub enum DeviceKind {
 }
 
 impl DeviceKind {
+    pub fn slug(self) -> &'static str {
+        match self {
+            DeviceKind::Bme280 => "bme280",
+            DeviceKind::Mpu6050 => "mpu6050",
+            DeviceKind::Lcd1602 => "lcd1602",
+            DeviceKind::HcSr04 => "hc_sr04",
+            DeviceKind::Bh1750 => "bh1750",
+            DeviceKind::Servo => "servo",
+            DeviceKind::L298n => "l298n",
+            DeviceKind::Esp32Cam => "esp32_cam",
+            DeviceKind::Ds3231 => "ds3231",
+            DeviceKind::Sgp30 => "sgp30",
+            DeviceKind::Vl53l0x => "vl53l0x",
+        }
+    }
+
+    pub fn from_slug(s: &str) -> Option<Self> {
+        match s {
+            "bme280" => Some(DeviceKind::Bme280),
+            "mpu6050" => Some(DeviceKind::Mpu6050),
+            "lcd1602" => Some(DeviceKind::Lcd1602),
+            "hc_sr04" => Some(DeviceKind::HcSr04),
+            "bh1750" => Some(DeviceKind::Bh1750),
+            "servo" => Some(DeviceKind::Servo),
+            "l298n" => Some(DeviceKind::L298n),
+            "esp32_cam" => Some(DeviceKind::Esp32Cam),
+            "ds3231" => Some(DeviceKind::Ds3231),
+            "sgp30" => Some(DeviceKind::Sgp30),
+            "vl53l0x" => Some(DeviceKind::Vl53l0x),
+            _ => None,
+        }
+    }
+
+    pub fn all() -> &'static [DeviceKind] {
+        &[
+            DeviceKind::Bme280,
+            DeviceKind::Mpu6050,
+            DeviceKind::Lcd1602,
+            DeviceKind::Bh1750,
+            DeviceKind::Ds3231,
+            DeviceKind::Sgp30,
+            DeviceKind::Vl53l0x,
+            DeviceKind::Servo,
+            DeviceKind::L298n,
+            DeviceKind::HcSr04,
+            DeviceKind::Esp32Cam,
+        ]
+    }
+
     pub fn label(&self) -> &str {
         match self {
             DeviceKind::Bme280 => "BME280",
@@ -186,6 +232,21 @@ impl DeviceKind {
             DeviceKind::HcSr04 | DeviceKind::Esp32Cam => ConnectionType::Gpio,
             DeviceKind::Servo | DeviceKind::L298n => ConnectionType::Pwm,
             _ => ConnectionType::I2c,
+        }
+    }
+
+    fn default_address(self) -> Option<u8> {
+        match self {
+            DeviceKind::Bme280 => Some(0x77),
+            DeviceKind::Mpu6050 => Some(0x68),
+            DeviceKind::Lcd1602 => Some(0x27),
+            DeviceKind::Bh1750 => Some(0x23),
+            DeviceKind::Ds3231 => Some(0x68),
+            DeviceKind::Sgp30 => Some(0x58),
+            DeviceKind::Vl53l0x => Some(0x29),
+            DeviceKind::HcSr04 | DeviceKind::Servo | DeviceKind::L298n | DeviceKind::Esp32Cam => {
+                None
+            }
         }
     }
 }
@@ -271,6 +332,18 @@ impl WiringConfig {
     /// assert_eq!(cfg.devices.len(), 2);
     /// ```
     pub fn from_board_with_sensors(board: BoardProfile, sensor_profile: SensorProfile) -> Self {
+        Self::from_board_with_selected_devices(
+            board,
+            sensor_profile,
+            &sensor_profile.device_kinds(),
+        )
+    }
+
+    pub fn from_board_with_selected_devices(
+        board: BoardProfile,
+        sensor_profile: SensorProfile,
+        selected_devices: &[DeviceKind],
+    ) -> Self {
         Self {
             sda_pin: board.sda_pin().to_string(),
             scl_pin: board.scl_pin().to_string(),
@@ -281,7 +354,10 @@ impl WiringConfig {
             cam_pin: board.cam_pin().to_string(),
             servo_pin: board.servo_pwm_pin().to_string(),
             motor_pin: board.motor_ena_pin().to_string(),
-            devices: sensor_profile.devices(),
+            devices: normalize_device_selection(selected_devices)
+                .into_iter()
+                .map(device_spec_from_kind)
+                .collect(),
             board,
             sensor_profile,
         }
@@ -293,8 +369,12 @@ impl WiringConfig {
     ///
     /// Returns the full simulator configuration matching `DeviceSimulationRig`:
     /// BME280 (0x77), MPU6050 (0x68), LCD1602 (0x27), BH1750 (0x23),
-    /// DS3231 (0x68; sim uses 0x69 to avoid MPU6050 collision), SGP30 (0x58),
-    /// VL53L0X (0x29) on I²C; Servo and L298N on PWM; HC-SR04 and ESP32-CAM on GPIO.
+    /// DS3231 (0x68), VL53L0X (0x29) on I2C; Servo and L298N on PWM; HC-SR04
+    /// and ESP32-CAM on GPIO.
+    ///
+    /// The simulator attaches DS3231 internally at `0x69` to avoid colliding
+    /// with MPU6050 on the virtual bus, but dashboard-facing wiring/state
+    /// surfaces translate it back to the logical hardware address `0x68`.
     pub fn from_board(board: BoardProfile) -> Self {
         Self::from_board_with_sensors(board, SensorProfile::Full)
     }
@@ -305,35 +385,42 @@ impl WiringConfig {
             BoardProfile::OriginalEsp32 => "esp32",
             BoardProfile::ArduinoNano => "nano",
         };
+        let selected_devices: Vec<String> = self
+            .devices
+            .iter()
+            .map(|device| format!(r#""{}""#, device.kind.slug()))
+            .collect();
+        let available_devices: Vec<String> = DeviceKind::all()
+            .iter()
+            .map(|kind| {
+                format!(
+                    r#"{{"kind":"{}","label":"{}","enabled":{}}}"#,
+                    kind.slug(),
+                    json_escape(kind.label()),
+                    self.devices.iter().any(|device| device.kind == *kind)
+                )
+            })
+            .collect();
         let devices: Vec<String> = self
             .devices
             .iter()
-            .map(|d| {
-                let kind = match d.kind {
-                    DeviceKind::Bme280 => "bme280",
-                    DeviceKind::Mpu6050 => "mpu6050",
-                    DeviceKind::Lcd1602 => "lcd1602",
-                    DeviceKind::HcSr04 => "hc_sr04",
-                    DeviceKind::Bh1750 => "bh1750",
-                    DeviceKind::Servo => "servo",
-                    DeviceKind::L298n => "l298n",
-                    DeviceKind::Esp32Cam => "esp32_cam",
-                    DeviceKind::Ds3231 => "ds3231",
-                    DeviceKind::Sgp30 => "sgp30",
-                    DeviceKind::Vl53l0x => "vl53l0x",
-                };
-                match d.address {
-                    Some(a) => format!(
-                        r#"{{"kind":"{kind}","address":"0x{a:02X}","label":"{}"}}"#,
-                        json_escape(&d.label)
-                    ),
-                    None => format!(r#"{{"kind":"{kind}","label":"{}"}}"#, json_escape(&d.label)),
-                }
+            .map(|d| match d.address {
+                Some(a) => format!(
+                    r#"{{"kind":"{}","address":"0x{a:02X}","label":"{}"}}"#,
+                    d.kind.slug(),
+                    json_escape(&d.label)
+                ),
+                None => format!(
+                    r#"{{"kind":"{}","label":"{}"}}"#,
+                    d.kind.slug(),
+                    json_escape(&d.label)
+                ),
             })
             .collect();
         format!(
             concat!(
                 r#"{{"board":"{board}","sensor_profile":"{sp}","#,
+                r#""selected_devices":[{selected}],"available_devices":[{available}],"#,
                 r#""sda_pin":"{sda}","scl_pin":"{scl}","#,
                 r#""power_pin":"{vcc}","ground_pin":"{gnd}","#,
                 r#""trig_pin":"{trig}","echo_pin":"{echo}","cam_pin":"{cam}","#,
@@ -342,6 +429,8 @@ impl WiringConfig {
             ),
             board = board_str,
             sp = self.sensor_profile.slug(),
+            selected = selected_devices.join(","),
+            available = available_devices.join(","),
             sda = json_escape(&self.sda_pin),
             scl = json_escape(&self.scl_pin),
             vcc = json_escape(&self.power_pin),
@@ -354,6 +443,25 @@ impl WiringConfig {
             devs = devices.join(","),
         )
     }
+}
+
+fn device_spec_from_kind(kind: DeviceKind) -> DeviceSpec {
+    match kind.connection_type() {
+        ConnectionType::I2c => DeviceSpec::i2c(
+            kind,
+            kind.default_address().expect("i2c devices have an address"),
+        ),
+        ConnectionType::Gpio => DeviceSpec::gpio(kind),
+        ConnectionType::Pwm => DeviceSpec::pwm(kind),
+    }
+}
+
+fn normalize_device_selection(selected_devices: &[DeviceKind]) -> Vec<DeviceKind> {
+    DeviceKind::all()
+        .iter()
+        .copied()
+        .filter(|kind| selected_devices.contains(kind))
+        .collect()
 }
 
 /// Escape a string for embedding in a JSON value (no surrounding quotes added).
@@ -541,6 +649,13 @@ mod tests {
     }
 
     #[test]
+    fn device_kind_slug_roundtrips() {
+        for kind in DeviceKind::all() {
+            assert_eq!(DeviceKind::from_slug(kind.slug()), Some(*kind));
+        }
+    }
+
+    #[test]
     fn sensor_profile_all_has_four_entries() {
         assert_eq!(SensorProfile::all().len(), 4);
     }
@@ -565,6 +680,32 @@ mod tests {
     }
 
     #[test]
+    fn wiring_config_from_selected_devices_allows_custom_selection() {
+        let cfg = WiringConfig::from_board_with_selected_devices(
+            BoardProfile::OriginalEsp32,
+            SensorProfile::Minimal,
+            &[DeviceKind::Servo, DeviceKind::Bme280, DeviceKind::Servo],
+        );
+        let kinds: Vec<_> = cfg.devices.iter().map(|d| d.kind).collect();
+        assert_eq!(kinds, vec![DeviceKind::Bme280, DeviceKind::Servo]);
+        assert_eq!(cfg.sensor_profile, SensorProfile::Minimal);
+    }
+
+    #[test]
+    fn wiring_config_uses_simulated_ds3231_address() {
+        let cfg = WiringConfig::from_board_with_selected_devices(
+            BoardProfile::OriginalEsp32,
+            SensorProfile::ClimateStation,
+            &[DeviceKind::Ds3231],
+        );
+
+        assert_eq!(cfg.devices.len(), 1);
+        assert_eq!(cfg.devices[0].kind, DeviceKind::Ds3231);
+        assert_eq!(cfg.devices[0].address, Some(0x68));
+        assert_eq!(cfg.devices[0].label, "DS3231 (0x68)");
+    }
+
+    #[test]
     fn wiring_config_json_includes_sensor_profile_slug() {
         let cfg = WiringConfig::from_board_with_sensors(
             BoardProfile::OriginalEsp32,
@@ -572,8 +713,25 @@ mod tests {
         );
         let json = cfg.to_json();
         assert!(json.contains(r#""sensor_profile":"climate""#));
-        assert!(!json.contains(r#""kind":"servo""#));
-        assert!(!json.contains(r#""kind":"hc_sr04""#));
+        assert!(
+            json.contains(r#""selected_devices":["bme280","lcd1602","bh1750","ds3231","sgp30"]"#)
+        );
+        assert!(json.contains(r#""kind":"servo","label":"Servo","enabled":false"#));
+        assert!(json.contains(r#""kind":"hc_sr04","label":"HC-SR04","enabled":false"#));
+    }
+
+    #[test]
+    fn wiring_config_json_includes_selected_and_available_devices() {
+        let cfg = WiringConfig::from_board_with_selected_devices(
+            BoardProfile::OriginalEsp32,
+            SensorProfile::Minimal,
+            &[DeviceKind::Bme280, DeviceKind::Servo],
+        );
+        let json = cfg.to_json();
+        assert!(json.contains(r#""selected_devices":["bme280","servo"]"#));
+        assert!(json.contains(r#""available_devices":["#));
+        assert!(json.contains(r#""kind":"bme280","label":"BME280","enabled":true"#));
+        assert!(json.contains(r#""kind":"lcd1602","label":"LCD1602","enabled":false"#));
     }
 
     #[test]

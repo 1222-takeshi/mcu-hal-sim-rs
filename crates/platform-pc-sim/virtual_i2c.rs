@@ -65,12 +65,23 @@ impl VirtualI2cBus {
             .push((addr, Rc::new(RefCell::new(Box::new(device)))));
     }
 
+    pub fn detach_device(&self, addr: u8) {
+        self.state
+            .borrow_mut()
+            .devices
+            .retain(|(candidate, _)| *candidate != addr);
+    }
+
     pub fn operations(&self) -> Vec<VirtualI2cOperation> {
         self.state.borrow().operations.clone()
     }
 
     pub fn operation_count(&self) -> usize {
         self.state.borrow().operations.len()
+    }
+
+    pub fn clear_operations(&self) {
+        self.state.borrow_mut().operations.clear();
     }
 
     pub fn attached_addresses(&self) -> Vec<u8> {
@@ -212,5 +223,48 @@ mod tests {
         let mut buffer = [0u8; 1];
 
         assert_eq!(bus.read(0x42, &mut buffer), Err(I2cError::InvalidAddress));
+    }
+
+    #[test]
+    fn virtual_i2c_bus_detach_device_removes_address() {
+        let bus = VirtualI2cBus::new();
+        bus.attach_device(
+            0x77,
+            TestDevice {
+                writes: Vec::new(),
+                next_read: vec![0x60],
+            },
+        );
+        bus.detach_device(0x77);
+
+        let mut bus_handle = bus.clone();
+        let mut buffer = [0u8; 1];
+        assert_eq!(bus.attached_addresses(), Vec::<u8>::new());
+        assert_eq!(
+            bus_handle.read(0x77, &mut buffer),
+            Err(I2cError::InvalidAddress)
+        );
+    }
+
+    #[test]
+    fn virtual_i2c_bus_can_clear_recorded_operations() {
+        let bus = VirtualI2cBus::new();
+        bus.attach_device(
+            0x77,
+            TestDevice {
+                writes: Vec::new(),
+                next_read: vec![0x60],
+            },
+        );
+
+        let mut bus_handle = bus.clone();
+        let mut chip_id = [0u8; 1];
+        bus_handle.write_read(0x77, &[0xD0], &mut chip_id).unwrap();
+        assert_eq!(bus.operation_count(), 1);
+
+        bus.clear_operations();
+
+        assert_eq!(bus.operation_count(), 0);
+        assert!(bus.operations().is_empty());
     }
 }
