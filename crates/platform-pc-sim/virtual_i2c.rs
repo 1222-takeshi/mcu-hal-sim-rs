@@ -65,6 +65,13 @@ impl VirtualI2cBus {
             .push((addr, Rc::new(RefCell::new(Box::new(device)))));
     }
 
+    pub fn detach_device(&self, addr: u8) {
+        self.state
+            .borrow_mut()
+            .devices
+            .retain(|(candidate, _)| *candidate != addr);
+    }
+
     pub fn operations(&self) -> Vec<VirtualI2cOperation> {
         self.state.borrow().operations.clone()
     }
@@ -212,5 +219,26 @@ mod tests {
         let mut buffer = [0u8; 1];
 
         assert_eq!(bus.read(0x42, &mut buffer), Err(I2cError::InvalidAddress));
+    }
+
+    #[test]
+    fn virtual_i2c_bus_detach_device_removes_address() {
+        let bus = VirtualI2cBus::new();
+        bus.attach_device(
+            0x77,
+            TestDevice {
+                writes: Vec::new(),
+                next_read: vec![0x60],
+            },
+        );
+        bus.detach_device(0x77);
+
+        let mut bus_handle = bus.clone();
+        let mut buffer = [0u8; 1];
+        assert_eq!(bus.attached_addresses(), Vec::<u8>::new());
+        assert_eq!(
+            bus_handle.read(0x77, &mut buffer),
+            Err(I2cError::InvalidAddress)
+        );
     }
 }

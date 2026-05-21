@@ -7,7 +7,7 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use core_app::climate_display::{ClimateDisplayApp, ClimateDisplayConfig};
+use core_app::climate_display::{frame_from_reading, ClimateDisplayApp, ClimateDisplayConfig};
 use embedded_hal::delay::DelayNs;
 use hal_api::actuator::{DualMotorDriver, MotorCommand, MotorDirection, ServoMotor};
 use hal_api::camera::CameraCapture;
@@ -16,6 +16,7 @@ use hal_api::gas::GasSensor;
 use hal_api::imu::ImuSensor;
 use hal_api::light::LightSensor;
 use hal_api::rtc::RtcSensor;
+use hal_api::sensor::EnvSensor;
 use platform_pc_sim::bme280_mock::{demo_raw_samples, MockBme280Device};
 use platform_pc_sim::camera_mock::MockCamera;
 use platform_pc_sim::dashboard::BoardProfile;
@@ -34,7 +35,7 @@ use platform_pc_sim::web_dashboard::{
     MotorChannelState, MotorDriverPanelState, RtcPanelState, ServoPanelState, TofPanelState,
     WiringPanelState,
 };
-use platform_pc_sim::wiring_config::{SensorProfile, WiringConfig};
+use platform_pc_sim::wiring_config::{ConnectionType, DeviceKind, SensorProfile, WiringConfig};
 use platform_pc_sim::wiring_svg::wiring_svg;
 use reference_drivers::bh1750::{Bh1750Sensor, BH1750_ADDRESS_LOW};
 use reference_drivers::bme280::{Bme280Sensor, BME280_ADDRESS_PRIMARY};
@@ -50,16 +51,17 @@ use reference_drivers::vl53l0x::{Vl53l0xSensor, VL53L0X_ADDRESS};
 const DEFAULT_PORT: u16 = 7878;
 
 /// Combined board + sensor profile state read/written as a unit.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct WiringState {
     board: BoardProfile,
     sensor_profile: SensorProfile,
+    selected_devices: Vec<DeviceKind>,
 }
 
 /// Shared server state passed to every connection-handler thread.
 struct ServerContext {
     latest_json: Mutex<String>,
-    ws_clients: Mutex<Vec<mpsc::SyncSender<String>>>,
+    sse_clients: Mutex<Vec<mpsc::SyncSender<String>>>,
     current_board: Mutex<BoardProfile>,
     /// Kept for future use; wiring API reads now go through `wiring_state`.
     #[allow(dead_code)]
@@ -74,12 +76,13 @@ impl ServerContext {
     fn new(board: BoardProfile) -> Arc<Self> {
         Arc::new(Self {
             latest_json: Mutex::new("{}".into()),
-            ws_clients: Mutex::new(vec![]),
+            sse_clients: Mutex::new(vec![]),
             current_board: Mutex::new(board),
             current_sensor_profile: Mutex::new(SensorProfile::Full),
             wiring_state: Mutex::new(WiringState {
                 board,
                 sensor_profile: SensorProfile::Full,
+                selected_devices: SensorProfile::Full.device_kinds(),
             }),
             editor_json: Mutex::new("{}".into()),
         })
@@ -87,7 +90,7 @@ impl ServerContext {
 
     fn push_state(&self, json: String) {
         *self.latest_json.lock().unwrap() = json.clone();
-        self.ws_clients
+        self.sse_clients
             .lock()
             .unwrap()
             .retain(|tx| tx.try_send(json.clone()).is_ok());
@@ -113,6 +116,7 @@ struct DeviceSimulationRig {
     bme280: MockBme280Device,
     lcd: MockLcd1602Device,
     mpu6050: MockMpu6050Device,
+    climate_sensor: Bme280Sensor<VirtualI2cBus>,
     app: ClimateDisplayApp<Bme280Sensor<VirtualI2cBus>, Lcd1602Display<VirtualI2cBus, NoopDelay>>,
     bme280_samples: Vec<[u8; 8]>,
     bme280_sample_index: usize,
@@ -122,9 +126,11 @@ struct DeviceSimulationRig {
     imu_frame_index: usize,
     servo: ServoRig,
     motor_driver: MotorDriverRig,
+    tick: u32,
     last_distance_mm: Option<u32>,
     last_imu: Option<hal_api::imu::ImuReading>,
     light_sensor: Bh1750Sensor<VirtualI2cBus>,
+    bh1750_mock: platform_pc_sim::bh1750_mock::MockBh1750Device,
     camera: MockCamera,
     last_lux_x100: u32,
     last_camera_sequence: u32,
@@ -133,7 +139,9 @@ struct DeviceSimulationRig {
     ds3231_timestamps: Vec<platform_pc_sim::ds3231_mock::MockRtcTimestamp>,
     ds3231_ts_index: usize,
     rtc_sensor: Ds3231Sensor<VirtualI2cBus>,
+    sgp30_mock: MockSgp30Device,
     sgp30_sensor: Sgp30Sensor<VirtualI2cBus>,
+    vl53l0x_mock: MockVl53l0xDevice,
     tof_sensor: Vl53l0xSensor<VirtualI2cBus>,
     last_gas: Option<hal_api::gas::GasReading>,
     last_rtc_str: String,
@@ -146,7 +154,7 @@ impl DeviceSimulationRig {
         let bme280 = MockBme280Device::new();
         let lcd = MockLcd1602Device::new();
         let mpu6050 = MockMpu6050Device::new();
-        let bh1750 = platform_pc_sim::bh1750_mock::MockBh1750Device::looping(vec![
+        let bh1750_mock = platform_pc_sim::bh1750_mock::MockBh1750Device::looping(vec![
             8_500, 12_000, 15_300, 9_800, 7_200,
         ]);
         // DS3231 shares 0x68 with MPU6050 in real hardware, but in simulation both coexist.
@@ -160,7 +168,7 @@ impl DeviceSimulationRig {
         bus.attach_device(BME280_ADDRESS_PRIMARY, bme280.clone());
         bus.attach_device(LCD1602_ADDRESS_PRIMARY, lcd.clone());
         bus.attach_device(MPU6050_ADDRESS_PRIMARY, mpu6050.clone());
-        bus.attach_device(BH1750_ADDRESS_LOW, bh1750);
+        bus.attach_device(BH1750_ADDRESS_LOW, bh1750_mock.clone());
         // DS3231 at 0x69 (alt sim address to avoid MPU6050 collision at 0x68)
         bus.attach_device(DS3231_ADDRESS + 1, ds3231_mock.clone());
         bus.attach_device(SGP30_ADDRESS, sgp30_mock.clone());
@@ -174,6 +182,7 @@ impl DeviceSimulationRig {
                 refresh_on_first_tick: true,
             },
         );
+        let climate_sensor = Bme280Sensor::new(bus.clone());
         let distance_sensor = HcSr04Sensor::new(MockHcSr04Device::looping(demo_echo_pulses_us()));
         let imu_sensor = Mpu6050Sensor::new(bus.clone());
         let light_sensor = Bh1750Sensor::new(bus.clone(), BH1750_ADDRESS_LOW)
@@ -197,6 +206,7 @@ impl DeviceSimulationRig {
             bme280,
             lcd,
             mpu6050,
+            climate_sensor,
             app,
             bme280_samples: demo_raw_samples(),
             bme280_sample_index: 0,
@@ -206,9 +216,11 @@ impl DeviceSimulationRig {
             imu_frame_index: 0,
             servo,
             motor_driver,
+            tick: 0,
             last_distance_mm: None,
             last_imu: None,
             light_sensor,
+            bh1750_mock,
             camera,
             last_lux_x100: 0,
             last_camera_sequence: 0,
@@ -216,7 +228,9 @@ impl DeviceSimulationRig {
             ds3231_timestamps: demo_timestamps(),
             ds3231_ts_index: 0,
             rtc_sensor,
+            sgp30_mock,
             sgp30_sensor,
+            vl53l0x_mock,
             tof_sensor,
             last_gas: None,
             last_rtc_str: String::new(),
@@ -224,20 +238,106 @@ impl DeviceSimulationRig {
         }
     }
 
-    fn step(&mut self) -> DeviceDashboardState {
-        self.bme280
-            .set_raw_sample(self.bme280_samples[self.bme280_sample_index]);
-        self.bme280_sample_index = (self.bme280_sample_index + 1) % self.bme280_samples.len();
-        self.mpu6050
-            .set_raw_frame(self.imu_frames[self.imu_frame_index]);
-        self.imu_frame_index = (self.imu_frame_index + 1) % self.imu_frames.len();
+    fn sync_selected_devices(&mut self, selected_devices: &[DeviceKind]) {
+        if selected_devices.contains(&DeviceKind::Bme280) {
+            self.bus
+                .attach_device(BME280_ADDRESS_PRIMARY, self.bme280.clone());
+        } else {
+            self.bus.detach_device(BME280_ADDRESS_PRIMARY);
+        }
 
-        self.app
-            .tick()
-            .expect("dashboard climate app should keep running");
-        let tick = self.app.tick_count();
+        if selected_devices.contains(&DeviceKind::Lcd1602) {
+            self.bus
+                .attach_device(LCD1602_ADDRESS_PRIMARY, self.lcd.clone());
+        } else {
+            self.bus.detach_device(LCD1602_ADDRESS_PRIMARY);
+        }
 
-        if tick == 1 || tick % 2 == 0 {
+        if selected_devices.contains(&DeviceKind::Mpu6050) {
+            self.bus
+                .attach_device(MPU6050_ADDRESS_PRIMARY, self.mpu6050.clone());
+        } else {
+            self.bus.detach_device(MPU6050_ADDRESS_PRIMARY);
+        }
+
+        if selected_devices.contains(&DeviceKind::Bh1750) {
+            self.bus
+                .attach_device(BH1750_ADDRESS_LOW, self.bh1750_mock.clone());
+        } else {
+            self.bus.detach_device(BH1750_ADDRESS_LOW);
+        }
+
+        if selected_devices.contains(&DeviceKind::Ds3231) {
+            self.bus
+                .attach_device(DS3231_ADDRESS + 1, self.ds3231_mock.clone());
+        } else {
+            self.bus.detach_device(DS3231_ADDRESS + 1);
+        }
+
+        if selected_devices.contains(&DeviceKind::Sgp30) {
+            self.bus
+                .attach_device(SGP30_ADDRESS, self.sgp30_mock.clone());
+        } else {
+            self.bus.detach_device(SGP30_ADDRESS);
+        }
+
+        if selected_devices.contains(&DeviceKind::Vl53l0x) {
+            self.bus
+                .attach_device(VL53L0X_ADDRESS, self.vl53l0x_mock.clone());
+        } else {
+            self.bus.detach_device(VL53L0X_ADDRESS);
+        }
+    }
+
+    fn step(&mut self, wiring_state: &WiringState) -> DeviceDashboardState {
+        self.tick = self.tick.wrapping_add(1);
+        let tick = self.tick;
+        self.sync_selected_devices(&wiring_state.selected_devices);
+
+        let is_enabled = |kind: DeviceKind| wiring_state.selected_devices.contains(&kind);
+        let bme280_enabled = is_enabled(DeviceKind::Bme280);
+        let lcd_enabled = is_enabled(DeviceKind::Lcd1602);
+
+        if !is_enabled(DeviceKind::HcSr04) {
+            self.last_distance_mm = None;
+        }
+        if !is_enabled(DeviceKind::Mpu6050) {
+            self.last_imu = None;
+        }
+        if !is_enabled(DeviceKind::Bh1750) {
+            self.last_lux_x100 = 0;
+        }
+        if !is_enabled(DeviceKind::Esp32Cam) {
+            self.last_camera_sequence = 0;
+        }
+        if !is_enabled(DeviceKind::Sgp30) {
+            self.last_gas = None;
+        }
+        if !is_enabled(DeviceKind::Ds3231) {
+            self.last_rtc_str.clear();
+        }
+        if !is_enabled(DeviceKind::Vl53l0x) {
+            self.last_tof_mm = None;
+        }
+
+        if bme280_enabled {
+            self.bme280
+                .set_raw_sample(self.bme280_samples[self.bme280_sample_index]);
+            self.bme280_sample_index = (self.bme280_sample_index + 1) % self.bme280_samples.len();
+        }
+
+        if is_enabled(DeviceKind::Mpu6050) {
+            self.mpu6050
+                .set_raw_frame(self.imu_frames[self.imu_frame_index]);
+            self.imu_frame_index = (self.imu_frame_index + 1) % self.imu_frames.len();
+        }
+
+        if bme280_enabled && lcd_enabled {
+            self.app
+                .tick()
+                .expect("dashboard climate app should keep running");
+        }
+        if is_enabled(DeviceKind::HcSr04) && (tick == 1 || tick % 2 == 0) {
             self.last_distance_mm = Some(
                 self.distance_sensor
                     .read_distance()
@@ -246,7 +346,7 @@ impl DeviceSimulationRig {
             );
         }
 
-        if tick == 1 || tick % 3 == 0 {
+        if is_enabled(DeviceKind::Mpu6050) && (tick == 1 || tick % 3 == 0) {
             self.last_imu = Some(
                 self.imu_sensor
                     .read_imu()
@@ -254,27 +354,27 @@ impl DeviceSimulationRig {
             );
         }
 
-        if tick == 1 || tick % 5 == 0 {
+        if is_enabled(DeviceKind::Bh1750) && (tick == 1 || tick % 5 == 0) {
             if let Ok(reading) = self.light_sensor.read_lux() {
                 self.last_lux_x100 = reading.lux_x100;
             }
         }
 
-        if tick == 1 || tick % 7 == 0 {
+        if is_enabled(DeviceKind::Esp32Cam) && (tick == 1 || tick % 7 == 0) {
             if let Ok(frame) = self.camera.capture_frame() {
                 self.last_camera_sequence = frame.sequence;
             }
         }
 
         // Poll SGP30 gas sensor every 11 ticks
-        if tick == 1 || tick % 11 == 0 {
+        if is_enabled(DeviceKind::Sgp30) && (tick == 1 || tick % 11 == 0) {
             if let Ok(reading) = self.sgp30_sensor.read_gas() {
                 self.last_gas = Some(reading);
             }
         }
 
         // Poll DS3231 RTC every 13 ticks; also advance the mock timestamp
-        if tick == 1 || tick % 13 == 0 {
+        if is_enabled(DeviceKind::Ds3231) && (tick == 1 || tick % 13 == 0) {
             let ts = self.ds3231_timestamps[self.ds3231_ts_index];
             self.ds3231_ts_index = (self.ds3231_ts_index + 1) % self.ds3231_timestamps.len();
             self.ds3231_mock.set_timestamp(ts);
@@ -295,27 +395,47 @@ impl DeviceSimulationRig {
         }
 
         // Poll VL53L0X ToF sensor every 4 ticks
-        if tick == 1 || tick % 4 == 0 {
+        if is_enabled(DeviceKind::Vl53l0x) && (tick == 1 || tick % 4 == 0) {
             if let Ok(reading) = self.tof_sensor.read_distance() {
                 self.last_tof_mm = Some(reading.distance_mm);
             }
         }
 
-        let servo_angle = distance_to_servo_angle(self.last_distance_mm.unwrap_or(180));
-        self.servo
-            .set_angle_degrees(servo_angle)
-            .expect("servo angle should remain in range");
+        if is_enabled(DeviceKind::Servo) {
+            let servo_angle = if is_enabled(DeviceKind::HcSr04) {
+                distance_to_servo_angle(self.last_distance_mm.unwrap_or(180))
+            } else {
+                0
+            };
+            self.servo
+                .set_angle_degrees(servo_angle)
+                .expect("servo angle should remain in range");
+        }
 
-        let (left, right) = motor_commands_from_state(self.last_distance_mm, self.last_imu);
-        self.motor_driver
-            .apply_channels(left, right)
-            .expect("motor commands should remain in range");
+        if is_enabled(DeviceKind::L298n) {
+            let (left, right) = if is_enabled(DeviceKind::HcSr04) && is_enabled(DeviceKind::Mpu6050)
+            {
+                motor_commands_from_state(self.last_distance_mm, self.last_imu)
+            } else {
+                (
+                    MotorCommand::new(MotorDirection::Coast, 0),
+                    MotorCommand::new(MotorDirection::Coast, 0),
+                )
+            };
+            self.motor_driver
+                .apply_channels(left, right)
+                .expect("motor commands should remain in range");
+        }
 
-        let attached_devices = self
-            .bus
-            .attached_addresses()
-            .into_iter()
-            .map(|addr| format!("0x{addr:02X}"))
+        let wiring_config = WiringConfig::from_board_with_selected_devices(
+            wiring_state.board,
+            wiring_state.sensor_profile,
+            &wiring_state.selected_devices,
+        );
+        let attached_devices = wiring_config
+            .devices
+            .iter()
+            .map(|device| device.label.clone())
             .collect::<Vec<_>>();
         let recent_operations = self
             .bus
@@ -328,39 +448,89 @@ impl DeviceSimulationRig {
             .rev()
             .map(format_operation)
             .collect::<Vec<_>>();
-        let app_frame = self
-            .app
-            .last_frame()
-            .map(frame_to_lines)
-            .unwrap_or_else(blank_lines);
         let physical_lcd_frame = frame_to_lines(self.lcd.frame());
-        let climate = self.app.last_reading();
+        let climate = if bme280_enabled {
+            if lcd_enabled {
+                self.app.last_reading()
+            } else {
+                self.climate_sensor.read().ok()
+            }
+        } else {
+            None
+        };
+        let app_frame = if lcd_enabled {
+            self.app
+                .last_frame()
+                .map(frame_to_lines)
+                .unwrap_or_else(blank_lines)
+        } else {
+            climate
+                .and_then(|reading| frame_from_reading(reading).ok())
+                .map(frame_to_lines)
+                .unwrap_or_else(blank_lines)
+        };
         let imu = self
             .last_imu
             .unwrap_or_else(|| hal_api::imu::ImuReading::new([0, 0, 0], [0, 0, 0], None));
+        let lcd_frame = if bme280_enabled && lcd_enabled {
+            physical_lcd_frame
+        } else {
+            blank_lines()
+        };
 
         DeviceDashboardState {
             board_name: self.board.name().to_string(),
             mcu_name: self.board.mcu().to_string(),
             tick,
             climate: ClimatePanelState {
-                temperature_c: climate.map(|value| value.temperature_centi_celsius as f32 / 100.0),
-                humidity_percent: climate.map(|value| value.humidity_centi_percent as f32 / 100.0),
-                pressure_pa: climate.and_then(|value| value.pressure_pascal),
-                app_frame,
-                physical_lcd_frame,
+                temperature_c: if bme280_enabled {
+                    climate.map(|value| value.temperature_centi_celsius as f32 / 100.0)
+                } else {
+                    None
+                },
+                humidity_percent: if bme280_enabled {
+                    climate.map(|value| value.humidity_centi_percent as f32 / 100.0)
+                } else {
+                    None
+                },
+                pressure_pa: if bme280_enabled {
+                    climate.and_then(|value| value.pressure_pascal)
+                } else {
+                    None
+                },
+                app_frame: if lcd_enabled {
+                    app_frame
+                } else {
+                    blank_lines()
+                },
+                physical_lcd_frame: lcd_frame,
             },
             distance: DistancePanelState {
-                distance_mm: self.last_distance_mm,
+                distance_mm: if is_enabled(DeviceKind::HcSr04) {
+                    self.last_distance_mm
+                } else {
+                    None
+                },
                 sensor_name: "HC-SR04".to_string(),
             },
             imu: ImuPanelState {
                 sensor_name: "MPU6050".to_string(),
-                accel_mg: imu.accel_mg,
-                gyro_mdps: imu.gyro_mdps,
-                temperature_c: imu
-                    .temperature_centi_celsius
-                    .map(|value| value as f32 / 100.0),
+                accel_mg: if is_enabled(DeviceKind::Mpu6050) {
+                    imu.accel_mg
+                } else {
+                    [0, 0, 0]
+                },
+                gyro_mdps: if is_enabled(DeviceKind::Mpu6050) {
+                    imu.gyro_mdps
+                } else {
+                    [0, 0, 0]
+                },
+                temperature_c: if is_enabled(DeviceKind::Mpu6050) {
+                    imu.temperature_centi_celsius
+                        .map(|value| value as f32 / 100.0)
+                } else {
+                    None
+                },
             },
             servo: ServoPanelState {
                 angle_degrees: self.servo.current_angle(),
@@ -371,12 +541,17 @@ impl DeviceSimulationRig {
                 right: channel_state(self.motor_driver.channel_b().current_command()),
             },
             wiring: WiringPanelState {
-                sda_pin: self.board.sda_pin().to_string(),
-                scl_pin: self.board.scl_pin().to_string(),
-                power_pin: self.board.power_pin().to_string(),
-                ground_pin: "GND".to_string(),
-                diagram_lines: build_wiring_diagram(self.board, &attached_devices),
+                sda_pin: wiring_config.sda_pin.clone(),
+                scl_pin: wiring_config.scl_pin.clone(),
+                power_pin: wiring_config.power_pin.clone(),
+                ground_pin: wiring_config.ground_pin.clone(),
+                diagram_lines: build_wiring_diagram(&wiring_config),
                 attached_devices,
+                selected_devices: wiring_state
+                    .selected_devices
+                    .iter()
+                    .map(|kind| kind.slug().to_string())
+                    .collect(),
             },
             i2c: I2cPanelState {
                 operation_count: self.bus.operation_count(),
@@ -426,71 +601,104 @@ fn line_to_string(frame: &hal_api::display::TextFrame16x2, row: usize) -> String
         .to_string()
 }
 
-fn addr_to_device_name(addr: &str) -> &'static str {
-    match addr {
-        "0x23" => "BH1750",
-        "0x27" => "LCD1602",
-        "0x3C" => "SSD1306",
-        "0x68" => "MPU6050",
-        "0x77" => "BME280",
-        _ => "unknown",
-    }
-}
-
-fn build_wiring_diagram(board: BoardProfile, attached_devices: &[String]) -> Vec<String> {
+fn build_wiring_diagram(config: &WiringConfig) -> Vec<String> {
     let mut lines: Vec<String> = Vec::new();
-    let sda_prefix = format!("{} SDA ", board.sda_pin());
+    let sda_prefix = format!("{} SDA ", config.sda_pin);
     let cont = " ".repeat(sda_prefix.len());
+    let i2c_devices: Vec<_> = config
+        .devices
+        .iter()
+        .filter(|device| device.kind.connection_type() == ConnectionType::I2c)
+        .collect();
+    let gpio_devices: Vec<_> = config
+        .devices
+        .iter()
+        .filter(|device| device.kind.connection_type() == ConnectionType::Gpio)
+        .collect();
+    let pwm_devices: Vec<_> = config
+        .devices
+        .iter()
+        .filter(|device| device.kind.connection_type() == ConnectionType::Pwm)
+        .collect();
 
     lines.push("── I2C Bus ──────────────────────────────────────".to_string());
-    if attached_devices.is_empty() {
+    if i2c_devices.is_empty() {
         lines.push(format!("{}---- (no devices)", sda_prefix));
     } else {
-        for (i, addr) in attached_devices.iter().enumerate() {
-            let name = addr_to_device_name(addr);
+        for (i, device) in i2c_devices.iter().enumerate() {
             if i == 0 {
-                lines.push(format!("{}--+-- {} ({})", sda_prefix, name, addr));
+                lines.push(format!("{}--+-- {}", sda_prefix, device.label));
             } else {
-                lines.push(format!("{}  +-- {} ({})", cont, name, addr));
+                lines.push(format!("{}  +-- {}", cont, device.label));
             }
         }
     }
-    lines.push(format!("{} SCL ---- (shared bus)", board.scl_pin()));
-    lines.push(format!("{} VCC ---- sensor power", board.power_pin()));
+    lines.push(format!("{} SCL ---- (shared bus)", config.scl_pin));
+    lines.push(format!("{} VCC ---- sensor power", config.power_pin));
     lines.push("GND      ---- shared ground".to_string());
     lines.push(String::new());
 
     lines.push("── GPIO ─────────────────────────────────────────".to_string());
-    lines.push(format!("{} TRIG --- HC-SR04 TRIG", board.trig_pin()));
-    lines.push(format!("{} ECHO --- HC-SR04 ECHO", board.echo_pin()));
-    lines.push(format!("{} PWM  --- Servo signal", board.servo_pwm_pin()));
+    if gpio_devices.is_empty() {
+        lines.push("(none selected)".to_string());
+    } else {
+        for device in gpio_devices {
+            match device.kind {
+                DeviceKind::HcSr04 => {
+                    lines.push(format!("{} TRIG --- HC-SR04 TRIG", config.trig_pin));
+                    lines.push(format!("{} ECHO --- HC-SR04 ECHO", config.echo_pin));
+                }
+                DeviceKind::Esp32Cam => {
+                    lines.push(format!(
+                        "{} GPIO --- ESP32-CAM boot/control",
+                        config.cam_pin
+                    ));
+                }
+                _ => {}
+            }
+        }
+    }
     lines.push(String::new());
 
-    lines.push("── Motor Driver (L298N-style) ───────────────────".to_string());
-    lines.push(format!(
-        "{} ENA  --- Motor-A enable (PWM)",
-        board.motor_ena_pin()
-    ));
-    lines.push(format!(
-        "{} IN1  --- Motor-A direction 1",
-        board.motor_in1_pin()
-    ));
-    lines.push(format!(
-        "{} IN2  --- Motor-A direction 2",
-        board.motor_in2_pin()
-    ));
-    lines.push(format!(
-        "{} ENB  --- Motor-B enable (PWM)",
-        board.motor_enb_pin()
-    ));
-    lines.push(format!(
-        "{} IN3  --- Motor-B direction 1",
-        board.motor_in3_pin()
-    ));
-    lines.push(format!(
-        "{} IN4  --- Motor-B direction 2",
-        board.motor_in4_pin()
-    ));
+    lines.push("── PWM / Motor ──────────────────────────────────".to_string());
+    if pwm_devices.is_empty() {
+        lines.push("(none selected)".to_string());
+    } else {
+        for device in pwm_devices {
+            match device.kind {
+                DeviceKind::Servo => {
+                    lines.push(format!("{} PWM  --- Servo signal", config.servo_pin));
+                }
+                DeviceKind::L298n => {
+                    lines.push(format!(
+                        "{} ENA  --- Motor-A enable (PWM)",
+                        config.motor_pin
+                    ));
+                    lines.push(format!(
+                        "{} IN1  --- Motor-A direction 1",
+                        config.board.motor_in1_pin()
+                    ));
+                    lines.push(format!(
+                        "{} IN2  --- Motor-A direction 2",
+                        config.board.motor_in2_pin()
+                    ));
+                    lines.push(format!(
+                        "{} ENB  --- Motor-B enable (PWM)",
+                        config.board.motor_enb_pin()
+                    ));
+                    lines.push(format!(
+                        "{} IN3  --- Motor-B direction 1",
+                        config.board.motor_in3_pin()
+                    ));
+                    lines.push(format!(
+                        "{} IN4  --- Motor-B direction 2",
+                        config.board.motor_in4_pin()
+                    ));
+                }
+                _ => {}
+            }
+        }
+    }
 
     lines
 }
@@ -584,6 +792,35 @@ fn parse_board_from_json(json: &str) -> Option<&str> {
 /// Handles `{"sensor_profile":"climate"}` without a full JSON parser.
 fn parse_sensor_profile_from_json(json: &str) -> Option<&str> {
     parse_json_string_field(json, "sensor_profile")
+}
+
+fn parse_json_string_array_field(json: &str, key: &str) -> Option<Vec<String>> {
+    let key_literal = format!("\"{key}\"");
+    let after_key = json.split(key_literal.as_str()).nth(1)?;
+    let after_colon = after_key.split(':').nth(1)?.trim_start();
+    let inner = after_colon.strip_prefix('[')?;
+    let end = inner.find(']')?;
+    let values = inner[..end].trim();
+    if values.is_empty() {
+        return Some(vec![]);
+    }
+
+    Some(
+        values
+            .split(',')
+            .filter_map(|entry| {
+                let trimmed = entry.trim();
+                let without_prefix = trimmed.strip_prefix('"')?;
+                let end = without_prefix.find('"')?;
+                Some(without_prefix[..end].to_string())
+            })
+            .collect(),
+    )
+}
+
+#[cfg(test)]
+fn parse_selected_devices_from_json(json: &str) -> Vec<String> {
+    parse_json_string_array_field(json, "selected_devices").unwrap_or_default()
 }
 
 fn respond(stream: &mut TcpStream, status: &str, content_type: &str, body: &str) {
@@ -839,7 +1076,7 @@ fn main() {
     println!("device dashboard server started");
     println!("open http://127.0.0.1:{port}");
     println!("board profile: {}", board.name());
-    println!("WebSocket endpoint: ws://127.0.0.1:{port}/api/ws");
+    println!("SSE endpoint: http://127.0.0.1:{port}/api/events");
 
     loop {
         // Apply pending board change from a handler thread.
@@ -850,10 +1087,11 @@ fn main() {
         }
 
         // Tick the simulation.
-        let state = rig.step();
+        let wiring_state = ctx.wiring_state.lock().unwrap().clone();
+        let state = rig.step(&wiring_state);
         push_ticker = push_ticker.wrapping_add(1);
 
-        // Push JSON to WebSocket clients every 10 ticks (~100 ms).
+        // Push JSON to SSE clients every 10 ticks (~100 ms).
         if push_ticker % 10 == 0 {
             ctx.push_state(state_to_json(&state));
         }
@@ -896,13 +1134,6 @@ fn handle_connection(
     let path = parts.next().unwrap_or("/");
     let (path_only, query_str) = path.split_once('?').unwrap_or((path, ""));
 
-    // Check for WebSocket upgrade before HTTP routing.
-    let is_ws_upgrade = request.to_ascii_lowercase().contains("upgrade: websocket");
-    if is_ws_upgrade && path_only == "/api/ws" {
-        handle_websocket(stream, &request, ctx);
-        return;
-    }
-
     let body = request
         .find("\r\n\r\n")
         .map(|pos| &request[pos + 4..])
@@ -915,6 +1146,9 @@ fn handle_connection(
             "text/html; charset=utf-8",
             dashboard_html(),
         ),
+        (_, "/api/events") => {
+            handle_sse_events(&mut stream, ctx);
+        }
         (_, "/api/state") => {
             let json = ctx.latest_json.lock().unwrap().clone();
             respond(
@@ -940,13 +1174,25 @@ fn handle_connection(
                 if let Some(profile_slug) = parse_sensor_profile_from_json(body) {
                     if let Some(profile) = SensorProfile::from_slug(profile_slug) {
                         ws.sensor_profile = profile;
+                        ws.selected_devices = profile.device_kinds();
                     }
                 }
-                *ws
+                if let Some(selected_devices) =
+                    parse_json_string_array_field(body, "selected_devices")
+                {
+                    ws.selected_devices = selected_devices
+                        .into_iter()
+                        .filter_map(|slug| DeviceKind::from_slug(&slug))
+                        .collect();
+                }
+                ws.clone()
             };
-            let payload =
-                WiringConfig::from_board_with_sensors(wiring.board, wiring.sensor_profile)
-                    .to_json();
+            let payload = WiringConfig::from_board_with_selected_devices(
+                wiring.board,
+                wiring.sensor_profile,
+                &wiring.selected_devices,
+            )
+            .to_json();
             respond(
                 &mut stream,
                 "200 OK",
@@ -957,7 +1203,20 @@ fn handle_connection(
         (_, "/api/wiring/profiles") => {
             let entries: Vec<String> = SensorProfile::all_variants()
                 .iter()
-                .map(|p| format!(r#"{{"slug":"{}","name":"{}"}}"#, p.slug(), p.display_name()))
+                .map(|p| {
+                    let devices = p
+                        .device_kinds()
+                        .into_iter()
+                        .map(|kind| format!(r#""{}""#, kind.slug()))
+                        .collect::<Vec<_>>()
+                        .join(",");
+                    format!(
+                        r#"{{"slug":"{}","name":"{}","devices":[{}]}}"#,
+                        p.slug(),
+                        p.display_name(),
+                        devices
+                    )
+                })
                 .collect();
             let payload = format!(r#"{{"profiles":[{}]}}"#, entries.join(","));
             respond(
@@ -968,10 +1227,13 @@ fn handle_connection(
             );
         }
         (_, "/api/wiring") => {
-            let wiring = *ctx.wiring_state.lock().unwrap();
-            let payload =
-                WiringConfig::from_board_with_sensors(wiring.board, wiring.sensor_profile)
-                    .to_json();
+            let wiring = ctx.wiring_state.lock().unwrap().clone();
+            let payload = WiringConfig::from_board_with_selected_devices(
+                wiring.board,
+                wiring.sensor_profile,
+                &wiring.selected_devices,
+            )
+            .to_json();
             respond(
                 &mut stream,
                 "200 OK",
@@ -980,8 +1242,12 @@ fn handle_connection(
             );
         }
         (_, "/api/wiring/svg") => {
-            let wiring = *ctx.wiring_state.lock().unwrap();
-            let cfg = WiringConfig::from_board_with_sensors(wiring.board, wiring.sensor_profile);
+            let wiring = ctx.wiring_state.lock().unwrap().clone();
+            let cfg = WiringConfig::from_board_with_selected_devices(
+                wiring.board,
+                wiring.sensor_profile,
+                &wiring.selected_devices,
+            );
             let svg = wiring_svg(&cfg);
             respond(&mut stream, "200 OK", "image/svg+xml; charset=utf-8", &svg);
         }
@@ -1035,90 +1301,78 @@ fn handle_connection(
     }
 }
 
-/// Upgrade the TCP stream to WebSocket, then stream JSON state updates to the client.
-///
-/// Implements a minimal RFC 6455 WebSocket server-side handshake and text-frame sender
-/// using only SHA-1 (via `sha1_smol`) and Base64 (`base64`) — no full WS library needed.
-fn handle_websocket(mut stream: TcpStream, request_headers: &str, ctx: Arc<ServerContext>) {
-    // ── Handshake ─────────────────────────────────────────────────────────────
-    // Split on \r\n (not .lines()) so lone \n inside Cookie values cannot inject a
-    // spurious Sec-WebSocket-Key line and cause an incorrect Accept hash.
-    let ws_key = request_headers
-        .split("\r\n")
-        .find_map(|line| {
-            let lower = line.to_ascii_lowercase();
-            if lower.starts_with("sec-websocket-key:") {
-                Some(line[line.find(':').unwrap() + 1..].trim().to_string())
-            } else {
-                None
-            }
-        })
-        .unwrap_or_default();
-
-    const GUID: &str = "258EAFA5-E914-47DA-9CA2-3926096E866B";
-    let accept_input = format!("{ws_key}{GUID}");
-    let digest = sha1_smol::Sha1::from(accept_input.as_bytes())
-        .digest()
-        .bytes();
-    use base64::Engine as _;
-    let accept_value = base64::engine::general_purpose::STANDARD.encode(digest);
-
-    let response = format!(
-        "HTTP/1.1 101 Switching Protocols\r\n\
-         Upgrade: websocket\r\n\
-         Connection: Upgrade\r\n\
-         Sec-WebSocket-Accept: {accept_value}\r\n\
-         \r\n"
-    );
-    if stream.write_all(response.as_bytes()).is_err() {
+fn handle_sse_events(stream: &mut TcpStream, ctx: Arc<ServerContext>) {
+    let header = "HTTP/1.1 200 OK\r\n\
+        Content-Type: text/event-stream\r\n\
+        Cache-Control: no-cache\r\n\
+        Connection: keep-alive\r\n\
+        Access-Control-Allow-Origin: *\r\n\
+        \r\n";
+    if stream.write_all(header.as_bytes()).is_err() {
         return;
     }
 
-    // ── Register a push channel ────────────────────────────────────────────────
     let initial = ctx.latest_json.lock().unwrap().clone();
     let (tx, rx) = mpsc::sync_channel::<String>(32);
-    ctx.ws_clients.lock().unwrap().push(tx);
+    ctx.sse_clients.lock().unwrap().push(tx);
 
-    // Send the current state immediately so the client doesn't have to wait.
-    if ws_text_send(&mut stream, &initial).is_err() {
+    if stream
+        .write_all(format!("data: {initial}\n\n").as_bytes())
+        .is_err()
+    {
         return;
     }
 
-    // Forward state updates until the channel or stream is closed.
     for json in rx {
-        if ws_text_send(&mut stream, &json).is_err() {
+        if stream
+            .write_all(format!("data: {json}\n\n").as_bytes())
+            .is_err()
+        {
             break;
         }
     }
 }
 
-/// Send a single unsegmented text frame (RFC 6455 §5.6, no masking on server side).
-fn ws_text_send(stream: &mut TcpStream, payload: &str) -> io::Result<()> {
-    let data = payload.as_bytes();
-    let len = data.len();
-
-    let mut header = Vec::with_capacity(10);
-    header.push(0x81u8); // FIN=1, opcode=0x1 (text)
-    if len < 126 {
-        header.push(len as u8);
-    } else if len < 65536 {
-        header.push(0x7E);
-        header.push((len >> 8) as u8);
-        header.push((len & 0xFF) as u8);
-    } else {
-        header.push(0x7F);
-        for shift in (0..8).rev() {
-            header.push(((len >> (shift * 8)) & 0xFF) as u8);
-        }
-    }
-    stream.write_all(&header)?;
-    stream.write_all(data)?;
-    stream.flush()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::net::{Shutdown, TcpListener, TcpStream};
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    fn read_response(stream: &mut TcpStream) -> String {
+        let mut buf = Vec::new();
+        let mut chunk = [0u8; 1024];
+
+        loop {
+            match stream.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(n) => buf.extend_from_slice(&chunk[..n]),
+                Err(err)
+                    if matches!(
+                        err.kind(),
+                        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                    ) =>
+                {
+                    break
+                }
+                Err(err) => panic!("failed to read response: {err}"),
+            }
+        }
+
+        String::from_utf8(buf).expect("response should be valid utf-8")
+    }
+
+    fn send_request(addr: std::net::SocketAddr, request: &str) -> String {
+        let mut client = TcpStream::connect(addr).expect("client should connect");
+        client
+            .set_read_timeout(Some(Duration::from_millis(200)))
+            .expect("client read timeout should be set");
+        client
+            .write_all(request.as_bytes())
+            .expect("request should be written");
+        read_response(&mut client)
+    }
 
     #[test]
     fn distance_to_servo_angle_at_minimum() {
@@ -1207,10 +1461,278 @@ mod tests {
     }
 
     #[test]
+    fn parse_selected_devices_from_json_extracts_values() {
+        assert_eq!(
+            parse_selected_devices_from_json(r#"{"selected_devices":["bme280","servo","sgp30"]}"#),
+            vec![
+                "bme280".to_string(),
+                "servo".to_string(),
+                "sgp30".to_string()
+            ]
+        );
+    }
+
+    #[test]
     fn parse_json_string_field_handles_space_after_colon() {
         assert_eq!(
             parse_json_string_field(r#"{"sensor_profile": "climate"}"#, "sensor_profile"),
             Some("climate")
         );
+    }
+
+    #[test]
+    fn sse_events_endpoint_streams_initial_state() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("listener should bind");
+        let addr = listener
+            .local_addr()
+            .expect("listener should have local addr");
+        let ctx = ServerContext::new(BoardProfile::OriginalEsp32);
+        *ctx.latest_json.lock().unwrap() = r#"{"tick":1}"#.to_string();
+
+        let (board_tx, board_rx) = mpsc::channel::<BoardProfile>();
+        drop(board_rx);
+
+        let ctx_for_thread = Arc::clone(&ctx);
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().expect("test client should connect");
+            handle_connection(stream, ctx_for_thread, board_tx);
+        });
+
+        let mut client = TcpStream::connect(addr).expect("client should connect");
+        client
+            .set_read_timeout(Some(Duration::from_millis(200)))
+            .expect("client read timeout should be set");
+        client
+            .write_all(b"GET /api/events HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            .expect("request should be written");
+
+        let response = read_response(&mut client);
+        assert!(response.contains("HTTP/1.1 200 OK\r\n"));
+        assert!(response.contains("Content-Type: text/event-stream\r\n"));
+        assert!(response.contains("data: {\"tick\":1}\n\n"));
+
+        client
+            .shutdown(Shutdown::Both)
+            .expect("client should shut down cleanly");
+        ctx.sse_clients.lock().unwrap().clear();
+
+        server.join().expect("server thread should exit");
+    }
+
+    #[test]
+    fn wiring_endpoint_updates_selected_devices() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("listener should bind");
+        let addr = listener
+            .local_addr()
+            .expect("listener should have local addr");
+        let ctx = ServerContext::new(BoardProfile::OriginalEsp32);
+
+        let (board_tx, board_rx) = mpsc::channel::<BoardProfile>();
+        drop(board_rx);
+
+        let ctx_for_thread = Arc::clone(&ctx);
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().expect("test client should connect");
+            handle_connection(stream, ctx_for_thread, board_tx);
+        });
+
+        let body = r#"{"sensor_profile":"minimal","selected_devices":["bme280","servo"]}"#;
+        let request = format!(
+            "POST /api/wiring HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+
+        let mut client = TcpStream::connect(addr).expect("client should connect");
+        client
+            .set_read_timeout(Some(Duration::from_millis(200)))
+            .expect("client read timeout should be set");
+        client
+            .write_all(request.as_bytes())
+            .expect("request should be written");
+
+        let response = read_response(&mut client);
+        assert!(response.contains("\"sensor_profile\":\"minimal\""));
+        assert!(response.contains("\"selected_devices\":[\"bme280\",\"servo\"]"));
+        assert!(response.contains("\"available_devices\":["));
+
+        server.join().expect("server thread should exit");
+    }
+
+    #[test]
+    fn device_simulation_rig_only_polls_selected_devices() {
+        let mut rig = DeviceSimulationRig::new(BoardProfile::OriginalEsp32);
+        let wiring_state = WiringState {
+            board: BoardProfile::OriginalEsp32,
+            sensor_profile: SensorProfile::Minimal,
+            selected_devices: vec![DeviceKind::Bme280, DeviceKind::Lcd1602],
+        };
+
+        let state = rig.step(&wiring_state);
+
+        assert_eq!(
+            state.wiring.attached_devices,
+            vec!["BME280 (0x77)".to_string(), "LCD1602 (0x27)".to_string()]
+        );
+        assert!(state.i2c.operation_count > 0);
+        assert!(state
+            .i2c
+            .recent_operations
+            .iter()
+            .all(|line| line.contains("0x77") || line.contains("0x27")));
+        assert!(state.climate.temperature_c.is_some());
+        assert_eq!(state.climate.physical_lcd_frame[0].len(), 16);
+        assert_eq!(state.distance.distance_mm, None);
+        assert_eq!(state.imu.accel_mg, [0, 0, 0]);
+        assert_eq!(state.light.lux_x100, 0);
+        assert_eq!(state.camera.sequence, 0);
+        assert_eq!(state.gas.co2_ppm, None);
+        assert_eq!(state.rtc.datetime_str, "");
+        assert_eq!(state.tof.distance_mm, None);
+    }
+
+    #[test]
+    fn device_simulation_rig_keeps_bme280_data_when_lcd_is_disabled() {
+        let mut rig = DeviceSimulationRig::new(BoardProfile::OriginalEsp32);
+        let wiring_state = WiringState {
+            board: BoardProfile::OriginalEsp32,
+            sensor_profile: SensorProfile::Minimal,
+            selected_devices: vec![DeviceKind::Bme280],
+        };
+
+        let state = rig.step(&wiring_state);
+
+        assert_eq!(
+            state.wiring.attached_devices,
+            vec!["BME280 (0x77)".to_string()]
+        );
+        assert!(state.climate.temperature_c.is_some());
+        assert!(state.climate.humidity_percent.is_some());
+        assert!(state.climate.pressure_pa.is_some());
+        assert_eq!(state.climate.app_frame, blank_lines());
+        assert_eq!(state.climate.physical_lcd_frame, blank_lines());
+    }
+
+    #[test]
+    fn device_simulation_rig_keeps_bme280_readings_without_lcd() {
+        let mut rig = DeviceSimulationRig::new(BoardProfile::OriginalEsp32);
+        let wiring_state = WiringState {
+            board: BoardProfile::OriginalEsp32,
+            sensor_profile: SensorProfile::Minimal,
+            selected_devices: vec![DeviceKind::Bme280],
+        };
+
+        let state = rig.step(&wiring_state);
+
+        assert_eq!(
+            state.wiring.attached_devices,
+            vec!["BME280 (0x77)".to_string()]
+        );
+        assert!(state.climate.temperature_c.is_some());
+        assert!(state.climate.humidity_percent.is_some());
+        assert!(state.climate.pressure_pa.is_some());
+        assert_eq!(state.climate.physical_lcd_frame, blank_lines());
+    }
+
+    #[test]
+    fn device_simulation_rig_does_not_fabricate_climate_without_bme280() {
+        let mut rig = DeviceSimulationRig::new(BoardProfile::OriginalEsp32);
+        let wiring_state = WiringState {
+            board: BoardProfile::OriginalEsp32,
+            sensor_profile: SensorProfile::Minimal,
+            selected_devices: vec![DeviceKind::Lcd1602],
+        };
+
+        let state = rig.step(&wiring_state);
+
+        assert_eq!(
+            state.wiring.attached_devices,
+            vec!["LCD1602 (0x27)".to_string()]
+        );
+        assert_eq!(state.climate.temperature_c, None);
+        assert_eq!(state.climate.humidity_percent, None);
+        assert_eq!(state.climate.pressure_pa, None);
+        assert_eq!(state.climate.physical_lcd_frame, blank_lines());
+    }
+
+    #[test]
+    fn wiring_profiles_endpoint_lists_all_profiles() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("listener should bind");
+        let addr = listener
+            .local_addr()
+            .expect("listener should have local addr");
+        let ctx = ServerContext::new(BoardProfile::OriginalEsp32);
+
+        let (board_tx, board_rx) = mpsc::channel::<BoardProfile>();
+        drop(board_rx);
+
+        let ctx_for_thread = Arc::clone(&ctx);
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().expect("test client should connect");
+            handle_connection(stream, ctx_for_thread, board_tx);
+        });
+
+        let response = send_request(
+            addr,
+            "GET /api/wiring/profiles HTTP/1.1\r\nHost: localhost\r\n\r\n",
+        );
+        assert!(response.contains("\"profiles\":["));
+        assert!(response.contains("\"slug\":\"full\""));
+        assert!(response.contains("\"slug\":\"climate\""));
+        assert!(response.contains("\"slug\":\"robot\""));
+        assert!(response.contains("\"slug\":\"minimal\""));
+        assert!(response.contains(r#""devices":["bme280","lcd1602"]"#));
+
+        server.join().expect("server thread should exit");
+    }
+
+    #[test]
+    fn wiring_state_and_svg_reflect_explicit_selection_over_profile() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("listener should bind");
+        let addr = listener
+            .local_addr()
+            .expect("listener should have local addr");
+        let ctx = ServerContext::new(BoardProfile::OriginalEsp32);
+
+        let (board_tx, board_rx) = mpsc::channel::<BoardProfile>();
+        drop(board_rx);
+
+        let ctx_for_thread = Arc::clone(&ctx);
+        let server = thread::spawn(move || {
+            for _ in 0..3 {
+                let (stream, _) = listener.accept().expect("test client should connect");
+                handle_connection(stream, Arc::clone(&ctx_for_thread), board_tx.clone());
+            }
+        });
+
+        let body = r#"{"sensor_profile":"robot","selected_devices":["bme280","servo"]}"#;
+        let post_request = format!(
+            "POST /api/wiring HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let post_response = send_request(addr, &post_request);
+        assert!(post_response.contains("\"sensor_profile\":\"robot\""));
+        assert!(post_response.contains("\"selected_devices\":[\"bme280\",\"servo\"]"));
+        assert!(post_response.contains("\"devices\":["));
+        assert!(post_response.contains("\"kind\":\"bme280\""));
+        assert!(post_response.contains("\"kind\":\"servo\""));
+
+        let wiring_response =
+            send_request(addr, "GET /api/wiring HTTP/1.1\r\nHost: localhost\r\n\r\n");
+        assert!(wiring_response.contains("\"selected_devices\":[\"bme280\",\"servo\"]"));
+        assert!(wiring_response.contains("\"devices\":["));
+        assert!(wiring_response.contains("\"kind\":\"bme280\""));
+        assert!(wiring_response.contains("\"kind\":\"servo\""));
+
+        let svg_response = send_request(
+            addr,
+            "GET /api/wiring/svg HTTP/1.1\r\nHost: localhost\r\n\r\n",
+        );
+        assert!(svg_response.contains("BME280"));
+        assert!(svg_response.contains("Servo"));
+        assert!(!svg_response.contains("MPU6050"));
+
+        server.join().expect("server thread should exit");
     }
 }
