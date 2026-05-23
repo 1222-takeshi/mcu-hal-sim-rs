@@ -114,6 +114,21 @@ async function wiringTextNodes(page) {
   );
 }
 
+async function busTrunkSpan(page, wireClass) {
+  return page.locator(`#wiring-svg-wrap svg path.${wireClass}.w-bus-trunk`).evaluate((path) => {
+    const d = path.getAttribute("d");
+    const match = d.match(/^M\s+(\d+)\s+(\d+)\s+L\s+\1\s+(\d+)$/);
+    if (!match) {
+      throw new Error(`unexpected trunk path: ${d}`);
+    }
+    return {
+      x: Number(match[1]),
+      top: Number(match[2]),
+      bottom: Number(match[3]),
+    };
+  });
+}
+
 test.describe("device dashboard", () => {
   test.beforeEach(async ({ page }) => {
     await gotoDashboard(page);
@@ -342,6 +357,26 @@ test.describe("device dashboard", () => {
     expect(textNodes).toContain("TRIG/GPIO5");
     expect(textNodes).toContain("ECHO/GPIO18");
     expect(textNodes).not.toContain("CAM/GPIO0");
+  });
+
+  test("keeps shared bus trunks connected back to board feeds in sparse layouts", async ({ page }) => {
+    await page.selectOption("#sensor-profile-select", "minimal");
+    await expect(page.locator("#device-toggle-list input[data-device-kind]:checked")).toHaveCount(2);
+
+    await expect.poll(async () => busTrunkSpan(page, "w-vcc")).toEqual({ x: 214, top: 196, bottom: 293 });
+    await expect.poll(async () => busTrunkSpan(page, "w-sda")).toEqual({ x: 280, top: 96, bottom: 284 });
+    await expect.poll(async () => busTrunkSpan(page, "w-scl")).toEqual({ x: 306, top: 140, bottom: 284 });
+
+    await page.selectOption("#sensor-profile-select", "robot");
+    await expect
+      .poll(async () => {
+        const data = await getWiring(page);
+        return data.sensor_profile;
+      })
+      .toBe("robot");
+
+    await expect.poll(async () => busTrunkSpan(page, "w-sda")).toEqual({ x: 280, top: 96, bottom: 206 });
+    await expect.poll(async () => busTrunkSpan(page, "w-scl")).toEqual({ x: 306, top: 140, bottom: 206 });
   });
 
   test("keeps detailed bus labels enabled when device selection changes", async ({ page }) => {
