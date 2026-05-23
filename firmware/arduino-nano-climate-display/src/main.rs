@@ -15,7 +15,7 @@ use core_app::climate_display::{ClimateDisplayApp, ClimateDisplayConfig};
 
 const SERIAL_BAUD: u32 = 57_600;
 const I2C_FREQUENCY_HZ: u32 = 100_000;
-const LOOP_DELAY_MS: u16 = 100;
+const LOOP_DELAY_MS: u32 = 100;
 const REFRESH_PERIOD_TICKS: u32 = 10;
 const BME280_CHIP_ID_REGISTER: u8 = 0xD0;
 const BME280_CHIP_ID_VALUE: u8 = 0x60;
@@ -40,13 +40,7 @@ impl embedded_hal::delay::DelayNs for AvrDelay {
     }
 
     fn delay_ms(&mut self, ms: u32) {
-        // arduino_hal::delay_ms takes u32 on current arduino-hal.
-        let mut remaining = ms;
-        while remaining > 0 {
-            let chunk = remaining.min(u16::MAX as u32) as u16;
-            arduino_hal::delay_ms(chunk.into());
-            remaining -= chunk as u32;
-        }
+        arduino_hal::delay_ms(ms);
     }
 }
 
@@ -157,6 +151,6 @@ fn main() -> ! {
             }
         }
 
-        arduino_hal::delay_ms(LOOP_DELAY_MS.into());
+        arduino_hal::delay_ms(LOOP_DELAY_MS);
     }
 }
