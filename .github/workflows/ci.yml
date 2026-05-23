@@ -352,3 +352,13 @@ jobs:
 
       - name: Measure coverage
         run: cargo llvm-cov --workspace --all-targets --summary-only
+
+  boundary:
+    name: Workspace Boundary Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check workspace layer boundaries
+        run: bash scripts/check-workspace-boundaries.sh
