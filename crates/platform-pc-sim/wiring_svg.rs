@@ -259,14 +259,18 @@ fn render(out: &mut String, config: &WiringConfig) {
 "#
         );
     };
+    let trunk_span =
+        |feed_y: i32, top_y: i32, bottom_y: i32| (top_y.min(feed_y), bottom_y.max(feed_y));
 
     let power_top = layouts.iter().map(|(_, dy, _)| dy + 8).min();
     let power_bottom = layouts.iter().map(|(_, dy, _)| dy + DEV_H - 8).max();
     if let (Some(top_y), Some(bottom_y)) = (power_top, power_bottom) {
         draw_bus_feed(out, "w-vcc", P_VCC, VCC_RAIL_X, "dot-vcc");
-        draw_bus_trunk(out, "w-vcc", VCC_RAIL_X, top_y, bottom_y);
+        let (vcc_top, vcc_bottom) = trunk_span(P_VCC, top_y, bottom_y);
+        draw_bus_trunk(out, "w-vcc", VCC_RAIL_X, vcc_top, vcc_bottom);
         draw_bus_feed(out, "w-gnd", P_GND, GND_RAIL_X, "dot-gnd");
-        draw_bus_trunk(out, "w-gnd", GND_RAIL_X, top_y, bottom_y);
+        let (gnd_top, gnd_bottom) = trunk_span(P_GND, top_y, bottom_y);
+        draw_bus_trunk(out, "w-gnd", GND_RAIL_X, gnd_top, gnd_bottom);
     }
 
     let i2c_top = layouts
@@ -283,9 +287,11 @@ fn render(out: &mut String, config: &WiringConfig) {
         .max();
     if let (Some(top_y), Some(bottom_y)) = (i2c_top, i2c_bottom) {
         draw_bus_feed(out, "w-sda", P_SDA, SDA_RAIL_X, "dot-sda");
-        draw_bus_trunk(out, "w-sda", SDA_RAIL_X, top_y, bottom_y);
+        let (sda_top, sda_bottom) = trunk_span(P_SDA, top_y, bottom_y);
+        draw_bus_trunk(out, "w-sda", SDA_RAIL_X, sda_top, sda_bottom);
         draw_bus_feed(out, "w-scl", P_SCL, SCL_RAIL_X, "dot-scl");
-        draw_bus_trunk(out, "w-scl", SCL_RAIL_X, top_y, bottom_y);
+        let (scl_top, scl_bottom) = trunk_span(P_SCL, top_y, bottom_y);
+        draw_bus_trunk(out, "w-scl", SCL_RAIL_X, scl_top, scl_bottom);
     }
 
     for (dev, dy, mid_y) in layouts {
@@ -665,5 +671,34 @@ mod tests {
 
         assert!(!svg.contains("CAM/N/A"));
         assert!(!svg.contains("GPIO:N/A"));
+    }
+
+    #[test]
+    fn wiring_svg_connects_sparse_minimal_bus_trunks_back_to_board_feed() {
+        use crate::wiring_config::SensorProfile;
+
+        let cfg = WiringConfig::from_board_with_sensors(
+            BoardProfile::OriginalEsp32,
+            SensorProfile::Minimal,
+        );
+        let svg = wiring_svg(&cfg);
+
+        assert!(svg.contains(r#"<path class="w-vcc w-bus-trunk" d="M 214 196 L 214 293"/>"#));
+        assert!(svg.contains(r#"<path class="w-sda w-bus-trunk" d="M 280 96 L 280 284"/>"#));
+        assert!(svg.contains(r#"<path class="w-scl w-bus-trunk" d="M 306 140 L 306 284"/>"#));
+    }
+
+    #[test]
+    fn wiring_svg_connects_robot_i2c_trunks_back_to_board_feed() {
+        use crate::wiring_config::SensorProfile;
+
+        let cfg = WiringConfig::from_board_with_sensors(
+            BoardProfile::OriginalEsp32,
+            SensorProfile::RobotBase,
+        );
+        let svg = wiring_svg(&cfg);
+
+        assert!(svg.contains(r#"<path class="w-sda w-bus-trunk" d="M 280 96 L 280 206"/>"#));
+        assert!(svg.contains(r#"<path class="w-scl w-bus-trunk" d="M 306 140 L 306 206"/>"#));
     }
 }
