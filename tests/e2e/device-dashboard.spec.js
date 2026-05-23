@@ -654,3 +654,30 @@ test("serializes rapid profile and device toggle updates so the latest choice wi
 
   await expect(page.locator("#light-card")).toHaveJSProperty("hidden", false);
 });
+
+test("diagnostics panel is visible and shows event_count", async ({ page }) => {
+  await page.goto("/");
+  // The diagnostics panel must exist in the DOM.
+  const panel = page.locator("#diagnostics-panel");
+  await expect(panel).toBeVisible({ timeout: 8000 });
+
+  // After a few SSE ticks the event_count element should contain a number.
+  await expect
+    .poll(
+      async () => {
+        const text = await page.locator("#diag-event-count").textContent();
+        return /^\d+$/.test((text || "").trim());
+      },
+      { timeout: 6000, intervals: [500] },
+    )
+    .toBe(true);
+});
+
+test("/api/diagnostics endpoint returns valid JSON", async ({ page }) => {
+  const data = await page.request.get("/api/diagnostics");
+  expect(data.ok()).toBe(true);
+  const body = await data.json();
+  expect(typeof body.event_count).toBe("number");
+  expect(Array.isArray(body.recent_events)).toBe(true);
+});
+

@@ -20,6 +20,7 @@ pub struct DeviceDashboardState {
     pub gas: GasPanelState,
     pub rtc: RtcPanelState,
     pub tof: TofPanelState,
+    pub diagnostics: DiagnosticsPanelState,
 }
 
 #[derive(Debug, Clone)]
@@ -114,11 +115,22 @@ pub struct TofPanelState {
     pub sensor_name: String,
 }
 
+/// Diagnostics ring buffer state surfaced per tick.
+///
+/// `recent_events` holds up to 20 entries most-recent-first.
+/// `event_count` is a monotonically increasing counter of all events ever
+/// logged (useful for detecting new activity without diffing the list).
+#[derive(Debug, Clone, Default)]
+pub struct DiagnosticsPanelState {
+    pub recent_events: Vec<String>,
+    pub event_count: u32,
+}
+
 pub fn state_to_json(state: &DeviceDashboardState) -> String {
     let mut output = String::new();
     let _ = write!(
         output,
-        "{{\"board_name\":{},\"mcu_name\":{},\"tick\":{},\"climate\":{{\"temperature_c\":{},\"humidity_percent\":{},\"pressure_pa\":{},\"app_frame\":[{},{}],\"physical_lcd_frame\":[{},{}]}},\"distance\":{{\"distance_mm\":{},\"sensor_name\":{}}},\"imu\":{{\"sensor_name\":{},\"accel_mg\":[{},{},{}],\"gyro_mdps\":[{},{},{}],\"temperature_c\":{}}},\"servo\":{{\"angle_degrees\":{}}},\"motor_driver\":{{\"driver_name\":{},\"left\":{{\"direction\":{},\"duty_percent\":{}}},\"right\":{{\"direction\":{},\"duty_percent\":{}}}}},\"wiring\":{{\"sda_pin\":{},\"scl_pin\":{},\"power_pin\":{},\"ground_pin\":{},\"attached_devices\":[{}],\"selected_devices\":[{}],\"show_bus_labels\":{},\"diagram_lines\":[{}]}},\"i2c\":{{\"operation_count\":{},\"recent_operations\":[{}]}},\"light\":{{\"lux_x100\":{},\"lux\":{},\"sensor_name\":{}}},\"camera\":{{\"width\":{},\"height\":{},\"sequence\":{},\"sensor_name\":{}}},\"gas\":{{\"co2_ppm\":{},\"voc_ppb\":{},\"sensor_name\":{}}},\"rtc\":{{\"datetime_str\":{},\"sensor_name\":{}}},\"tof\":{{\"distance_mm\":{},\"sensor_name\":{}}}}}",
+        "{{\"board_name\":{},\"mcu_name\":{},\"tick\":{},\"climate\":{{\"temperature_c\":{},\"humidity_percent\":{},\"pressure_pa\":{},\"app_frame\":[{},{}],\"physical_lcd_frame\":[{},{}]}},\"distance\":{{\"distance_mm\":{},\"sensor_name\":{}}},\"imu\":{{\"sensor_name\":{},\"accel_mg\":[{},{},{}],\"gyro_mdps\":[{},{},{}],\"temperature_c\":{}}},\"servo\":{{\"angle_degrees\":{}}},\"motor_driver\":{{\"driver_name\":{},\"left\":{{\"direction\":{},\"duty_percent\":{}}},\"right\":{{\"direction\":{},\"duty_percent\":{}}}}},\"wiring\":{{\"sda_pin\":{},\"scl_pin\":{},\"power_pin\":{},\"ground_pin\":{},\"attached_devices\":[{}],\"selected_devices\":[{}],\"show_bus_labels\":{},\"diagram_lines\":[{}]}},\"i2c\":{{\"operation_count\":{},\"recent_operations\":[{}]}},\"light\":{{\"lux_x100\":{},\"lux\":{},\"sensor_name\":{}}},\"camera\":{{\"width\":{},\"height\":{},\"sequence\":{},\"sensor_name\":{}}},\"gas\":{{\"co2_ppm\":{},\"voc_ppb\":{},\"sensor_name\":{}}},\"rtc\":{{\"datetime_str\":{},\"sensor_name\":{}}},\"tof\":{{\"distance_mm\":{},\"sensor_name\":{}}},\"diagnostics\":{{\"event_count\":{},\"recent_events\":[{}]}}}}",
         json_string(&state.board_name),
         json_string(&state.mcu_name),
         state.tick,
@@ -169,6 +181,8 @@ pub fn state_to_json(state: &DeviceDashboardState) -> String {
         json_string(&state.rtc.sensor_name),
         json_option_u32(state.tof.distance_mm),
         json_string(&state.tof.sensor_name),
+        state.diagnostics.event_count,
+        join_json_strings(&state.diagnostics.recent_events),
     );
     output
 }
@@ -831,6 +845,16 @@ pub fn dashboard_html() -> &'static str {
         <ul class="ops" id="i2c-ops"></ul>
       </article>
 
+      <!-- Diagnostics -->
+      <article class="panel card span-8" id="diagnostics-panel">
+        <h2>&#x1F6A7; Diagnostics</h2>
+        <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:8px">
+          <span style="font-size:11px;color:var(--muted)">Total events:</span>
+          <span id="diag-event-count" style="font-weight:600;font-variant-numeric:tabular-nums">0</span>
+        </div>
+        <ul id="diag-events" style="margin:0;padding:0;list-style:none;font-size:12px;font-family:'IBM Plex Mono',monospace;max-height:160px;overflow-y:auto"></ul>
+      </article>
+
       <!-- E2E Test Runner -->
       <article class="panel card span-12">
         <h2>&#x1F9EA; E2E Test Runner</h2>
@@ -1369,6 +1393,22 @@ pub fn dashboard_html() -> &'static str {
       setMotorViz("right", s.motor_driver.right.direction, motorEnabled ? s.motor_driver.right.duty_percent : 0);
       setSonar(hcSr04Enabled ? s.distance.distance_mm : null);
       setImuLevel(imuEnabled ? s.imu.accel_mg[0] : 0, imuEnabled ? s.imu.accel_mg[1] : 0);
+
+      // diagnostics panel
+      const diagCount = $("diag-event-count");
+      const diagList  = $("diag-events");
+      if (diagCount && s.diagnostics) {
+        diagCount.textContent = s.diagnostics.event_count;
+      }
+      if (diagList && s.diagnostics) {
+        diagList.innerHTML = "";
+        for (const ev of (s.diagnostics.recent_events || [])) {
+          const li = document.createElement("li");
+          li.textContent = ev;
+          li.style.cssText = "padding:2px 0;border-bottom:1px solid var(--line)";
+          diagList.appendChild(li);
+        }
+      }
 
       // flash SDA/SCL wires when a new I2C operation is detected
       const curOp = s.i2c.recent_operations[0] || '';
@@ -1917,6 +1957,13 @@ mod tests {
                 distance_mm: Some(500),
                 sensor_name: "VL53L0X".to_string(),
             },
+            diagnostics: DiagnosticsPanelState {
+                event_count: 3,
+                recent_events: vec![
+                    "tick 5: bme280 enabled".to_string(),
+                    "tick 10: [bh1750] read_lux error".to_string(),
+                ],
+            },
         });
 
         assert!(json.contains("\"board_name\":\"Arduino Nano\""));
@@ -1976,6 +2023,34 @@ mod tests {
         assert!(
             json.contains("\"sensor_name\":\"VL53L0X\""),
             "tof.sensor_name missing in JSON"
+        );
+        // Diagnostics panel assertions
+        assert!(
+            json.contains("\"event_count\":3"),
+            "diagnostics.event_count missing in JSON"
+        );
+        assert!(
+            json.contains("bme280 enabled"),
+            "diagnostics.recent_events[0] missing in JSON"
+        );
+        assert!(
+            json.contains("\"diagnostics\""),
+            "diagnostics key missing in JSON"
+        );
+    }
+
+    #[test]
+    fn html_contains_diagnostics_panel() {
+        let html = dashboard_html();
+        assert!(
+            html.contains("diag-event-count"),
+            "diag-event-count element missing"
+        );
+        assert!(html.contains("diag-events"), "diag-events list missing");
+        assert!(html.contains("Diagnostics"), "Diagnostics heading missing");
+        assert!(
+            html.contains("s.diagnostics"),
+            "diagnostics renderState handler missing"
         );
     }
 }

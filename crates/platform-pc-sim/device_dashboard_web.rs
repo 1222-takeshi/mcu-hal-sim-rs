@@ -1,4 +1,5 @@
 use core::str;
+use std::collections::VecDeque;
 use std::env;
 use std::fmt::Write as FmtWrite;
 use std::io::{self, Read as _, Write as _};
@@ -31,9 +32,9 @@ use platform_pc_sim::virtual_i2c::{VirtualI2cBus, VirtualI2cOperation};
 use platform_pc_sim::vl53l0x_mock::MockVl53l0xDevice;
 use platform_pc_sim::web_dashboard::{
     dashboard_html, state_to_json, CameraPanelState, ClimatePanelState, DeviceDashboardState,
-    DistancePanelState, GasPanelState, I2cPanelState, ImuPanelState, LightPanelState,
-    MotorChannelState, MotorDriverPanelState, RtcPanelState, ServoPanelState, TofPanelState,
-    WiringPanelState,
+    DiagnosticsPanelState, DistancePanelState, GasPanelState, I2cPanelState, ImuPanelState,
+    LightPanelState, MotorChannelState, MotorDriverPanelState, RtcPanelState, ServoPanelState,
+    TofPanelState, WiringPanelState,
 };
 use platform_pc_sim::wiring_config::{
     normalize_supported_device_selection, ConnectionType, DeviceKind, SensorProfile, WiringConfig,
@@ -84,6 +85,8 @@ struct ServerContext {
     wiring_state: Mutex<WiringState>,
     /// Last wiring-editor JSON submitted via POST /api/wiring/editor.
     editor_json: Mutex<String>,
+    /// Snapshot of diagnostics ring from the last sim tick (for /api/diagnostics).
+    latest_diagnostics: Mutex<String>,
 }
 
 impl ServerContext {
@@ -103,11 +106,13 @@ impl ServerContext {
                 show_bus_labels: false,
             }),
             editor_json: Mutex::new("{}".into()),
+            latest_diagnostics: Mutex::new("[]".into()),
         })
     }
 
-    fn push_state(&self, json: String) {
+    fn push_state(&self, json: String, diag_json: String) {
         *self.latest_json.lock().unwrap() = json.clone();
+        *self.latest_diagnostics.lock().unwrap() = diag_json;
         self.sse_clients
             .lock()
             .unwrap()
@@ -164,6 +169,12 @@ struct DeviceSimulationRig {
     last_gas: Option<hal_api::gas::GasReading>,
     last_rtc_str: String,
     last_tof_mm: Option<u32>,
+    /// Ring buffer of diagnostic events (capacity 20, most-recent-last).
+    diag_ring: VecDeque<String>,
+    /// Cumulative diagnostic event counter.
+    diag_event_count: u32,
+    /// Device selection from the previous tick — used to detect toggle events.
+    last_selected_devices: Vec<DeviceKind>,
 }
 
 impl DeviceSimulationRig {
@@ -251,6 +262,9 @@ impl DeviceSimulationRig {
             last_gas: None,
             last_rtc_str: String::new(),
             last_tof_mm: None,
+            diag_ring: VecDeque::new(),
+            diag_event_count: 0,
+            last_selected_devices: vec![],
         }
     }
 
@@ -305,6 +319,15 @@ impl DeviceSimulationRig {
         }
     }
 
+    fn push_diag(&mut self, msg: String) {
+        const MAX_RING: usize = 20;
+        self.diag_event_count = self.diag_event_count.saturating_add(1);
+        if self.diag_ring.len() >= MAX_RING {
+            self.diag_ring.pop_front();
+        }
+        self.diag_ring.push_back(msg);
+    }
+
     fn step(&mut self, wiring_state: &WiringState) -> DeviceDashboardState {
         self.tick = self.tick.wrapping_add(1);
         let tick = self.tick;
@@ -314,6 +337,25 @@ impl DeviceSimulationRig {
         );
         self.sync_selected_devices(&selected_devices);
         self.bus.clear_operations();
+
+        // Detect device toggle events compared to the previous tick.
+        if tick > 1 {
+            let enabled_events: Vec<String> = selected_devices
+                .iter()
+                .filter(|k| !self.last_selected_devices.contains(k))
+                .map(|k| format!("tick {tick}: {} enabled", k.slug()))
+                .collect();
+            let disabled_events: Vec<String> = self
+                .last_selected_devices
+                .iter()
+                .filter(|k| !selected_devices.contains(k))
+                .map(|k| format!("tick {tick}: {} disabled", k.slug()))
+                .collect();
+            for msg in enabled_events.into_iter().chain(disabled_events) {
+                self.push_diag(msg);
+            }
+        }
+        self.last_selected_devices = selected_devices.clone();
 
         let is_enabled = |kind: DeviceKind| selected_devices.contains(&kind);
         let bme280_enabled = is_enabled(DeviceKind::Bme280);
@@ -376,21 +418,24 @@ impl DeviceSimulationRig {
         }
 
         if is_enabled(DeviceKind::Bh1750) && (tick == 1 || tick % 5 == 0) {
-            if let Ok(reading) = self.light_sensor.read_lux() {
-                self.last_lux_x100 = reading.lux_x100;
+            match self.light_sensor.read_lux() {
+                Ok(reading) => self.last_lux_x100 = reading.lux_x100,
+                Err(_) => self.push_diag(format!("tick {tick}: [bh1750] read_lux error")),
             }
         }
 
         if is_enabled(DeviceKind::Esp32Cam) && (tick == 1 || tick % 7 == 0) {
-            if let Ok(frame) = self.camera.capture_frame() {
-                self.last_camera_sequence = frame.sequence;
+            match self.camera.capture_frame() {
+                Ok(frame) => self.last_camera_sequence = frame.sequence,
+                Err(_) => self.push_diag(format!("tick {tick}: [esp32cam] capture_frame error")),
             }
         }
 
         // Poll SGP30 gas sensor every 11 ticks
         if is_enabled(DeviceKind::Sgp30) && (tick == 1 || tick % 11 == 0) {
-            if let Ok(reading) = self.sgp30_sensor.read_gas() {
-                self.last_gas = Some(reading);
+            match self.sgp30_sensor.read_gas() {
+                Ok(reading) => self.last_gas = Some(reading),
+                Err(_) => self.push_diag(format!("tick {tick}: [sgp30] read_gas error")),
             }
         }
 
@@ -400,26 +445,30 @@ impl DeviceSimulationRig {
             let ts = self.ds3231_timestamps[self.ds3231_ts_index];
             self.ds3231_ts_index = (self.ds3231_ts_index + 1) % self.ds3231_timestamps.len();
             self.ds3231_mock.set_timestamp(ts);
-            if let Ok(dt) = self.rtc_sensor.read_datetime() {
-                let mut s = String::new();
-                let _ = write!(
-                    s,
-                    "{}-{:02}-{:02} {:02}:{:02}:{:02}",
-                    dt.year(),
-                    dt.month,
-                    dt.day,
-                    dt.hour,
-                    dt.minute,
-                    dt.second
-                );
-                self.last_rtc_str = s;
+            match self.rtc_sensor.read_datetime() {
+                Ok(dt) => {
+                    let mut s = String::new();
+                    let _ = write!(
+                        s,
+                        "{}-{:02}-{:02} {:02}:{:02}:{:02}",
+                        dt.year(),
+                        dt.month,
+                        dt.day,
+                        dt.hour,
+                        dt.minute,
+                        dt.second
+                    );
+                    self.last_rtc_str = s;
+                }
+                Err(_) => self.push_diag(format!("tick {tick}: [ds3231] read_datetime error")),
             }
         }
 
         // Poll VL53L0X ToF sensor every 4 ticks
         if is_enabled(DeviceKind::Vl53l0x) && (tick == 1 || tick % 4 == 0) {
-            if let Ok(reading) = self.tof_sensor.read_distance() {
-                self.last_tof_mm = Some(reading.distance_mm);
+            match self.tof_sensor.read_distance() {
+                Ok(reading) => self.last_tof_mm = Some(reading.distance_mm),
+                Err(_) => self.push_diag(format!("tick {tick}: [vl53l0x] read_distance error")),
             }
         }
 
@@ -629,6 +678,10 @@ impl DeviceSimulationRig {
             tof: TofPanelState {
                 distance_mm: self.last_tof_mm,
                 sensor_name: "VL53L0X".to_string(),
+            },
+            diagnostics: DiagnosticsPanelState {
+                recent_events: self.diag_ring.iter().rev().cloned().collect(),
+                event_count: self.diag_event_count,
             },
         }
     }
@@ -1179,7 +1232,30 @@ fn main() {
 
         // Push JSON to SSE clients every 10 ticks (~100 ms).
         if push_ticker % 10 == 0 {
-            ctx.push_state(state_to_json(&state));
+            let diag = &state.diagnostics;
+            let events_json = diag
+                .recent_events
+                .iter()
+                .map(|e| {
+                    let mut s = String::from("\"");
+                    for c in e.chars() {
+                        match c {
+                            '"' => s.push_str("\\\""),
+                            '\\' => s.push_str("\\\\"),
+                            '\n' => s.push_str("\\n"),
+                            _ => s.push(c),
+                        }
+                    }
+                    s.push('"');
+                    s
+                })
+                .collect::<Vec<_>>()
+                .join(",");
+            let diag_json = format!(
+                "{{\"event_count\":{},\"recent_events\":[{}]}}",
+                diag.event_count, events_json
+            );
+            ctx.push_state(state_to_json(&state), diag_json);
         }
 
         // Accept new TCP connections (non-blocking).
@@ -1356,6 +1432,15 @@ fn handle_connection(
         }
         (_, "/api/wiring/editor") => {
             let json = ctx.editor_json.lock().unwrap().clone();
+            respond(
+                &mut stream,
+                "200 OK",
+                "application/json; charset=utf-8",
+                &json,
+            );
+        }
+        (_, "/api/diagnostics") => {
+            let json = ctx.latest_diagnostics.lock().unwrap().clone();
             respond(
                 &mut stream,
                 "200 OK",
