@@ -161,6 +161,8 @@ cargo run -p platform-pc-sim --bin device-dashboard-web
 # → http://127.0.0.1:7878 をブラウザで開く
 ```
 
+詳細な操作ガイドは **[docs/dashboard-guide.md](./docs/dashboard-guide.md)** を参照してください。
+
 起動後、以下のパネルで動作を確認できます。
 
 | パネル | 確認ポイント |
@@ -558,6 +560,17 @@ mcu-hal-sim-rs/
 3. **🔵 Refactor**: コードを改善
 
 詳細は [CLAUDE.md](./CLAUDE.md) を参照してください。
+
+### ドキュメント
+
+| ドキュメント | 内容 |
+|------------|------|
+| [docs/dashboard-guide.md](./docs/dashboard-guide.md) | ブラウザダッシュボード操作ガイド・API 説明・sim-to-real 導線 |
+| [docs/sensors-and-actuators.md](./docs/sensors-and-actuators.md) | センサー・アクチュエーター一覧 |
+| [docs/porting-and-extension-guide.md](./docs/porting-and-extension-guide.md) | ポーティング・拡張ガイド |
+| [CONTRIBUTING.md](./CONTRIBUTING.md) | 開発ルール・TDD・PR 運用 |
+| [CHANGELOG.md](./CHANGELOG.md) | 変更履歴 |
+| [PLAN.md](./PLAN.md) | 開発計画 |
 
 ### コントリビューション
 
