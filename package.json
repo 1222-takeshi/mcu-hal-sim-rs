@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "description": "[![CI](https://github.com/1222-takeshi/mcu-hal-sim-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/1222-takeshi/mcu-hal-sim-rs/actions/workflows/ci.yml)",
   "scripts": {
-    "playwright:install": "playwright install chromium",
+    "playwright:install": "playwright install chromium firefox webkit",
     "test:e2e": "playwright test"
   },
   "repository": {
