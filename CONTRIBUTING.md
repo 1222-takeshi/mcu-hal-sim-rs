@@ -457,6 +457,33 @@ mod tests {
 - **build**: `cargo build --all --release --verbose`
 - **fmt**: `cargo fmt --all -- --check`
 - **clippy**: `cargo clippy --all --all-targets -- -D warnings`
+- **boundary**: `bash scripts/check-workspace-boundaries.sh`（依存方向ガード）
+
+### Workspace 依存方向ルール
+
+このプロジェクトは以下の方向でのみ依存を許可します：
+
+```
+platform-pc-sim  ─┐
+platform-esp32  ──┼─> core-app ─> hal-api
+platform-avr    ──┤
+platform-rp2040 ──┘
+reference-drivers ────────────> hal-api
+```
+
+CI の **Workspace Boundary Check** ジョブが以下を自動検査します：
+
+| クレート | 禁止依存 |
+|---------|---------|
+| `hal-api` | `platform-*`, `core-app` |
+| `core-app` | `platform-*`, `reference-drivers` |
+| `reference-drivers` | `platform-*` |
+
+違反が検出された場合は `scripts/check-workspace-boundaries.sh` をローカルで実行して確認できます：
+
+```bash
+bash scripts/check-workspace-boundaries.sh
+```
 
 ### ローカルでのCI検証
 
