@@ -262,12 +262,17 @@ fn render(out: &mut String, config: &WiringConfig) {
     let trunk_span =
         |feed_y: i32, top_y: i32, bottom_y: i32| (top_y.min(feed_y), bottom_y.max(feed_y));
 
-    let power_top = layouts.iter().map(|(_, dy, _)| dy + 8).min();
-    let power_bottom = layouts.iter().map(|(_, dy, _)| dy + DEV_H - 8).max();
-    if let (Some(top_y), Some(bottom_y)) = (power_top, power_bottom) {
+    let vcc_top = layouts.iter().map(|(_, dy, _)| dy + 8).min();
+    let vcc_bottom = layouts.iter().map(|(_, dy, _)| dy + 8).max();
+    if let (Some(top_y), Some(bottom_y)) = (vcc_top, vcc_bottom) {
         draw_bus_feed(out, "w-vcc", P_VCC, VCC_RAIL_X, "dot-vcc");
         let (vcc_top, vcc_bottom) = trunk_span(P_VCC, top_y, bottom_y);
         draw_bus_trunk(out, "w-vcc", VCC_RAIL_X, vcc_top, vcc_bottom);
+    }
+
+    let gnd_top = layouts.iter().map(|(_, dy, _)| dy + DEV_H - 8).min();
+    let gnd_bottom = layouts.iter().map(|(_, dy, _)| dy + DEV_H - 8).max();
+    if let (Some(top_y), Some(bottom_y)) = (gnd_top, gnd_bottom) {
         draw_bus_feed(out, "w-gnd", P_GND, GND_RAIL_X, "dot-gnd");
         let (gnd_top, gnd_bottom) = trunk_span(P_GND, top_y, bottom_y);
         draw_bus_trunk(out, "w-gnd", GND_RAIL_X, gnd_top, gnd_bottom);
@@ -683,9 +688,25 @@ mod tests {
         );
         let svg = wiring_svg(&cfg);
 
-        assert!(svg.contains(r#"<path class="w-vcc w-bus-trunk" d="M 214 196 L 214 293"/>"#));
+        assert!(svg.contains(r#"<path class="w-vcc w-bus-trunk" d="M 214 196 L 214 267"/>"#));
         assert!(svg.contains(r#"<path class="w-sda w-bus-trunk" d="M 280 96 L 280 284"/>"#));
         assert!(svg.contains(r#"<path class="w-scl w-bus-trunk" d="M 306 140 L 306 284"/>"#));
+    }
+
+    #[test]
+    fn wiring_svg_limits_sparse_power_trunks_to_their_own_branch_ranges() {
+        use crate::wiring_config::SensorProfile;
+
+        let cfg = WiringConfig::from_board_with_sensors(
+            BoardProfile::OriginalEsp32,
+            SensorProfile::Minimal,
+        );
+        let svg = wiring_svg(&cfg);
+
+        assert!(svg.contains(r#"<path class="w-vcc w-bus-trunk" d="M 214 196 L 214 267"/>"#));
+        assert!(svg.contains(r#"<path class="w-gnd w-bus-trunk" d="M 240 241 L 240 293"/>"#));
+        assert!(!svg.contains(r#"<path class="w-vcc w-bus-trunk" d="M 214 196 L 214 293"/>"#));
+        assert!(!svg.contains(r#"<path class="w-gnd w-bus-trunk" d="M 240 215 L 240 293"/>"#));
     }
 
     #[test]
@@ -700,5 +721,21 @@ mod tests {
 
         assert!(svg.contains(r#"<path class="w-sda w-bus-trunk" d="M 280 96 L 280 206"/>"#));
         assert!(svg.contains(r#"<path class="w-scl w-bus-trunk" d="M 306 140 L 306 206"/>"#));
+    }
+
+    #[test]
+    fn wiring_svg_limits_robot_power_trunks_to_their_own_branch_ranges() {
+        use crate::wiring_config::SensorProfile;
+
+        let cfg = WiringConfig::from_board_with_sensors(
+            BoardProfile::OriginalEsp32,
+            SensorProfile::RobotBase,
+        );
+        let svg = wiring_svg(&cfg);
+
+        assert!(svg.contains(r#"<path class="w-vcc w-bus-trunk" d="M 214 137 L 214 345"/>"#));
+        assert!(svg.contains(r#"<path class="w-gnd w-bus-trunk" d="M 240 163 L 240 371"/>"#));
+        assert!(!svg.contains(r#"<path class="w-vcc w-bus-trunk" d="M 214 137 L 214 371"/>"#));
+        assert!(!svg.contains(r#"<path class="w-gnd w-bus-trunk" d="M 240 137 L 240 371"/>"#));
     }
 }

@@ -363,7 +363,7 @@ test.describe("device dashboard", () => {
     await page.selectOption("#sensor-profile-select", "minimal");
     await expect(page.locator("#device-toggle-list input[data-device-kind]:checked")).toHaveCount(2);
 
-    await expect.poll(async () => busTrunkSpan(page, "w-vcc")).toEqual({ x: 214, top: 196, bottom: 293 });
+    await expect.poll(async () => busTrunkSpan(page, "w-vcc")).toEqual({ x: 214, top: 196, bottom: 267 });
     await expect.poll(async () => busTrunkSpan(page, "w-sda")).toEqual({ x: 280, top: 96, bottom: 284 });
     await expect.poll(async () => busTrunkSpan(page, "w-scl")).toEqual({ x: 306, top: 140, bottom: 284 });
 
@@ -377,6 +377,25 @@ test.describe("device dashboard", () => {
 
     await expect.poll(async () => busTrunkSpan(page, "w-sda")).toEqual({ x: 280, top: 96, bottom: 206 });
     await expect.poll(async () => busTrunkSpan(page, "w-scl")).toEqual({ x: 306, top: 140, bottom: 206 });
+  });
+
+  test("keeps sparse power trunks scoped to their own branch ranges", async ({ page }) => {
+    await page.selectOption("#sensor-profile-select", "minimal");
+    await expect(page.locator("#device-toggle-list input[data-device-kind]:checked")).toHaveCount(2);
+
+    await expect.poll(async () => busTrunkSpan(page, "w-vcc")).toEqual({ x: 214, top: 196, bottom: 267 });
+    await expect.poll(async () => busTrunkSpan(page, "w-gnd")).toEqual({ x: 240, top: 241, bottom: 293 });
+
+    await page.selectOption("#sensor-profile-select", "robot");
+    await expect
+      .poll(async () => {
+        const data = await getWiring(page);
+        return data.sensor_profile;
+      })
+      .toBe("robot");
+
+    await expect.poll(async () => busTrunkSpan(page, "w-vcc")).toEqual({ x: 214, top: 137, bottom: 345 });
+    await expect.poll(async () => busTrunkSpan(page, "w-gnd")).toEqual({ x: 240, top: 163, bottom: 371 });
   });
 
   test("keeps detailed bus labels enabled when device selection changes", async ({ page }) => {
