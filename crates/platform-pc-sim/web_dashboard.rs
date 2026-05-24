@@ -917,15 +917,24 @@ pub fn dashboard_html() -> &'static str {
       <!-- Firmware Flash -->
       <article class="panel card span-12">
         <h2>&#x26A1; Firmware Flash</h2>
-        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px">
-          <select id="flash-target" style="min-width:260px">
-            <option value="">-- select target --</option>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+          <select id="flash-board" style="min-width:200px" onchange="flashFilterTargets(this.value)">
+            <option value="">-- select board --</option>
           </select>
+          <select id="flash-target" style="min-width:280px">
+            <option value="">-- select firmware --</option>
+          </select>
+        </div>
+        <div id="flash-port-row" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px">
           <select id="flash-port" style="min-width:220px">
             <option value="">-- select port --</option>
           </select>
           <button class="btn" onclick="flashRefreshPorts()">&#x1F504; Refresh</button>
           <button class="btn" id="flash-btn" onclick="flashStart()">&#x26A1; Flash</button>
+        </div>
+        <div id="flash-pico-hint" style="display:none;margin-bottom:10px;padding:8px 12px;background:var(--line);border-radius:8px;font-size:12px;color:var(--muted)">
+          &#x26A0;&#xFE0F; Raspberry Pi Pico: <strong>hold BOOTSEL then plug USB</strong>, then click Flash. No port selection needed.
+          <button class="btn" id="flash-btn-pico" onclick="flashStart()">&#x26A1; Flash</button>
         </div>
         <div id="flash-output" class="wiring"
              style="background:#0a0a0a;color:#aaffaa;border-radius:10px;padding:10px 14px;font-size:12px;min-height:80px;max-height:260px;overflow-y:auto;white-space:pre-wrap;font-family:'IBM Plex Mono',monospace"></div>
@@ -1774,20 +1783,45 @@ pub fn dashboard_html() -> &'static str {
     }
     // ── Boot ──
     // ── Firmware Flash ────────────────────────────────────────────────────────
+    let flashAllTargets = [];
+
     async function flashRefreshTargets() {
       try {
         const r = await fetch('/api/flash/targets');
-        const targets = await r.json();
-        const sel = document.getElementById('flash-target');
-        sel.innerHTML = '<option value="">-- select target --</option>';
-        targets.forEach(function(t) {
+        flashAllTargets = await r.json();
+
+        // Populate board selector with distinct boards
+        const boardSel = document.getElementById('flash-board');
+        const boards = [...new Set(flashAllTargets.map(t => t.board))];
+        boardSel.innerHTML = '<option value="">-- select board --</option>';
+        boards.forEach(function(b) {
           const opt = document.createElement('option');
-          opt.value = t.id; opt.textContent = t.label;
-          sel.appendChild(opt);
+          opt.value = b; opt.textContent = b;
+          boardSel.appendChild(opt);
         });
+
+        // Reset firmware selector
+        const tSel = document.getElementById('flash-target');
+        tSel.innerHTML = '<option value="">-- select firmware --</option>';
       } catch(err) {
         document.getElementById('flash-status').textContent = 'Error loading targets: ' + err.message;
       }
+    }
+
+    function flashFilterTargets(board) {
+      const tSel = document.getElementById('flash-target');
+      tSel.innerHTML = '<option value="">-- select firmware --</option>';
+      const isPico = board === 'Raspberry Pi Pico';
+      document.getElementById('flash-port-row').style.display = isPico ? 'none' : '';
+      document.getElementById('flash-pico-hint').style.display = isPico ? 'block' : 'none';
+      if (!board) return;
+      flashAllTargets
+        .filter(t => t.board === board)
+        .forEach(function(t) {
+          const opt = document.createElement('option');
+          opt.value = t.id; opt.textContent = t.label;
+          tSel.appendChild(opt);
+        });
     }
 
     async function flashRefreshPorts() {
@@ -1809,27 +1843,31 @@ pub fn dashboard_html() -> &'static str {
     }
 
     function flashStart() {
+      const board  = document.getElementById('flash-board').value;
       const target = document.getElementById('flash-target').value;
-      const port   = document.getElementById('flash-port').value;
+      const isPico = board === 'Raspberry Pi Pico';
+      const port   = isPico ? '' : document.getElementById('flash-port').value;
       const out    = document.getElementById('flash-output');
       const btn    = document.getElementById('flash-btn');
+      const btnPico = document.getElementById('flash-btn-pico');
       out.textContent = '';
       btn.disabled = true;
+      if (btnPico) btnPico.disabled = true;
       if (!target) {
         document.getElementById('flash-status').textContent = '\u26A0\uFE0F Select a firmware target.';
-        btn.disabled = false; return;
+        btn.disabled = false; if (btnPico) btnPico.disabled = false; return;
       }
-      if (!port) {
+      if (!isPico && !port) {
         document.getElementById('flash-status').textContent = '\u26A0\uFE0F Select a serial port.';
-        btn.disabled = false; return;
+        btn.disabled = false; if (btnPico) btnPico.disabled = false; return;
       }
-      const url = '/api/flash/stream?target=' + encodeURIComponent(target) +
-                  '&port=' + encodeURIComponent(port);
+      let url = '/api/flash/stream?target=' + encodeURIComponent(target);
+      if (port) url += '&port=' + encodeURIComponent(port);
       document.getElementById('flash-status').textContent = 'Flashing\u2026';
       const es = new EventSource(url);
       es.onmessage = function(e) {
         if (e.data.startsWith('[DONE]')) {
-          es.close(); btn.disabled = false;
+          es.close(); btn.disabled = false; if (btnPico) btnPico.disabled = false;
           const code = e.data.includes('exit=0') ? 0 : 1;
           document.getElementById('flash-status').textContent =
             code === 0 ? '\u2705 Flash successful.' : '\u274C Flash failed (see output).';
@@ -1839,7 +1877,7 @@ pub fn dashboard_html() -> &'static str {
         }
       };
       es.onerror = function() {
-        es.close(); btn.disabled = false;
+        es.close(); btn.disabled = false; if (btnPico) btnPico.disabled = false;
         document.getElementById('flash-status').textContent = 'Connection error.';
       };
     }
@@ -1910,9 +1948,13 @@ mod tests {
         assert!(html.contains("/api/flash/stream"));
         assert!(html.contains("flash-port"));
         assert!(html.contains("flash-target"));
+        assert!(html.contains("flash-board"));
+        assert!(html.contains("flash-port-row"));
+        assert!(html.contains("flash-pico-hint"));
         assert!(html.contains("flashStart"));
         assert!(html.contains("flashRefreshPorts"));
         assert!(html.contains("flashRefreshTargets"));
+        assert!(html.contains("flashFilterTargets"));
     }
 
     #[test]

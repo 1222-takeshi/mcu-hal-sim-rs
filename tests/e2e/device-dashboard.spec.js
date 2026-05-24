@@ -737,32 +737,86 @@ test("/api/flash/targets GET returns firmware targets", async ({ page }) => {
   expect(res.headers()["content-type"]).toContain("application/json");
   const body = await res.json();
   expect(Array.isArray(body)).toBe(true);
-  expect(body.length).toBeGreaterThanOrEqual(4);
-  // Each target has id and label
+  expect(body.length).toBeGreaterThanOrEqual(8);
+  // Each target has id, label, and board
   for (const t of body) {
     expect(typeof t.id).toBe("string");
     expect(typeof t.label).toBe("string");
+    expect(typeof t.board).toBe("string");
     expect(t.id.length).toBeGreaterThan(0);
     expect(t.label.length).toBeGreaterThan(0);
+    expect(t.board.length).toBeGreaterThan(0);
   }
   // Expected IDs
   const ids = body.map((t) => t.id);
   expect(ids).toContain("esp32-climate-display");
   expect(ids).toContain("arduino-nano-climate-display");
+  expect(ids).toContain("raspi-pico-climate-display");
+  expect(ids).toContain("m5stickc-bringup");
+  // Boards present
+  const boards = [...new Set(body.map((t) => t.board))];
+  expect(boards).toContain("ESP32");
+  expect(boards).toContain("Arduino Nano");
+  expect(boards).toContain("Raspberry Pi Pico");
+  expect(boards).toContain("M5StickC");
 });
 
-test("flash panel has target and port selectors", async ({ page }) => {
+test("flash panel has board + target selectors", async ({ page }) => {
   await page.goto("/");
+  await expect(page.locator("#flash-board")).toBeVisible();
   await expect(page.locator("#flash-target")).toBeVisible();
   await expect(page.locator("#flash-port")).toBeVisible();
   await expect(page.locator("#flash-btn")).toBeVisible();
-  // flash-target should be populated from /api/flash/targets
+  // flash-board should be populated from /api/flash/targets
+  await page.waitForFunction(() => {
+    const sel = document.getElementById("flash-board");
+    return sel && sel.options.length > 1;
+  }, { timeout: 5000 });
+  const boardCount = await page.locator("#flash-board option").count();
+  expect(boardCount).toBeGreaterThanOrEqual(5); // placeholder + 4 boards
+});
+
+test("selecting a board in flash panel filters firmware targets", async ({ page }) => {
+  await page.goto("/");
+  // Wait for board selector to be populated
+  await page.waitForFunction(() => {
+    const sel = document.getElementById("flash-board");
+    return sel && sel.options.length > 1;
+  }, { timeout: 5000 });
+
+  // Select ESP32
+  await page.selectOption("#flash-board", { label: "ESP32" });
+
+  // firmware list should now show only ESP32 targets
   await page.waitForFunction(() => {
     const sel = document.getElementById("flash-target");
     return sel && sel.options.length > 1;
+  }, { timeout: 3000 });
+
+  const espTargets = await page.evaluate(() => {
+    const sel = document.getElementById("flash-target");
+    return Array.from(sel.options)
+      .filter(o => o.value)
+      .map(o => o.value);
+  });
+  expect(espTargets.length).toBeGreaterThanOrEqual(3);
+  // All should be esp32-* targets
+  for (const id of espTargets) {
+    expect(id).toMatch(/^esp32-/);
+  }
+});
+
+test("selecting Raspberry Pi Pico hides port selector and shows hint", async ({ page }) => {
+  await page.goto("/");
+  await page.waitForFunction(() => {
+    const sel = document.getElementById("flash-board");
+    return sel && sel.options.length > 1;
   }, { timeout: 5000 });
-  const optionCount = await page.locator("#flash-target option").count();
-  expect(optionCount).toBeGreaterThanOrEqual(5); // placeholder + 4 targets
+
+  await page.selectOption("#flash-board", { label: "Raspberry Pi Pico" });
+
+  await expect(page.locator("#flash-port-row")).toBeHidden();
+  await expect(page.locator("#flash-pico-hint")).toBeVisible();
 });
 
 test("/api/state GET returns valid device state JSON", async ({ page }) => {
