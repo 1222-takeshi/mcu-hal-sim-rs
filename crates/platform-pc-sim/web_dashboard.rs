@@ -117,12 +117,23 @@ pub struct TofPanelState {
 
 /// Diagnostics ring buffer state surfaced per tick.
 ///
+/// A single diagnostics event with elapsed time, severity, and message.
+#[derive(Debug, Clone, Default)]
+pub struct DiagEvent {
+    /// Milliseconds elapsed since simulator start.
+    pub elapsed_ms: u64,
+    /// Severity level: "info", "warn", or "error".
+    pub severity: String,
+    /// Human-readable event description.
+    pub message: String,
+}
+
 /// `recent_events` holds up to 20 entries most-recent-first.
 /// `event_count` is a monotonically increasing counter of all events ever
 /// logged (useful for detecting new activity without diffing the list).
 #[derive(Debug, Clone, Default)]
 pub struct DiagnosticsPanelState {
-    pub recent_events: Vec<String>,
+    pub recent_events: Vec<DiagEvent>,
     pub event_count: u32,
 }
 
@@ -182,7 +193,7 @@ pub fn state_to_json(state: &DeviceDashboardState) -> String {
         json_option_u32(state.tof.distance_mm),
         json_string(&state.tof.sensor_name),
         state.diagnostics.event_count,
-        join_json_strings(&state.diagnostics.recent_events),
+        join_diag_events(&state.diagnostics.recent_events),
     );
     output
 }
@@ -207,6 +218,23 @@ fn json_option_u16(value: Option<u16>) -> String {
     value
         .map(|value| value.to_string())
         .unwrap_or_else(|| "null".to_string())
+}
+
+pub fn join_diag_events(events: &[DiagEvent]) -> String {
+    let mut output = String::new();
+    for (i, ev) in events.iter().enumerate() {
+        if i != 0 {
+            output.push(',');
+        }
+        let _ = write!(
+            output,
+            "{{\"ts\":{},\"sev\":{},\"msg\":{}}}",
+            ev.elapsed_ms,
+            json_string(&ev.severity),
+            json_string(&ev.message),
+        );
+    }
+    output
 }
 
 fn join_json_strings(values: &[String]) -> String {
@@ -1404,8 +1432,28 @@ pub fn dashboard_html() -> &'static str {
         diagList.innerHTML = "";
         for (const ev of (s.diagnostics.recent_events || [])) {
           const li = document.createElement("li");
-          li.textContent = ev;
-          li.style.cssText = "padding:2px 0;border-bottom:1px solid var(--line)";
+          li.style.cssText = "display:flex;gap:6px;align-items:baseline;padding:3px 0;border-bottom:1px solid var(--line);font-size:11px;font-family:'IBM Plex Mono',monospace";
+
+          // severity badge
+          const sev = (ev.sev || "info");
+          const sevColor = sev === "error" ? "#e55" : sev === "warn" ? "#d90" : "#58a";
+          const badge = document.createElement("span");
+          badge.textContent = sev.toUpperCase();
+          badge.style.cssText = "flex-shrink:0;padding:1px 4px;border-radius:3px;font-size:9px;font-weight:700;letter-spacing:.04em;background:" + sevColor + ";color:#fff";
+
+          // timestamp (ms → seconds elapsed)
+          const ts = document.createElement("span");
+          ts.textContent = "+" + ((ev.ts || 0) / 1000).toFixed(1) + "s";
+          ts.style.cssText = "flex-shrink:0;color:var(--muted);font-size:10px;min-width:48px;text-align:right";
+
+          // message
+          const msg = document.createElement("span");
+          msg.textContent = ev.msg || "";
+          msg.style.cssText = "flex:1;color:var(--fg);word-break:break-all";
+
+          li.appendChild(badge);
+          li.appendChild(ts);
+          li.appendChild(msg);
           diagList.appendChild(li);
         }
       }
@@ -1960,8 +2008,16 @@ mod tests {
             diagnostics: DiagnosticsPanelState {
                 event_count: 3,
                 recent_events: vec![
-                    "tick 5: bme280 enabled".to_string(),
-                    "tick 10: [bh1750] read_lux error".to_string(),
+                    DiagEvent {
+                        elapsed_ms: 5000,
+                        severity: "info".to_string(),
+                        message: "bme280 enabled".to_string(),
+                    },
+                    DiagEvent {
+                        elapsed_ms: 10000,
+                        severity: "error".to_string(),
+                        message: "[bh1750] read_lux error".to_string(),
+                    },
                 ],
             },
         });
@@ -2030,8 +2086,16 @@ mod tests {
             "diagnostics.event_count missing in JSON"
         );
         assert!(
-            json.contains("bme280 enabled"),
-            "diagnostics.recent_events[0] missing in JSON"
+            json.contains("\"sev\":\"info\""),
+            "diagnostics.recent_events sev field missing in JSON"
+        );
+        assert!(
+            json.contains("\"msg\":\"bme280 enabled\""),
+            "diagnostics.recent_events[0] msg missing in JSON"
+        );
+        assert!(
+            json.contains("\"ts\":5000"),
+            "diagnostics.recent_events[0] ts missing in JSON"
         );
         assert!(
             json.contains("\"diagnostics\""),

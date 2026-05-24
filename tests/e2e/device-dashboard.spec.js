@@ -679,6 +679,12 @@ test("/api/diagnostics endpoint returns valid JSON", async ({ page }) => {
   const body = await data.json();
   expect(typeof body.event_count).toBe("number");
   expect(Array.isArray(body.recent_events)).toBe(true);
+  if (body.recent_events.length > 0) {
+    const ev = body.recent_events[0];
+    expect(typeof ev.ts).toBe("number");
+    expect(typeof ev.sev).toBe("string");
+    expect(typeof ev.msg).toBe("string");
+  }
 });
 
 // ── API endpoint shape tests ─────────────────────────────────────────────────
