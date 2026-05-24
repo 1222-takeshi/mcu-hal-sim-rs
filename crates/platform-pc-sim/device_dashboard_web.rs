@@ -31,10 +31,10 @@ use platform_pc_sim::sgp30_mock::MockSgp30Device;
 use platform_pc_sim::virtual_i2c::{VirtualI2cBus, VirtualI2cOperation};
 use platform_pc_sim::vl53l0x_mock::MockVl53l0xDevice;
 use platform_pc_sim::web_dashboard::{
-    dashboard_html, state_to_json, CameraPanelState, ClimatePanelState, DeviceDashboardState,
-    DiagnosticsPanelState, DistancePanelState, GasPanelState, I2cPanelState, ImuPanelState,
-    LightPanelState, MotorChannelState, MotorDriverPanelState, RtcPanelState, ServoPanelState,
-    TofPanelState, WiringPanelState,
+    dashboard_html, join_diag_events, state_to_json, CameraPanelState, ClimatePanelState,
+    DeviceDashboardState, DiagEvent, DiagnosticsPanelState, DistancePanelState, GasPanelState,
+    I2cPanelState, ImuPanelState, LightPanelState, MotorChannelState, MotorDriverPanelState,
+    RtcPanelState, ServoPanelState, TofPanelState, WiringPanelState,
 };
 use platform_pc_sim::wiring_config::{
     normalize_supported_device_selection, ConnectionType, DeviceKind, SensorProfile, WiringConfig,
@@ -170,9 +170,11 @@ struct DeviceSimulationRig {
     last_rtc_str: String,
     last_tof_mm: Option<u32>,
     /// Ring buffer of diagnostic events (capacity 20, most-recent-last).
-    diag_ring: VecDeque<String>,
+    diag_ring: VecDeque<DiagEvent>,
     /// Cumulative diagnostic event counter.
     diag_event_count: u32,
+    /// Monotonic start time for elapsed-ms timestamps in diag events.
+    start_instant: std::time::Instant,
     /// Device selection from the previous tick — used to detect toggle events.
     last_selected_devices: Vec<DeviceKind>,
 }
@@ -264,6 +266,7 @@ impl DeviceSimulationRig {
             last_tof_mm: None,
             diag_ring: VecDeque::new(),
             diag_event_count: 0,
+            start_instant: std::time::Instant::now(),
             last_selected_devices: vec![],
         }
     }
@@ -319,13 +322,17 @@ impl DeviceSimulationRig {
         }
     }
 
-    fn push_diag(&mut self, msg: String) {
+    fn push_diag(&mut self, severity: &str, msg: String) {
         const MAX_RING: usize = 20;
         self.diag_event_count = self.diag_event_count.saturating_add(1);
         if self.diag_ring.len() >= MAX_RING {
             self.diag_ring.pop_front();
         }
-        self.diag_ring.push_back(msg);
+        self.diag_ring.push_back(DiagEvent {
+            elapsed_ms: self.start_instant.elapsed().as_millis() as u64,
+            severity: severity.to_string(),
+            message: msg,
+        });
     }
 
     fn step(&mut self, wiring_state: &WiringState) -> DeviceDashboardState {
@@ -343,16 +350,16 @@ impl DeviceSimulationRig {
             let enabled_events: Vec<String> = selected_devices
                 .iter()
                 .filter(|k| !self.last_selected_devices.contains(k))
-                .map(|k| format!("tick {tick}: {} enabled", k.slug()))
+                .map(|k| format!("{} enabled", k.slug()))
                 .collect();
             let disabled_events: Vec<String> = self
                 .last_selected_devices
                 .iter()
                 .filter(|k| !selected_devices.contains(k))
-                .map(|k| format!("tick {tick}: {} disabled", k.slug()))
+                .map(|k| format!("{} disabled", k.slug()))
                 .collect();
             for msg in enabled_events.into_iter().chain(disabled_events) {
-                self.push_diag(msg);
+                self.push_diag("info", msg);
             }
         }
         self.last_selected_devices = selected_devices.clone();
@@ -420,14 +427,14 @@ impl DeviceSimulationRig {
         if is_enabled(DeviceKind::Bh1750) && (tick == 1 || tick % 5 == 0) {
             match self.light_sensor.read_lux() {
                 Ok(reading) => self.last_lux_x100 = reading.lux_x100,
-                Err(_) => self.push_diag(format!("tick {tick}: [bh1750] read_lux error")),
+                Err(_) => self.push_diag("error", "[bh1750] read_lux error".into()),
             }
         }
 
         if is_enabled(DeviceKind::Esp32Cam) && (tick == 1 || tick % 7 == 0) {
             match self.camera.capture_frame() {
                 Ok(frame) => self.last_camera_sequence = frame.sequence,
-                Err(_) => self.push_diag(format!("tick {tick}: [esp32cam] capture_frame error")),
+                Err(_) => self.push_diag("error", "[esp32cam] capture_frame error".into()),
             }
         }
 
@@ -435,7 +442,7 @@ impl DeviceSimulationRig {
         if is_enabled(DeviceKind::Sgp30) && (tick == 1 || tick % 11 == 0) {
             match self.sgp30_sensor.read_gas() {
                 Ok(reading) => self.last_gas = Some(reading),
-                Err(_) => self.push_diag(format!("tick {tick}: [sgp30] read_gas error")),
+                Err(_) => self.push_diag("error", "[sgp30] read_gas error".into()),
             }
         }
 
@@ -460,7 +467,7 @@ impl DeviceSimulationRig {
                     );
                     self.last_rtc_str = s;
                 }
-                Err(_) => self.push_diag(format!("tick {tick}: [ds3231] read_datetime error")),
+                Err(_) => self.push_diag("error", "[ds3231] read_datetime error".into()),
             }
         }
 
@@ -468,7 +475,7 @@ impl DeviceSimulationRig {
         if is_enabled(DeviceKind::Vl53l0x) && (tick == 1 || tick % 4 == 0) {
             match self.tof_sensor.read_distance() {
                 Ok(reading) => self.last_tof_mm = Some(reading.distance_mm),
-                Err(_) => self.push_diag(format!("tick {tick}: [vl53l0x] read_distance error")),
+                Err(_) => self.push_diag("error", "[vl53l0x] read_distance error".into()),
             }
         }
 
@@ -1233,24 +1240,7 @@ fn main() {
         // Push JSON to SSE clients every 10 ticks (~100 ms).
         if push_ticker % 10 == 0 {
             let diag = &state.diagnostics;
-            let events_json = diag
-                .recent_events
-                .iter()
-                .map(|e| {
-                    let mut s = String::from("\"");
-                    for c in e.chars() {
-                        match c {
-                            '"' => s.push_str("\\\""),
-                            '\\' => s.push_str("\\\\"),
-                            '\n' => s.push_str("\\n"),
-                            _ => s.push(c),
-                        }
-                    }
-                    s.push('"');
-                    s
-                })
-                .collect::<Vec<_>>()
-                .join(",");
+            let events_json = join_diag_events(&diag.recent_events);
             let diag_json = format!(
                 "{{\"event_count\":{},\"recent_events\":[{}]}}",
                 diag.event_count, events_json
