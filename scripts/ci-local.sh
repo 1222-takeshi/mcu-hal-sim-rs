@@ -172,10 +172,10 @@ if [ "$SKIP_NO_STD" = false ]; then
         echo -e "${YELLOW}Warning: target '${NO_STD_TARGET}' not installed, skipping no_std target check${NC}"
         echo -e "${YELLOW}Install with: rustup target add ${NO_STD_TARGET}${NC}"
     else
-        if cargo check -p hal-api --lib --target "${NO_STD_TARGET}" \
-            && cargo check -p core-app --lib --target "${NO_STD_TARGET}" \
-            && cargo check -p platform-esp32 --lib --target "${NO_STD_TARGET}" \
-            && cargo check -p platform-avr --lib --target "${NO_STD_TARGET}"; then
+        if cargo check -p hal-api --lib --target "${NO_STD_TARGET}" --no-default-features \
+            && cargo check -p core-app --lib --target "${NO_STD_TARGET}" --no-default-features \
+            && cargo check -p platform-esp32 --lib --target "${NO_STD_TARGET}" --no-default-features \
+            && cargo check -p platform-avr --lib --target "${NO_STD_TARGET}" --no-default-features; then
             print_success "no_std target check passed"
         else
             print_failure "no_std target check failed"
