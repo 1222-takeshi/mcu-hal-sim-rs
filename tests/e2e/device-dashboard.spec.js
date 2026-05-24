@@ -731,6 +731,40 @@ test("/api/flash/devices GET returns JSON array", async ({ page }) => {
   expect(Array.isArray(body)).toBe(true);
 });
 
+test("/api/flash/targets GET returns firmware targets", async ({ page }) => {
+  const res = await page.request.get("/api/flash/targets");
+  expect(res.ok()).toBe(true);
+  expect(res.headers()["content-type"]).toContain("application/json");
+  const body = await res.json();
+  expect(Array.isArray(body)).toBe(true);
+  expect(body.length).toBeGreaterThanOrEqual(4);
+  // Each target has id and label
+  for (const t of body) {
+    expect(typeof t.id).toBe("string");
+    expect(typeof t.label).toBe("string");
+    expect(t.id.length).toBeGreaterThan(0);
+    expect(t.label.length).toBeGreaterThan(0);
+  }
+  // Expected IDs
+  const ids = body.map((t) => t.id);
+  expect(ids).toContain("esp32-climate-display");
+  expect(ids).toContain("arduino-nano-climate-display");
+});
+
+test("flash panel has target and port selectors", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator("#flash-target")).toBeVisible();
+  await expect(page.locator("#flash-port")).toBeVisible();
+  await expect(page.locator("#flash-btn")).toBeVisible();
+  // flash-target should be populated from /api/flash/targets
+  await page.waitForFunction(() => {
+    const sel = document.getElementById("flash-target");
+    return sel && sel.options.length > 1;
+  }, { timeout: 5000 });
+  const optionCount = await page.locator("#flash-target option").count();
+  expect(optionCount).toBeGreaterThanOrEqual(5); // placeholder + 4 targets
+});
+
 test("/api/state GET returns valid device state JSON", async ({ page }) => {
   const res = await page.request.get("/api/state");
   expect(res.ok()).toBe(true);

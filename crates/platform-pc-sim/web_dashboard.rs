@@ -914,16 +914,17 @@ pub fn dashboard_html() -> &'static str {
         <div id="we-status" style="padding:5px 14px;border-top:1px solid var(--line);font-size:11px;color:var(--muted)">Ready &#x2014; drag a device chip to the canvas to get started.</div>
       </article>
 
-      <!-- ESP32 Flash -->
+      <!-- Firmware Flash -->
       <article class="panel card span-12">
-        <h2>&#x26A1; ESP32 Flash</h2>
+        <h2>&#x26A1; Firmware Flash</h2>
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+          <select id="flash-target" style="min-width:260px">
+            <option value="">-- select target --</option>
+          </select>
           <select id="flash-port" style="min-width:220px">
             <option value="">-- select port --</option>
           </select>
           <button class="btn" onclick="flashRefreshPorts()">&#x1F504; Refresh</button>
-          <input id="flash-bin" type="text" placeholder="path/to/firmware.elf (optional)"
-                 style="flex:1;min-width:200px;background:var(--paper);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:5px 10px;font-size:13px;font-family:inherit"/>
           <button class="btn" id="flash-btn" onclick="flashStart()">&#x26A1; Flash</button>
         </div>
         <div id="flash-output" class="wiring"
@@ -1772,7 +1773,23 @@ pub fn dashboard_html() -> &'static str {
       document.getElementById('we-status').textContent = 'Canvas cleared.';
     }
     // ── Boot ──
-    // ── ESP32 Flash ──────────────────────────────────────────────────────────
+    // ── Firmware Flash ────────────────────────────────────────────────────────
+    async function flashRefreshTargets() {
+      try {
+        const r = await fetch('/api/flash/targets');
+        const targets = await r.json();
+        const sel = document.getElementById('flash-target');
+        sel.innerHTML = '<option value="">-- select target --</option>';
+        targets.forEach(function(t) {
+          const opt = document.createElement('option');
+          opt.value = t.id; opt.textContent = t.label;
+          sel.appendChild(opt);
+        });
+      } catch(err) {
+        document.getElementById('flash-status').textContent = 'Error loading targets: ' + err.message;
+      }
+    }
+
     async function flashRefreshPorts() {
       try {
         const r = await fetch('/api/flash/devices');
@@ -1792,15 +1809,22 @@ pub fn dashboard_html() -> &'static str {
     }
 
     function flashStart() {
-      const port = document.getElementById('flash-port').value;
-      const bin  = document.getElementById('flash-bin').value.trim();
-      const out  = document.getElementById('flash-output');
-      const btn  = document.getElementById('flash-btn');
+      const target = document.getElementById('flash-target').value;
+      const port   = document.getElementById('flash-port').value;
+      const out    = document.getElementById('flash-output');
+      const btn    = document.getElementById('flash-btn');
       out.textContent = '';
       btn.disabled = true;
-      let url = '/api/flash/stream';
-      if (port) url += '?port=' + encodeURIComponent(port);
-      if (bin)  url += (port ? '&' : '?') + 'bin=' + encodeURIComponent(bin);
+      if (!target) {
+        document.getElementById('flash-status').textContent = '\u26A0\uFE0F Select a firmware target.';
+        btn.disabled = false; return;
+      }
+      if (!port) {
+        document.getElementById('flash-status').textContent = '\u26A0\uFE0F Select a serial port.';
+        btn.disabled = false; return;
+      }
+      const url = '/api/flash/stream?target=' + encodeURIComponent(target) +
+                  '&port=' + encodeURIComponent(port);
       document.getElementById('flash-status').textContent = 'Flashing\u2026';
       const es = new EventSource(url);
       es.onmessage = function(e) {
@@ -1820,6 +1844,7 @@ pub fn dashboard_html() -> &'static str {
       };
     }
 
+    flashRefreshTargets();
     flashRefreshPorts();
   </script>
 </body>
@@ -1879,12 +1904,15 @@ mod tests {
         assert!(html.contains("weExport"));
         assert!(html.contains("weImport"));
         assert!(html.contains("weClear"));
-        // ESP32 flash panel
+        // Firmware flash panel
         assert!(html.contains("/api/flash/devices"));
+        assert!(html.contains("/api/flash/targets"));
         assert!(html.contains("/api/flash/stream"));
         assert!(html.contains("flash-port"));
+        assert!(html.contains("flash-target"));
         assert!(html.contains("flashStart"));
         assert!(html.contains("flashRefreshPorts"));
+        assert!(html.contains("flashRefreshTargets"));
     }
 
     #[test]
