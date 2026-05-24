@@ -681,3 +681,74 @@ test("/api/diagnostics endpoint returns valid JSON", async ({ page }) => {
   expect(Array.isArray(body.recent_events)).toBe(true);
 });
 
+// ── API endpoint shape tests ─────────────────────────────────────────────────
+
+test("/api/wiring GET returns valid wiring config JSON", async ({ page }) => {
+  const res = await page.request.get("/api/wiring");
+  expect(res.ok()).toBe(true);
+  expect(res.headers()["content-type"]).toContain("application/json");
+  const body = await res.json();
+  expect(typeof body.board).toBe("string");
+  expect(typeof body.sensor_profile).toBe("string");
+  expect(Array.isArray(body.selected_devices)).toBe(true);
+  expect(Array.isArray(body.available_devices)).toBe(true);
+  expect(typeof body.show_bus_labels).toBe("boolean");
+});
+
+test("/api/wiring/profiles GET returns array of sensor profiles", async ({ page }) => {
+  const res = await page.request.get("/api/wiring/profiles");
+  expect(res.ok()).toBe(true);
+  expect(res.headers()["content-type"]).toContain("application/json");
+  const body = await res.json();
+  expect(Array.isArray(body.profiles)).toBe(true);
+  expect(body.profiles.length).toBeGreaterThanOrEqual(1);
+  const first = body.profiles[0];
+  expect(typeof first.slug).toBe("string");
+  expect(typeof first.name).toBe("string");
+  expect(Array.isArray(first.devices)).toBe(true);
+});
+
+test("/api/wiring/svg GET returns SVG content", async ({ page }) => {
+  const res = await page.request.get("/api/wiring/svg");
+  expect(res.ok()).toBe(true);
+  expect(res.headers()["content-type"]).toContain("svg");
+  const body = await res.text();
+  expect(body).toMatch(/^<svg/);
+  expect(body).toContain("</svg>");
+});
+
+test("/api/flash/devices GET returns JSON array", async ({ page }) => {
+  const res = await page.request.get("/api/flash/devices");
+  expect(res.ok()).toBe(true);
+  expect(res.headers()["content-type"]).toContain("application/json");
+  const body = await res.json();
+  expect(Array.isArray(body)).toBe(true);
+});
+
+test("/api/state GET returns valid device state JSON", async ({ page }) => {
+  const res = await page.request.get("/api/state");
+  expect(res.ok()).toBe(true);
+  expect(res.headers()["content-type"]).toContain("application/json");
+  const body = await res.json();
+  expect(typeof body.tick).toBe("number");
+  expect(typeof body.board_name).toBe("string");
+  expect(typeof body.climate).toBe("object");
+});
+
+test("/api/events SSE endpoint opens with correct content-type", async ({ page }) => {
+  // Navigate first so page context has base URL for fetch.
+  await page.goto("/");
+  const result = await page.evaluate(async () => {
+    const ctrl = new AbortController();
+    const resp = await fetch("/api/events", { signal: ctrl.signal });
+    const contentType = resp.headers.get("content-type") || "";
+    const reader = resp.body.getReader();
+    const { value } = await reader.read();
+    ctrl.abort();
+    const text = new TextDecoder().decode(value);
+    return { contentType, startsWithData: text.startsWith("data:") };
+  });
+  expect(result.contentType).toContain("text/event-stream");
+  expect(result.startsWithData).toBe(true);
+});
+
