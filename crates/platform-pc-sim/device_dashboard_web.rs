@@ -984,10 +984,23 @@ fn respond(stream: &mut TcpStream, status: &str, content_type: &str, body: &str)
 /// Returns available serial ports likely connected to an MCU.
 // ── Firmware Flash targets ──────────────────────────────────────────────────
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum BoardKind {
     Esp32,
+    M5StickC,
     ArduinoNano,
+    RaspberryPiPico,
+}
+
+impl BoardKind {
+    fn label(self) -> &'static str {
+        match self {
+            BoardKind::Esp32 => "ESP32",
+            BoardKind::M5StickC => "M5StickC",
+            BoardKind::ArduinoNano => "Arduino Nano",
+            BoardKind::RaspberryPiPico => "Raspberry Pi Pico",
+        }
+    }
 }
 
 struct FlashTarget {
@@ -1001,25 +1014,44 @@ struct FlashTarget {
 
 fn flash_targets() -> &'static [FlashTarget] {
     &[
+        // ── ESP32 ──────────────────────────────────────────────────────────
         FlashTarget {
             id: "esp32-climate-display",
-            label: "ESP32 + BME280 + LCD1602 (climate display)",
+            label: "BME280 + LCD1602 (climate display)",
             firmware_dir: "firmware/original-esp32-climate-display",
             binary_name: "original-esp32-climate-display",
             target_triple: "xtensa-esp32-none-elf",
             board: BoardKind::Esp32,
         },
         FlashTarget {
+            id: "esp32-robot-base",
+            label: "Robot base (servo + motors)",
+            firmware_dir: "firmware/original-esp32-robot-base",
+            binary_name: "original-esp32-robot-base",
+            target_triple: "xtensa-esp32-none-elf",
+            board: BoardKind::Esp32,
+        },
+        FlashTarget {
             id: "esp32-bringup",
-            label: "ESP32 bringup",
+            label: "Bringup (GPIO / I2C check)",
             firmware_dir: "firmware/original-esp32-bringup",
             binary_name: "original-esp32-bringup",
             target_triple: "xtensa-esp32-none-elf",
             board: BoardKind::Esp32,
         },
+        // ── M5StickC ───────────────────────────────────────────────────────
+        FlashTarget {
+            id: "m5stickc-bringup",
+            label: "Bringup (GPIO / I2C check)",
+            firmware_dir: "firmware/m5stickc-bringup",
+            binary_name: "m5stickc-bringup",
+            target_triple: "xtensa-esp32-none-elf",
+            board: BoardKind::M5StickC,
+        },
+        // ── Arduino Nano ───────────────────────────────────────────────────
         FlashTarget {
             id: "arduino-nano-climate-display",
-            label: "Arduino Nano + BME280 + LCD1602 (climate display)",
+            label: "BME280 + LCD1602 (climate display)",
             firmware_dir: "firmware/arduino-nano-climate-display",
             binary_name: "arduino-nano-climate-display",
             target_triple: "avr-none",
@@ -1027,11 +1059,28 @@ fn flash_targets() -> &'static [FlashTarget] {
         },
         FlashTarget {
             id: "arduino-nano-bringup",
-            label: "Arduino Nano bringup",
+            label: "Bringup (GPIO / I2C check)",
             firmware_dir: "firmware/arduino-nano-bringup",
             binary_name: "arduino-nano-bringup",
             target_triple: "avr-none",
             board: BoardKind::ArduinoNano,
+        },
+        // ── Raspberry Pi Pico ──────────────────────────────────────────────
+        FlashTarget {
+            id: "raspi-pico-climate-display",
+            label: "BME280 + LCD1602 (climate display)",
+            firmware_dir: "firmware/raspi-pico-climate-display",
+            binary_name: "raspi-pico-climate-display",
+            target_triple: "thumbv6m-none-eabi",
+            board: BoardKind::RaspberryPiPico,
+        },
+        FlashTarget {
+            id: "raspi-pico-bringup",
+            label: "Bringup (GPIO / I2C check)",
+            firmware_dir: "firmware/raspi-pico-bringup",
+            binary_name: "raspi-pico-bringup",
+            target_triple: "thumbv6m-none-eabi",
+            board: BoardKind::RaspberryPiPico,
         },
     ]
 }
@@ -1216,7 +1265,7 @@ fn handle_flash_stream(stream: &mut TcpStream, query: &str) {
             return;
         };
 
-        if port.is_empty() {
+        if port.is_empty() && !matches!(target.board, BoardKind::RaspberryPiPico) {
             let _ =
                 stream.write_all(b"data: [ERROR] No port specified.\n\ndata: [DONE] exit=1\n\n");
             return;
@@ -1226,7 +1275,7 @@ fn handle_flash_stream(stream: &mut TcpStream, query: &str) {
         let firmware_dir = workspace.join(target.firmware_dir);
 
         match target.board {
-            BoardKind::Esp32 => {
+            BoardKind::Esp32 | BoardKind::M5StickC => {
                 // Step 1: cargo build --release (Xtensa GCC を PATH に追加)
                 let _ = stream.write_all(
                     format!("data: [BUILD] Building {}...\n\n", target.label).as_bytes(),
@@ -1322,6 +1371,64 @@ fn handle_flash_stream(stream: &mut TcpStream, query: &str) {
                     300,
                 );
                 let _ = stream.write_all(format!("data: [DONE] exit={exit_code}\n\n").as_bytes());
+            }
+
+            BoardKind::RaspberryPiPico => {
+                // elf2uf2-rs が存在するか確認
+                if Command::new("elf2uf2-rs")
+                    .arg("--help")
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status()
+                    .is_err()
+                {
+                    let _ = stream.write_all(
+                        b"data: [ERROR] elf2uf2-rs not found.\n\n\
+                          data: Install: cargo install elf2uf2-rs\n\n\
+                          data: [DONE] exit=1\n\n",
+                    );
+                    return;
+                }
+
+                // Step 1: cargo build --release
+                let _ = stream.write_all(
+                    format!("data: [BUILD] Building {}...\n\n", target.label).as_bytes(),
+                );
+                let build_code = stream_command(
+                    stream,
+                    "cargo",
+                    &["build", "--release", "--color", "never"],
+                    &firmware_dir,
+                    &[],
+                    300,
+                );
+                if build_code != 0 {
+                    let _ = stream.write_all(
+                        format!("data: [ERROR] Build failed (exit={build_code})\n\ndata: [DONE] exit={build_code}\n\n")
+                            .as_bytes(),
+                    );
+                    return;
+                }
+
+                // Step 2: elf2uf2-rs -d <elf>  (-d = deploy, waits for BOOTSEL mode)
+                let elf = firmware_dir
+                    .join("target")
+                    .join(target.target_triple)
+                    .join("release")
+                    .join(target.binary_name);
+
+                let _ = stream.write_all(
+                    b"data: [FLASH] Waiting for Pico in BOOTSEL mode (hold BOOTSEL then plug USB)...\n\n",
+                );
+                let flash_code = stream_command(
+                    stream,
+                    "elf2uf2-rs",
+                    &["-d", elf.to_str().unwrap_or("")],
+                    &workspace,
+                    &[],
+                    120,
+                );
+                let _ = stream.write_all(format!("data: [DONE] exit={flash_code}\n\n").as_bytes());
             }
         }
         return;
@@ -1694,7 +1801,14 @@ fn handle_connection(
         (_, "/api/flash/targets") => {
             let entries: Vec<String> = flash_targets()
                 .iter()
-                .map(|t| format!("{{\"id\":\"{}\",\"label\":\"{}\"}}", t.id, t.label))
+                .map(|t| {
+                    format!(
+                        "{{\"id\":\"{}\",\"label\":\"{}\",\"board\":\"{}\"}}",
+                        t.id,
+                        t.label,
+                        t.board.label()
+                    )
+                })
                 .collect();
             let json = format!("[{}]", entries.join(","));
             respond(
