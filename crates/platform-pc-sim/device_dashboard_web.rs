@@ -1274,8 +1274,7 @@ fn handle_flash_stream(stream: &mut TcpStream, query: &str) {
                     .join("release")
                     .join(target.binary_name);
 
-                let _ = stream
-                    .write_all(b"data: [FLASH] Flashing via espflash...\n\n");
+                let _ = stream.write_all(b"data: [FLASH] Flashing via espflash...\n\n");
                 let flash_code = stream_command(
                     stream,
                     "espflash",
