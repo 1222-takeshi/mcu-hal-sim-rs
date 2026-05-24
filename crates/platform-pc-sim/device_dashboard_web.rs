@@ -982,6 +982,182 @@ fn respond(stream: &mut TcpStream, status: &str, content_type: &str, body: &str)
 ///
 /// Blocks until the test process exits. Each stdout/stderr line is sent as
 /// Returns available serial ports likely connected to an MCU.
+// ── Firmware Flash targets ──────────────────────────────────────────────────
+
+#[derive(Clone, Copy, Debug)]
+enum BoardKind {
+    Esp32,
+    ArduinoNano,
+}
+
+struct FlashTarget {
+    id: &'static str,
+    label: &'static str,
+    firmware_dir: &'static str,
+    binary_name: &'static str,
+    target_triple: &'static str,
+    board: BoardKind,
+}
+
+fn flash_targets() -> &'static [FlashTarget] {
+    &[
+        FlashTarget {
+            id: "esp32-climate-display",
+            label: "ESP32 + BME280 + LCD1602 (climate display)",
+            firmware_dir: "firmware/original-esp32-climate-display",
+            binary_name: "original-esp32-climate-display",
+            target_triple: "xtensa-esp32-none-elf",
+            board: BoardKind::Esp32,
+        },
+        FlashTarget {
+            id: "esp32-bringup",
+            label: "ESP32 bringup",
+            firmware_dir: "firmware/original-esp32-bringup",
+            binary_name: "original-esp32-bringup",
+            target_triple: "xtensa-esp32-none-elf",
+            board: BoardKind::Esp32,
+        },
+        FlashTarget {
+            id: "arduino-nano-climate-display",
+            label: "Arduino Nano + BME280 + LCD1602 (climate display)",
+            firmware_dir: "firmware/arduino-nano-climate-display",
+            binary_name: "arduino-nano-climate-display",
+            target_triple: "avr-none",
+            board: BoardKind::ArduinoNano,
+        },
+        FlashTarget {
+            id: "arduino-nano-bringup",
+            label: "Arduino Nano bringup",
+            firmware_dir: "firmware/arduino-nano-bringup",
+            binary_name: "arduino-nano-bringup",
+            target_triple: "avr-none",
+            board: BoardKind::ArduinoNano,
+        },
+    ]
+}
+
+/// ~/.rustup/toolchains/esp/xtensa-esp-elf/<ver>/xtensa-esp-elf/bin を探す。
+/// PATH に既に入っていれば None を返しても問題ない。
+fn find_xtensa_gcc_bin_path() -> Option<std::path::PathBuf> {
+    let home = std::env::var("HOME").ok()?;
+    let base = std::path::PathBuf::from(&home).join(".rustup/toolchains/esp/xtensa-esp-elf");
+    std::fs::read_dir(&base).ok()?.find_map(|entry| {
+        let bin = entry.ok()?.path().join("xtensa-esp-elf/bin");
+        if bin.is_dir() {
+            Some(bin)
+        } else {
+            None
+        }
+    })
+}
+
+/// `stream` に SSE ヘッダを書き出す。失敗時は false を返す。
+fn write_sse_header(stream: &mut TcpStream) -> bool {
+    let header = "HTTP/1.1 200 OK\r\n\
+        Content-Type: text/event-stream\r\n\
+        Cache-Control: no-cache\r\n\
+        Connection: keep-alive\r\n\
+        Access-Control-Allow-Origin: *\r\n\
+        \r\n";
+    stream.write_all(header.as_bytes()).is_ok()
+}
+
+/// コマンドを実行し、stdout/stderr を SSE ラインとして stream に流す。
+/// タイムアウト超過または stream への書き込みエラーで強制終了。
+/// 戻り値: exit code (タイムアウト/エラー時は -1)
+fn stream_command(
+    stream: &mut TcpStream,
+    cmd: &str,
+    args: &[&str],
+    cwd: &std::path::Path,
+    env_extra: &[(&str, &str)],
+    timeout_secs: u64,
+) -> i32 {
+    use std::io::{BufRead, BufReader};
+    use std::process::{Command, Stdio};
+    use std::sync::mpsc;
+
+    let mut command = Command::new(cmd);
+    command
+        .args(args)
+        .current_dir(cwd)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    for (k, v) in env_extra {
+        command.env(k, v);
+    }
+
+    let mut child = match command.spawn() {
+        Ok(c) => c,
+        Err(e) => {
+            let _ = stream.write_all(
+                format!("data: [ERROR] failed to spawn `{cmd}`: {e}\n\ndata: [DONE] exit=1\n\n")
+                    .as_bytes(),
+            );
+            return 1;
+        }
+    };
+
+    let (tx, rx) = mpsc::channel::<String>();
+    let tx2 = tx.clone();
+    let stdout = child.stdout.take().expect("stdout piped");
+    std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+            if tx.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    let stderr = child.stderr.take().expect("stderr piped");
+    std::thread::spawn(move || {
+        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+            if tx2.send(line).is_err() {
+                break;
+            }
+        }
+    });
+
+    let started = std::time::Instant::now();
+    let timeout = std::time::Duration::from_secs(timeout_secs);
+
+    for line in rx {
+        if started.elapsed() > timeout {
+            let _ = stream.write_all(
+                format!("data: [ERROR] timeout after {timeout_secs}s\n\ndata: [DONE] exit=1\n\n")
+                    .as_bytes(),
+            );
+            let _ = child.kill();
+            return -1;
+        }
+        // ANSI 制御コードを除去して送信
+        let clean: String = line
+            .chars()
+            .scan(false, |in_esc, c| {
+                if *in_esc {
+                    *in_esc = c != 'm' && c != 'K' && c != 'J' && !c.is_alphabetic();
+                    if c.is_alphabetic() {
+                        *in_esc = false;
+                    }
+                    Some(None)
+                } else if c == '\x1b' {
+                    *in_esc = true;
+                    Some(None)
+                } else {
+                    Some(Some(c))
+                }
+            })
+            .flatten()
+            .collect();
+        let msg = format!("data: {}\n\n", clean.replace('\n', " "));
+        if stream.write_all(msg.as_bytes()).is_err() {
+            let _ = child.kill();
+            return -1;
+        }
+    }
+
+    child.wait().map(|s| s.code().unwrap_or(-1)).unwrap_or(-1)
+}
+
 fn list_serial_ports() -> Vec<String> {
     let Ok(dir) = std::fs::read_dir("/dev") else {
         return vec![];
@@ -1004,40 +1180,155 @@ fn list_serial_ports() -> Vec<String> {
     ports
 }
 
-/// Streams `espflash flash` output via Server-Sent Events.
+/// ターゲット指定 or 旧来の bin 指定でビルド＋書き込みを SSE ストリーム。
 ///
-/// Query params: `port=<serial-device>` (optional `bin=<path-to-elf>`)
-/// Graceful degradation: if espflash is not installed, emits an instructional
-/// error event so the UI can display installation guidance.
+/// Query params:
+///   target=<id>  (flash_targets() の id を指定)
+///   port=<serial-device>
+///   bin=<path>   (後方互換: target 未指定時の旧 ESP32 直接 flash)
 fn handle_flash_stream(stream: &mut TcpStream, query: &str) {
-    use std::io::{BufRead, BufReader};
     use std::process::{Command, Stdio};
-    use std::sync::mpsc;
 
-    let header = "HTTP/1.1 200 OK\r\n\
-        Content-Type: text/event-stream\r\n\
-        Cache-Control: no-cache\r\n\
-        Connection: keep-alive\r\n\
-        Access-Control-Allow-Origin: *\r\n\
-        \r\n";
-    if stream.write_all(header.as_bytes()).is_err() {
+    if !write_sse_header(stream) {
         return;
     }
 
-    // Parse query string: port=... (&bin=...)
-    let port = query
-        .split('&')
-        .find_map(|kv| kv.strip_prefix("port="))
-        .unwrap_or("")
-        .to_string();
-    let bin = query
-        .split('&')
-        .find_map(|kv| kv.strip_prefix("bin="))
-        .unwrap_or("")
-        .to_string();
+    let parse = |prefix: &str| -> String {
+        query
+            .split('&')
+            .find_map(|kv| kv.strip_prefix(prefix))
+            .unwrap_or("")
+            .replace("%2F", "/")
+            .replace("%3A", ":")
+    };
 
-    // Check espflash is available.
-    if std::process::Command::new("espflash")
+    let target_id = parse("target=");
+    let port = parse("port=");
+    let bin = parse("bin=");
+
+    // ── target= が指定されている場合: build + flash ──────────────────────────
+    if !target_id.is_empty() {
+        let Some(target) = flash_targets().iter().find(|t| t.id == target_id) else {
+            let _ = stream.write_all(
+                format!("data: [ERROR] Unknown target: {target_id}\n\ndata: [DONE] exit=1\n\n")
+                    .as_bytes(),
+            );
+            return;
+        };
+
+        if port.is_empty() {
+            let _ =
+                stream.write_all(b"data: [ERROR] No port specified.\n\ndata: [DONE] exit=1\n\n");
+            return;
+        }
+
+        let workspace = std::env::current_dir().unwrap_or_default();
+        let firmware_dir = workspace.join(target.firmware_dir);
+
+        match target.board {
+            BoardKind::Esp32 => {
+                // Step 1: cargo build --release (Xtensa GCC を PATH に追加)
+                let _ = stream.write_all(
+                    format!("data: [BUILD] Building {}...\n\n", target.label).as_bytes(),
+                );
+
+                let mut path_val = std::env::var("PATH").unwrap_or_default();
+                if let Some(gcc_bin) = find_xtensa_gcc_bin_path() {
+                    path_val = format!("{}:{}", gcc_bin.display(), path_val);
+                }
+
+                let build_code = stream_command(
+                    stream,
+                    "cargo",
+                    &["build", "--release", "--color", "never"],
+                    &firmware_dir,
+                    &[("PATH", &path_val)],
+                    300,
+                );
+                if build_code != 0 {
+                    let _ = stream.write_all(
+                        format!("data: [ERROR] Build failed (exit={build_code})\n\ndata: [DONE] exit={build_code}\n\n")
+                            .as_bytes(),
+                    );
+                    return;
+                }
+
+                // espflash が存在するか確認
+                if Command::new("espflash")
+                    .arg("--version")
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status()
+                    .is_err()
+                {
+                    let _ = stream.write_all(
+                        b"data: [ERROR] espflash not found. Install: cargo install espflash\n\ndata: [DONE] exit=1\n\n",
+                    );
+                    return;
+                }
+
+                // Step 2: espflash flash --port <port> <elf>
+                let elf = firmware_dir
+                    .join("target")
+                    .join(target.target_triple)
+                    .join("release")
+                    .join(target.binary_name);
+
+                let _ = stream.write_all(b"data: [FLASH] Flashing via espflash...\n\n");
+                let flash_code = stream_command(
+                    stream,
+                    "espflash",
+                    &["flash", "--port", &port, elf.to_str().unwrap_or("")],
+                    &workspace,
+                    &[("PATH", &path_val)],
+                    120,
+                );
+                let _ = stream.write_all(format!("data: [DONE] exit={flash_code}\n\n").as_bytes());
+            }
+
+            BoardKind::ArduinoNano => {
+                // ravedude が存在するか確認
+                if Command::new("ravedude")
+                    .arg("--version")
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status()
+                    .is_err()
+                {
+                    let _ = stream.write_all(
+                        b"data: [ERROR] ravedude not found.\n\n\
+                          data: Install: cargo install ravedude\n\n\
+                          data: Docs: https://github.com/Rahix/avr-hal/tree/main/ravedude\n\n\
+                          data: [DONE] exit=1\n\n",
+                    );
+                    return;
+                }
+
+                let _ = stream.write_all(
+                    format!(
+                        "data: [BUILD+FLASH] Building and flashing {} via ravedude...\n\n",
+                        target.label
+                    )
+                    .as_bytes(),
+                );
+
+                // cargo run --release: ravedude が build 後に自動書き込み
+                let exit_code = stream_command(
+                    stream,
+                    "cargo",
+                    &["run", "--release", "--color", "never"],
+                    &firmware_dir,
+                    &[("RAVEDUDE_PORT", &port)],
+                    300,
+                );
+                let _ = stream.write_all(format!("data: [DONE] exit={exit_code}\n\n").as_bytes());
+            }
+        }
+        return;
+    }
+
+    // ── 後方互換: bin= or port= のみの旧 ESP32 直接 flash ───────────────────
+    if Command::new("espflash")
         .arg("--version")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -1047,80 +1338,22 @@ fn handle_flash_stream(stream: &mut TcpStream, query: &str) {
         let _ = stream.write_all(
             b"data: [ERROR] espflash not found.\n\n\
               data: Install: cargo install espflash\n\n\
-              data: Docs: https://github.com/esp-rs/espflash\n\n\
               data: [DONE] exit=1\n\n",
         );
         return;
     }
 
     if port.is_empty() {
-        let _ = stream.write_all(
-            b"data: [ERROR] No port specified. Use ?port=/dev/cu.usbserial-XXXX\n\ndata: [DONE] exit=1\n\n",
-        );
+        let _ = stream.write_all(b"data: [ERROR] No port specified.\n\ndata: [DONE] exit=1\n\n");
         return;
     }
 
-    let mut args = vec!["flash".to_string(), "--port".to_string(), port];
+    let workspace = std::env::current_dir().unwrap_or_default();
+    let mut args = vec!["flash", "--port", &port];
     if !bin.is_empty() {
-        args.push(bin);
+        args.push(&bin);
     }
-
-    let mut child = match Command::new("espflash")
-        .args(&args)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-    {
-        Ok(c) => c,
-        Err(e) => {
-            let _ = stream.write_all(
-                format!("data: [ERROR] failed to spawn espflash: {e}\n\ndata: [DONE] exit=1\n\n")
-                    .as_bytes(),
-            );
-            return;
-        }
-    };
-
-    let (tx, rx) = mpsc::channel::<String>();
-    let tx_out = tx.clone();
-    let stdout = child.stdout.take().expect("stdout piped");
-    std::thread::spawn(move || {
-        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-            if tx_out.send(line).is_err() {
-                break;
-            }
-        }
-    });
-    let tx_err = tx.clone();
-    let stderr = child.stderr.take().expect("stderr piped");
-    std::thread::spawn(move || {
-        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-            if tx_err.send(line).is_err() {
-                break;
-            }
-        }
-    });
-    drop(tx);
-
-    let started = std::time::Instant::now();
-    let timeout = std::time::Duration::from_secs(120);
-
-    for line in rx {
-        if started.elapsed() > timeout {
-            let _ = stream.write_all(
-                b"data: [ERROR] timeout: espflash exceeded 2 minutes\n\ndata: [DONE] exit=1\n\n",
-            );
-            let _ = child.kill();
-            return;
-        }
-        let msg = format!("data: {}\n\n", line.replace('\n', " "));
-        if stream.write_all(msg.as_bytes()).is_err() {
-            let _ = child.kill();
-            return;
-        }
-    }
-
-    let exit_code = child.wait().map(|s| s.code().unwrap_or(-1)).unwrap_or(-1);
+    let exit_code = stream_command(stream, "espflash", &args, &workspace, &[], 120);
     let _ = stream.write_all(format!("data: [DONE] exit={exit_code}\n\n").as_bytes());
 }
 
@@ -1451,6 +1684,19 @@ fn handle_connection(
                     .collect::<Vec<_>>()
                     .join(",")
             );
+            respond(
+                &mut stream,
+                "200 OK",
+                "application/json; charset=utf-8",
+                &json,
+            );
+        }
+        (_, "/api/flash/targets") => {
+            let entries: Vec<String> = flash_targets()
+                .iter()
+                .map(|t| format!("{{\"id\":\"{}\",\"label\":\"{}\"}}", t.id, t.label))
+                .collect();
+            let json = format!("[{}]", entries.join(","));
             respond(
                 &mut stream,
                 "200 OK",
