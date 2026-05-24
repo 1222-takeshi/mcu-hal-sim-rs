@@ -33,6 +33,7 @@
 //! ```
 
 pub mod actuator;
+pub mod adapter;
 pub mod camera;
 pub mod display;
 pub mod distance;
