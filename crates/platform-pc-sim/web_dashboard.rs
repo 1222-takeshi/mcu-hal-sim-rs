@@ -939,6 +939,47 @@ pub fn dashboard_html() -> &'static str {
         <div id="flash-output" class="wiring"
              style="background:#0a0a0a;color:#aaffaa;border-radius:10px;padding:10px 14px;font-size:12px;min-height:80px;max-height:260px;overflow-y:auto;white-space:pre-wrap;font-family:'IBM Plex Mono',monospace"></div>
         <div id="flash-status" style="margin-top:6px;font-size:11px;color:var(--muted)">Ready.</div>
+
+        <!-- External Firmware -->
+        <details id="ext-flash-section" style="margin-top:14px">
+          <summary style="cursor:pointer;font-weight:600;color:var(--accent)">&#x1F527; External Firmware</summary>
+          <div style="margin-top:10px">
+            <p style="font-size:12px;color:var(--muted);margin:0 0 8px">
+              Flash a pre-built ELF or build and flash an external Rust project from any workspace.
+            </p>
+            <div style="display:flex;align-items:center;gap:16px;margin-bottom:8px;font-size:13px">
+              <label><input type="radio" name="ext-mode" value="elf" checked onchange="extModeChange()"> Pre-built ELF path</label>
+              <label><input type="radio" name="ext-mode" value="dir" onchange="extModeChange()"> Project directory (build+flash)</label>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+              <input type="text" id="ext-flash-path"
+                     placeholder="/absolute/path/to/firmware.elf"
+                     style="flex:1;min-width:300px;padding:6px 10px;background:var(--bg2);border:1px solid var(--line);border-radius:6px;color:var(--text);font-size:13px">
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+              <select id="ext-flash-board" style="min-width:180px" onchange="extBoardChange()">
+                <option value="esp32">ESP32</option>
+                <option value="m5stickc">M5StickC</option>
+                <option value="arduino-nano">Arduino Nano</option>
+                <option value="raspi-pico">Raspberry Pi Pico</option>
+              </select>
+              <div id="ext-port-row" style="display:flex;align-items:center;gap:8px">
+                <select id="ext-flash-port" style="min-width:220px">
+                  <option value="">-- select port --</option>
+                </select>
+                <button class="btn" onclick="extRefreshPorts()">&#x1F504; Refresh</button>
+              </div>
+              <button class="btn" id="ext-flash-btn" onclick="extFlashStart()">&#x26A1; Flash</button>
+            </div>
+            <div id="ext-pico-hint" style="display:none;margin-bottom:8px;padding:8px 12px;background:var(--line);border-radius:8px;font-size:12px;color:var(--muted)">
+              &#x26A0;&#xFE0F; Raspberry Pi Pico: <strong>hold BOOTSEL then plug USB</strong>, then click Flash.
+              <button class="btn" onclick="extFlashStart()">&#x26A1; Flash</button>
+            </div>
+            <div id="ext-flash-output" class="wiring"
+                 style="display:none;background:#0a0a0a;color:#aaffaa;border-radius:10px;padding:10px 14px;font-size:12px;min-height:40px;max-height:200px;overflow-y:auto;white-space:pre-wrap;font-family:'IBM Plex Mono',monospace"></div>
+            <div id="ext-flash-status" style="margin-top:6px;font-size:11px;color:var(--muted)">Ready.</div>
+          </div>
+        </details>
       </article>
 
     </section>
@@ -1884,6 +1925,80 @@ pub fn dashboard_html() -> &'static str {
 
     flashRefreshTargets();
     flashRefreshPorts();
+
+    // ── External Firmware Flash ───────────────────────────────────────────────
+    function extModeChange() {
+      const mode = document.querySelector('input[name="ext-mode"]:checked').value;
+      const p = document.getElementById('ext-flash-path');
+      p.placeholder = mode === 'elf'
+        ? '/absolute/path/to/firmware.elf'
+        : '/absolute/path/to/rust/project';
+    }
+
+    function extBoardChange() {
+      const board = document.getElementById('ext-flash-board').value;
+      const isPico = board === 'raspi-pico';
+      document.getElementById('ext-port-row').style.display = isPico ? 'none' : '';
+      document.getElementById('ext-pico-hint').style.display = isPico ? 'block' : 'none';
+    }
+
+    async function extRefreshPorts() {
+      try {
+        const r = await fetch('/api/flash/devices');
+        const ports = await r.json();
+        const sel = document.getElementById('ext-flash-port');
+        sel.innerHTML = '<option value="">-- select port --</option>';
+        ports.forEach(function(p) {
+          const opt = document.createElement('option');
+          opt.value = p; opt.textContent = p;
+          sel.appendChild(opt);
+        });
+      } catch(err) {
+        document.getElementById('ext-flash-status').textContent = 'Error: ' + err.message;
+      }
+    }
+
+    function extFlashStart() {
+      const mode  = document.querySelector('input[name="ext-mode"]:checked').value;
+      const path  = document.getElementById('ext-flash-path').value.trim();
+      const board = document.getElementById('ext-flash-board').value;
+      const isPico = board === 'raspi-pico';
+      const port  = isPico ? '' : document.getElementById('ext-flash-port').value;
+      const out   = document.getElementById('ext-flash-output');
+      const btn   = document.getElementById('ext-flash-btn');
+      out.style.display = 'block';
+      out.textContent = '';
+      btn.disabled = true;
+      if (!path) {
+        document.getElementById('ext-flash-status').textContent = '\u26A0\uFE0F Enter a path.';
+        btn.disabled = false; return;
+      }
+      if (!isPico && !port) {
+        document.getElementById('ext-flash-status').textContent = '\u26A0\uFE0F Select a serial port.';
+        btn.disabled = false; return;
+      }
+      const param = mode === 'elf' ? 'custom_elf' : 'custom_dir';
+      let url = '/api/flash/stream?board=' + encodeURIComponent(board)
+              + '&' + param + '=' + encodeURIComponent(path);
+      if (port) url += '&port=' + encodeURIComponent(port);
+      document.getElementById('ext-flash-status').textContent = 'Flashing\u2026';
+      const es = new EventSource(url);
+      es.onmessage = function(e) {
+        if (e.data.startsWith('[DONE]')) {
+          es.close(); btn.disabled = false;
+          const code = e.data.includes('exit=0') ? 0 : 1;
+          document.getElementById('ext-flash-status').textContent =
+            code === 0 ? '\u2705 Flash successful.' : '\u274C Flash failed (see output).';
+        } else {
+          out.textContent += e.data + '\n';
+          out.scrollTop = out.scrollHeight;
+        }
+      };
+      es.onerror = function() {
+        es.close(); btn.disabled = false;
+        document.getElementById('ext-flash-status').textContent = 'Connection error.';
+      };
+    }
   </script>
 </body>
 </html>
@@ -1955,6 +2070,22 @@ mod tests {
         assert!(html.contains("flashRefreshPorts"));
         assert!(html.contains("flashRefreshTargets"));
         assert!(html.contains("flashFilterTargets"));
+        // External firmware panel
+        assert!(html.contains("ext-flash-section"));
+        assert!(html.contains("ext-flash-path"));
+        assert!(html.contains("ext-flash-board"));
+        assert!(html.contains("ext-flash-port"));
+        assert!(html.contains("ext-flash-btn"));
+        assert!(html.contains("ext-pico-hint"));
+        assert!(html.contains("ext-port-row"));
+        assert!(html.contains("ext-flash-output"));
+        assert!(html.contains("ext-flash-status"));
+        assert!(html.contains("extModeChange"));
+        assert!(html.contains("extBoardChange"));
+        assert!(html.contains("extRefreshPorts"));
+        assert!(html.contains("extFlashStart"));
+        assert!(html.contains("custom_elf"));
+        assert!(html.contains("custom_dir"));
     }
 
     #[test]

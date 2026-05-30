@@ -22,6 +22,7 @@ path = "lib.rs"
 
 [dev-dependencies]
 platform-esp32 = { version = "0.1.0", path = "../platform-esp32" }
+tempfile = "3"
 
 [[bin]]
 name = "platform-pc-sim"

@@ -846,3 +846,63 @@ test("/api/events SSE endpoint opens with correct content-type", async ({ page }
   expect(result.startsWithData).toBe(true);
 });
 
+test("external firmware section exists with correct elements", async ({ page }) => {
+  await page.goto("/");
+  // The <details> is collapsed by default — check it's in the DOM
+  await expect(page.locator("#ext-flash-section")).toBeAttached();
+  // Open the section
+  await page.locator("#ext-flash-section > summary").click();
+  await expect(page.locator("#ext-flash-path")).toBeVisible();
+  await expect(page.locator("#ext-flash-board")).toBeVisible();
+  await expect(page.locator("#ext-flash-port")).toBeVisible();
+  await expect(page.locator("#ext-flash-btn")).toBeVisible();
+});
+
+test("external firmware board selector has all four boards", async ({ page }) => {
+  await page.goto("/");
+  await page.locator("#ext-flash-section > summary").click();
+  const options = await page.locator("#ext-flash-board option").allTextContents();
+  expect(options).toContain("ESP32");
+  expect(options).toContain("M5StickC");
+  expect(options).toContain("Arduino Nano");
+  expect(options).toContain("Raspberry Pi Pico");
+});
+
+test("selecting Pico in external section hides port row and shows hint", async ({ page }) => {
+  await page.goto("/");
+  await page.locator("#ext-flash-section > summary").click();
+  await page.selectOption("#ext-flash-board", { value: "raspi-pico" });
+  await expect(page.locator("#ext-port-row")).toBeHidden();
+  await expect(page.locator("#ext-pico-hint")).toBeVisible();
+});
+
+test("switching ext mode radio changes path placeholder", async ({ page }) => {
+  await page.goto("/");
+  await page.locator("#ext-flash-section > summary").click();
+  // Default is 'elf'
+  const elfPlaceholder = await page.locator("#ext-flash-path").getAttribute("placeholder");
+  expect(elfPlaceholder).toContain(".elf");
+  // Switch to dir
+  await page.locator("input[name='ext-mode'][value='dir']").click();
+  const dirPlaceholder = await page.locator("#ext-flash-path").getAttribute("placeholder");
+  expect(dirPlaceholder).toContain("project");
+});
+
+test("/api/flash/stream returns error for non-absolute custom_elf path", async ({ page }) => {
+  await page.goto("/");
+  const result = await page.evaluate(async () => {
+    const es = new EventSource("/api/flash/stream?board=esp32&custom_elf=relative/path.elf");
+    return new Promise((resolve) => {
+      let output = "";
+      es.onmessage = (e) => {
+        output += e.data + "\n";
+        if (e.data.includes("[DONE]")) { es.close(); resolve(output); }
+      };
+      es.onerror = () => { es.close(); resolve(output); };
+      setTimeout(() => { es.close(); resolve(output); }, 5000);
+    });
+  });
+  expect(result).toContain("[ERROR]");
+  expect(result).toContain("absolute");
+});
+
