@@ -9,19 +9,17 @@ use ufmt::uWrite;
 
 const SERIAL_BAUD: u32 = 57_600;
 const I2C_FREQUENCY_HZ: u32 = 50_000;
-const HEARTBEAT_DELAY_MS: u16 = 250;
+const HEARTBEAT_DELAY_MS: u32 = 250;
 
 fn scan_i2c_bus<W>(serial: &mut W, i2c: &mut arduino_hal::I2c)
 where
-    W: uWrite + ?Sized,
+    W: uWrite,
 {
-    ufmt::uwriteln!(serial, "Write direction test:\r").unwrap_infallible();
-    i2c.i2cdetect(serial, arduino_hal::i2c::Direction::Write)
-        .unwrap_infallible();
-    ufmt::uwriteln!(serial, "\r\nRead direction test:\r").unwrap_infallible();
-    i2c.i2cdetect(serial, arduino_hal::i2c::Direction::Read)
-        .unwrap_infallible();
-    ufmt::uwriteln!(serial, "\r").unwrap_infallible();
+    let _ = ufmt::uwriteln!(serial, "Write direction test:\r");
+    let _ = i2c.i2cdetect(serial, arduino_hal::i2c::Direction::Write);
+    let _ = ufmt::uwriteln!(serial, "\r\nRead direction test:\r");
+    let _ = i2c.i2cdetect(serial, arduino_hal::i2c::Direction::Read);
+    let _ = ufmt::uwriteln!(serial, "\r");
 }
 
 #[arduino_hal::entry]
@@ -38,19 +36,17 @@ fn main() -> ! {
         I2C_FREQUENCY_HZ,
     );
 
-    ufmt::uwriteln!(serial, "arduino nano bring-up + hal-api demo\r").unwrap_infallible();
-    ufmt::uwriteln!(
+    let _ = ufmt::uwriteln!(serial, "arduino nano bring-up + hal-api demo\r");
+    let _ = ufmt::uwriteln!(
         serial,
         "LED=D13 SDA=A4 SCL=A5 baud={} i2c={}Hz\r",
         SERIAL_BAUD,
         I2C_FREQUENCY_HZ
-    )
-    .unwrap_infallible();
-    ufmt::uwriteln!(
+    );
+    let _ = ufmt::uwriteln!(
         serial,
         "Use this firmware to confirm blink/serial/I2C before adding sensors.\r"
-    )
-    .unwrap_infallible();
+    );
 
     scan_i2c_bus(&mut serial, &mut i2c);
 
@@ -59,19 +55,18 @@ fn main() -> ! {
     let avr_i2c = AvrI2c::new(i2c);
     let mut app = App::new(avr_pin, avr_i2c);
 
-    ufmt::uwriteln!(serial, "Starting core-app via hal-api adapters...\r").unwrap_infallible();
+    let _ = ufmt::uwriteln!(serial, "Starting core-app via hal-api adapters...\r");
 
     let mut heartbeat = 0u32;
     loop {
         heartbeat = heartbeat.wrapping_add(1);
 
         if let Err(_) = app.tick() {
-            ufmt::uwriteln!(serial, "app.tick() error at heartbeat={}\r", heartbeat)
-                .unwrap_infallible();
+            let _ = ufmt::uwriteln!(serial, "app.tick() error at heartbeat={}\r", heartbeat);
         }
 
         if heartbeat % 4 == 0 {
-            ufmt::uwriteln!(serial, "heartbeat={}\r", heartbeat).unwrap_infallible();
+            let _ = ufmt::uwriteln!(serial, "heartbeat={}\r", heartbeat);
         }
 
         arduino_hal::delay_ms(HEARTBEAT_DELAY_MS);
