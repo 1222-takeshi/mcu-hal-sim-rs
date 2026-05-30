@@ -1229,12 +1229,47 @@ fn list_serial_ports() -> Vec<String> {
     ports
 }
 
+/// Convert a board string (from query param) to a `BoardKind`.
+fn board_kind_from_str(s: &str) -> BoardKind {
+    match s {
+        "m5stickc" => BoardKind::M5StickC,
+        "arduino-nano" => BoardKind::ArduinoNano,
+        "raspi-pico" => BoardKind::RaspberryPiPico,
+        _ => BoardKind::Esp32,
+    }
+}
+
+/// Read `.cargo/config.toml` in `dir` and extract the `target = "..."` line.
+fn detect_build_target(dir: &std::path::Path) -> Option<String> {
+    let content = std::fs::read_to_string(dir.join(".cargo").join("config.toml")).ok()?;
+    content
+        .lines()
+        .find(|l| l.trim_start().starts_with("target ="))
+        .and_then(|l| l.split('"').nth(1))
+        .map(String::from)
+}
+
+/// Read `Cargo.toml` in `dir` and extract the package `name = "..."` line.
+fn detect_binary_name(dir: &std::path::Path) -> Option<String> {
+    let content = std::fs::read_to_string(dir.join("Cargo.toml")).ok()?;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("name =") {
+            return trimmed.split('"').nth(1).map(String::from);
+        }
+    }
+    None
+}
+
 /// ターゲット指定 or 旧来の bin 指定でビルド＋書き込みを SSE ストリーム。
 ///
 /// Query params:
-///   target=<id>  (flash_targets() の id を指定)
-///   port=<serial-device>
-///   bin=<path>   (後方互換: target 未指定時の旧 ESP32 直接 flash)
+///   target=<id>      (flash_targets() の id を指定)
+///   port=<device>
+///   board=<board>    (custom_elf/custom_dir 時のボード指定)
+///   custom_elf=<abs> (ビルド済み ELF を直接 flash)
+///   custom_dir=<abs> (外部 Rust プロジェクトを cargo build + flash)
+///   bin=<path>       (後方互換: target 未指定時の旧 ESP32 直接 flash)
 fn handle_flash_stream(stream: &mut TcpStream, query: &str) {
     use std::process::{Command, Stdio};
 
@@ -1249,11 +1284,15 @@ fn handle_flash_stream(stream: &mut TcpStream, query: &str) {
             .unwrap_or("")
             .replace("%2F", "/")
             .replace("%3A", ":")
+            .replace("%20", " ")
     };
 
     let target_id = parse("target=");
     let port = parse("port=");
     let bin = parse("bin=");
+    let custom_elf = parse("custom_elf=");
+    let custom_dir = parse("custom_dir=");
+    let board_str = parse("board=");
 
     // ── target= が指定されている場合: build + flash ──────────────────────────
     if !target_id.is_empty() {
@@ -1429,6 +1468,300 @@ fn handle_flash_stream(stream: &mut TcpStream, query: &str) {
                     120,
                 );
                 let _ = stream.write_all(format!("data: [DONE] exit={flash_code}\n\n").as_bytes());
+            }
+        }
+        return;
+    }
+
+    // ── custom_elf= : flash a pre-built ELF ─────────────────────────────────
+    if !custom_elf.is_empty() {
+        let board = board_kind_from_str(&board_str);
+        let elf_path = std::path::Path::new(&custom_elf);
+        if !elf_path.is_absolute() {
+            let _ = stream.write_all(
+                b"data: [ERROR] Path must be absolute (e.g. /home/user/firmware.elf).\n\n\
+                  data: [DONE] exit=1\n\n",
+            );
+            return;
+        }
+        if !elf_path.exists() {
+            let _ = stream.write_all(
+                format!("data: [ERROR] ELF not found: {custom_elf}\n\ndata: [DONE] exit=1\n\n")
+                    .as_bytes(),
+            );
+            return;
+        }
+        let workspace = std::env::current_dir().unwrap_or_default();
+        match board {
+            BoardKind::Esp32 | BoardKind::M5StickC => {
+                if port.is_empty() {
+                    let _ = stream
+                        .write_all(b"data: [ERROR] No port specified.\n\ndata: [DONE] exit=1\n\n");
+                    return;
+                }
+                if Command::new("espflash")
+                    .arg("--version")
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status()
+                    .is_err()
+                {
+                    let _ = stream.write_all(
+                        b"data: [ERROR] espflash not found. Install: cargo install espflash\n\n\
+                          data: [DONE] exit=1\n\n",
+                    );
+                    return;
+                }
+                let _ = stream.write_all(b"data: [FLASH] Flashing via espflash...\n\n");
+                let code = stream_command(
+                    stream,
+                    "espflash",
+                    &["flash", "--port", &port, &custom_elf],
+                    &workspace,
+                    &[],
+                    120,
+                );
+                let _ = stream.write_all(format!("data: [DONE] exit={code}\n\n").as_bytes());
+            }
+            BoardKind::ArduinoNano => {
+                if port.is_empty() {
+                    let _ = stream
+                        .write_all(b"data: [ERROR] No port specified.\n\ndata: [DONE] exit=1\n\n");
+                    return;
+                }
+                let _ = stream.write_all(b"data: [FLASH] Flashing via avrdude...\n\n");
+                let flash_arg = format!("flash:w:{custom_elf}:e");
+                let code = stream_command(
+                    stream,
+                    "avrdude",
+                    &[
+                        "-p", "m328p", "-c", "arduino", "-P", &port, "-b", "115200", "-U",
+                        &flash_arg,
+                    ],
+                    &workspace,
+                    &[],
+                    120,
+                );
+                let _ = stream.write_all(format!("data: [DONE] exit={code}\n\n").as_bytes());
+            }
+            BoardKind::RaspberryPiPico => {
+                if Command::new("elf2uf2-rs")
+                    .arg("--help")
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status()
+                    .is_err()
+                {
+                    let _ = stream.write_all(
+                        b"data: [ERROR] elf2uf2-rs not found. Install: cargo install elf2uf2-rs\n\n\
+                          data: [DONE] exit=1\n\n",
+                    );
+                    return;
+                }
+                let _ = stream.write_all(
+                    b"data: [FLASH] Waiting for Pico in BOOTSEL mode (hold BOOTSEL then plug USB)...\n\n",
+                );
+                let code = stream_command(
+                    stream,
+                    "elf2uf2-rs",
+                    &["-d", &custom_elf],
+                    &workspace,
+                    &[],
+                    120,
+                );
+                let _ = stream.write_all(format!("data: [DONE] exit={code}\n\n").as_bytes());
+            }
+        }
+        return;
+    }
+
+    // ── custom_dir= : cargo build + flash an external Rust project ───────────
+    if !custom_dir.is_empty() {
+        let board = board_kind_from_str(&board_str);
+        let dir_path = std::path::PathBuf::from(&custom_dir);
+        if !dir_path.is_absolute() {
+            let _ = stream.write_all(
+                b"data: [ERROR] Path must be absolute (e.g. /home/user/my-firmware).\n\n\
+                  data: [DONE] exit=1\n\n",
+            );
+            return;
+        }
+        if !dir_path.exists() {
+            let _ = stream.write_all(
+                format!(
+                    "data: [ERROR] Directory not found: {custom_dir}\n\ndata: [DONE] exit=1\n\n"
+                )
+                .as_bytes(),
+            );
+            return;
+        }
+        let workspace = std::env::current_dir().unwrap_or_default();
+        match board {
+            BoardKind::Esp32 | BoardKind::M5StickC => {
+                if port.is_empty() {
+                    let _ = stream
+                        .write_all(b"data: [ERROR] No port specified.\n\ndata: [DONE] exit=1\n\n");
+                    return;
+                }
+                let _ = stream.write_all(b"data: [BUILD] Building (cargo build --release)...\n\n");
+                let mut path_val = std::env::var("PATH").unwrap_or_default();
+                if let Some(gcc_bin) = find_xtensa_gcc_bin_path() {
+                    path_val = format!("{}:{}", gcc_bin.display(), path_val);
+                }
+                let build_code = stream_command(
+                    stream,
+                    "cargo",
+                    &["build", "--release", "--color", "never"],
+                    &dir_path,
+                    &[("PATH", &path_val)],
+                    300,
+                );
+                if build_code != 0 {
+                    let _ = stream.write_all(
+                        format!("data: [ERROR] Build failed (exit={build_code})\n\ndata: [DONE] exit={build_code}\n\n")
+                            .as_bytes(),
+                    );
+                    return;
+                }
+                if Command::new("espflash")
+                    .arg("--version")
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status()
+                    .is_err()
+                {
+                    let _ = stream.write_all(
+                        b"data: [ERROR] espflash not found. Install: cargo install espflash\n\n\
+                          data: [DONE] exit=1\n\n",
+                    );
+                    return;
+                }
+                let target_triple = detect_build_target(&dir_path)
+                    .unwrap_or_else(|| "xtensa-esp32-none-elf".to_string());
+                let bin_name =
+                    detect_binary_name(&dir_path).unwrap_or_else(|| "firmware".to_string());
+                let elf = dir_path
+                    .join("target")
+                    .join(&target_triple)
+                    .join("release")
+                    .join(&bin_name);
+                let elf_str = elf.to_string_lossy().to_string();
+                if !elf.exists() {
+                    let _ = stream.write_all(
+                        format!(
+                            "data: [ERROR] Built ELF not found: {elf_str}\n\n\
+                             data: Hint: check binary name in Cargo.toml and .cargo/config.toml\n\n\
+                             data: [DONE] exit=1\n\n"
+                        )
+                        .as_bytes(),
+                    );
+                    return;
+                }
+                let _ = stream.write_all(b"data: [FLASH] Flashing via espflash...\n\n");
+                let code = stream_command(
+                    stream,
+                    "espflash",
+                    &["flash", "--port", &port, &elf_str],
+                    &workspace,
+                    &[("PATH", &path_val)],
+                    120,
+                );
+                let _ = stream.write_all(format!("data: [DONE] exit={code}\n\n").as_bytes());
+            }
+            BoardKind::ArduinoNano => {
+                if port.is_empty() {
+                    let _ = stream
+                        .write_all(b"data: [ERROR] No port specified.\n\ndata: [DONE] exit=1\n\n");
+                    return;
+                }
+                if Command::new("ravedude")
+                    .arg("--version")
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status()
+                    .is_err()
+                {
+                    let _ = stream.write_all(
+                        b"data: [ERROR] ravedude not found. Install: cargo install ravedude\n\n\
+                          data: [DONE] exit=1\n\n",
+                    );
+                    return;
+                }
+                let _ = stream
+                    .write_all(b"data: [BUILD+FLASH] Building and flashing via ravedude...\n\n");
+                let code = stream_command(
+                    stream,
+                    "cargo",
+                    &["run", "--release", "--color", "never"],
+                    &dir_path,
+                    &[("RAVEDUDE_PORT", &port)],
+                    300,
+                );
+                let _ = stream.write_all(format!("data: [DONE] exit={code}\n\n").as_bytes());
+            }
+            BoardKind::RaspberryPiPico => {
+                if Command::new("elf2uf2-rs")
+                    .arg("--help")
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status()
+                    .is_err()
+                {
+                    let _ = stream.write_all(
+                        b"data: [ERROR] elf2uf2-rs not found. Install: cargo install elf2uf2-rs\n\n\
+                          data: [DONE] exit=1\n\n",
+                    );
+                    return;
+                }
+                let _ = stream.write_all(b"data: [BUILD] Building (cargo build --release)...\n\n");
+                let build_code = stream_command(
+                    stream,
+                    "cargo",
+                    &["build", "--release", "--color", "never"],
+                    &dir_path,
+                    &[],
+                    300,
+                );
+                if build_code != 0 {
+                    let _ = stream.write_all(
+                        format!("data: [ERROR] Build failed (exit={build_code})\n\ndata: [DONE] exit={build_code}\n\n")
+                            .as_bytes(),
+                    );
+                    return;
+                }
+                let target_triple = detect_build_target(&dir_path)
+                    .unwrap_or_else(|| "thumbv6m-none-eabi".to_string());
+                let bin_name =
+                    detect_binary_name(&dir_path).unwrap_or_else(|| "firmware".to_string());
+                let elf = dir_path
+                    .join("target")
+                    .join(&target_triple)
+                    .join("release")
+                    .join(&bin_name);
+                let elf_str = elf.to_string_lossy().to_string();
+                if !elf.exists() {
+                    let _ = stream.write_all(
+                        format!(
+                            "data: [ERROR] Built ELF not found: {elf_str}\n\n\
+                             data: Hint: check binary name in Cargo.toml and .cargo/config.toml\n\n\
+                             data: [DONE] exit=1\n\n"
+                        )
+                        .as_bytes(),
+                    );
+                    return;
+                }
+                let _ = stream.write_all(
+                    b"data: [FLASH] Waiting for Pico in BOOTSEL mode (hold BOOTSEL then plug USB)...\n\n",
+                );
+                let code = stream_command(
+                    stream,
+                    "elf2uf2-rs",
+                    &["-d", &elf_str],
+                    &workspace,
+                    &[],
+                    120,
+                );
+                let _ = stream.write_all(format!("data: [DONE] exit={code}\n\n").as_bytes());
             }
         }
         return;
@@ -2402,5 +2735,72 @@ mod tests {
         assert!(!svg_response.contains("GPIO:N/A"));
 
         server.join().expect("server thread should exit");
+    }
+
+    // ── board_kind_from_str ───────────────────────────────────────────────────
+    #[test]
+    fn board_kind_from_str_known_values() {
+        assert!(matches!(board_kind_from_str("esp32"), BoardKind::Esp32));
+        assert!(matches!(
+            board_kind_from_str("m5stickc"),
+            BoardKind::M5StickC
+        ));
+        assert!(matches!(
+            board_kind_from_str("arduino-nano"),
+            BoardKind::ArduinoNano
+        ));
+        assert!(matches!(
+            board_kind_from_str("raspi-pico"),
+            BoardKind::RaspberryPiPico
+        ));
+    }
+
+    #[test]
+    fn board_kind_from_str_defaults_to_esp32() {
+        assert!(matches!(board_kind_from_str(""), BoardKind::Esp32));
+        assert!(matches!(board_kind_from_str("unknown"), BoardKind::Esp32));
+    }
+
+    // ── detect_build_target / detect_binary_name ─────────────────────────────
+    #[test]
+    fn detect_build_target_reads_config_toml() {
+        let dir = tempfile::tempdir().expect("tmp dir");
+        let cargo_dir = dir.path().join(".cargo");
+        std::fs::create_dir_all(&cargo_dir).expect("create .cargo");
+        std::fs::write(
+            cargo_dir.join("config.toml"),
+            "[build]\ntarget = \"xtensa-esp32-none-elf\"\n",
+        )
+        .expect("write config.toml");
+        assert_eq!(
+            detect_build_target(dir.path()),
+            Some("xtensa-esp32-none-elf".to_string())
+        );
+    }
+
+    #[test]
+    fn detect_build_target_returns_none_if_no_config() {
+        let dir = tempfile::tempdir().expect("tmp dir");
+        assert_eq!(detect_build_target(dir.path()), None);
+    }
+
+    #[test]
+    fn detect_binary_name_reads_cargo_toml() {
+        let dir = tempfile::tempdir().expect("tmp dir");
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[package]\nname = \"my-firmware\"\nversion = \"0.1.0\"\n",
+        )
+        .expect("write Cargo.toml");
+        assert_eq!(
+            detect_binary_name(dir.path()),
+            Some("my-firmware".to_string())
+        );
+    }
+
+    #[test]
+    fn detect_binary_name_returns_none_if_no_cargo_toml() {
+        let dir = tempfile::tempdir().expect("tmp dir");
+        assert_eq!(detect_binary_name(dir.path()), None);
     }
 }
