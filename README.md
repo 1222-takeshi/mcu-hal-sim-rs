@@ -583,6 +583,7 @@ mcu-hal-sim-rs/
 
 | ドキュメント | 内容 |
 |------------|------|
+| [docs/simulation-bridge.md](./docs/simulation-bridge.md) | **外部 Rust プロジェクトでの利用ガイド** (hal-api 使い方・mock・Flash UI) |
 | [docs/dashboard-guide.md](./docs/dashboard-guide.md) | ブラウザダッシュボード操作ガイド・API 説明・sim-to-real 導線 |
 | [docs/sensors-and-actuators.md](./docs/sensors-and-actuators.md) | センサー・アクチュエーター一覧 |
 | [docs/porting-and-extension-guide.md](./docs/porting-and-extension-guide.md) | ポーティング・拡張ガイド |
