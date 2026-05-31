@@ -467,6 +467,18 @@ pub fn dashboard_html() -> &'static str {
         <div style="font-size:11px;color:var(--muted);margin-top:6px">Time-of-Flight sensor (I2C 0x29)</div>
       </article>
 
+      <article class="panel card span-4" id="oled-card">
+        <h2 id="oled-sensor-name">SSD1306</h2>
+        <div class="metric">
+          <div class="name">Display</div>
+          <div id="oled-frame" style="font-family:monospace;font-size:13px;line-height:1.6;margin-top:4px;background:var(--surface);padding:6px 8px;border-radius:4px;color:var(--text)">
+            <div id="oled-line0">________________</div>
+            <div id="oled-line1">________________</div>
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:6px">OLED display (I2C 0x3C)</div>
+      </article>
+
       <!-- Hardware Simulation -->
       <article class="panel card span-12">
         <h2>Hardware Simulation</h2>
@@ -801,6 +813,7 @@ pub fn dashboard_html() -> &'static str {
       setSectionVisible("gas-card", enabled.has("sgp30"));
       setSectionVisible("rtc-card", enabled.has("ds3231"));
       setSectionVisible("tof-card", enabled.has("vl53l0x"));
+      setSectionVisible("oled-card", enabled.has("ssd1306"));
       setSectionVisible("servo-hw-item", enabled.has("servo"));
       setSectionVisible("motor-left-item", enabled.has("l298n"));
       setSectionVisible("motor-right-item", enabled.has("l298n"));
@@ -1088,6 +1101,7 @@ pub fn dashboard_html() -> &'static str {
       const gasEnabled = enabled.has("sgp30");
       const rtcEnabled = enabled.has("ds3231");
       const tofEnabled = enabled.has("vl53l0x");
+      const oledEnabled = enabled.has("ssd1306");
 
       $("board-name").textContent = s.board_name;
       $("mcu-name").textContent   = s.mcu_name;
@@ -1167,6 +1181,21 @@ pub fn dashboard_html() -> &'static str {
         if (el) el.textContent = s.tof.sensor_name;
       } else {
         $("tof-distance").textContent = "-- mm";
+      }
+
+      // OLED display (SSD1306)
+      if (oledEnabled && s.oled) {
+        const line0 = $("oled-line0");
+        const line1 = $("oled-line1");
+        if (line0) line0.textContent = s.oled.frame[0] || "________________";
+        if (line1) line1.textContent = s.oled.frame[1] || "________________";
+        const nameEl = $("oled-sensor-name");
+        if (nameEl) nameEl.textContent = s.oled.sensor_name;
+      } else {
+        const line0 = $("oled-line0");
+        const line1 = $("oled-line1");
+        if (line0) line0.textContent = "________________";
+        if (line1) line1.textContent = "________________";
       }
 
       const devEl = $("wiring-devices");
@@ -1940,6 +1969,13 @@ mod tests {
                 distance_mm: Some(500),
                 sensor_name: "VL53L0X".to_string(),
             },
+            oled: OledPanelState {
+                frame: [
+                    "Hello World!    ".to_string(),
+                    "SSD1306 Mock    ".to_string(),
+                ],
+                sensor_name: "SSD1306".to_string(),
+            },
             diagnostics: DiagnosticsPanelState {
                 event_count: 3,
                 recent_events: vec![
@@ -2015,6 +2051,20 @@ mod tests {
             json.contains("\"sensor_name\":\"VL53L0X\""),
             "tof.sensor_name missing in JSON"
         );
+        // OLED panel assertions
+        assert!(json.contains("\"oled\""), "oled key missing in JSON");
+        assert!(
+            json.contains("Hello World!"),
+            "oled.frame[0] missing in JSON"
+        );
+        assert!(
+            json.contains("SSD1306 Mock"),
+            "oled.frame[1] missing in JSON"
+        );
+        assert!(
+            json.contains("\"sensor_name\":\"SSD1306\""),
+            "oled.sensor_name missing in JSON"
+        );
         // Diagnostics panel assertions
         assert!(
             json.contains("\"event_count\":3"),
@@ -2036,6 +2086,23 @@ mod tests {
             json.contains("\"diagnostics\""),
             "diagnostics key missing in JSON"
         );
+    }
+
+    #[test]
+    fn html_contains_oled_panel() {
+        let html = dashboard_html();
+        assert!(html.contains("oled-card"), "oled-card element missing");
+        assert!(html.contains("oled-line0"), "oled-line0 element missing");
+        assert!(html.contains("oled-line1"), "oled-line1 element missing");
+        assert!(
+            html.contains("oled-sensor-name"),
+            "oled-sensor-name element missing"
+        );
+        assert!(
+            html.contains("oledEnabled"),
+            "oledEnabled variable missing in JS"
+        );
+        assert!(html.contains("ssd1306"), "ssd1306 slug missing in JS");
     }
 
     #[test]

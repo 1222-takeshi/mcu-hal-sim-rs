@@ -20,6 +20,7 @@ pub struct DeviceDashboardState {
     pub gas: GasPanelState,
     pub rtc: RtcPanelState,
     pub tof: TofPanelState,
+    pub oled: OledPanelState,
     pub diagnostics: DiagnosticsPanelState,
 }
 
@@ -115,6 +116,12 @@ pub struct TofPanelState {
     pub sensor_name: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct OledPanelState {
+    pub frame: [String; 2],
+    pub sensor_name: String,
+}
+
 /// Diagnostics ring buffer state surfaced per tick.
 ///
 /// A single diagnostics event with elapsed time, severity, and message.
@@ -141,7 +148,7 @@ pub fn state_to_json(state: &DeviceDashboardState) -> String {
     let mut output = String::new();
     let _ = write!(
         output,
-        "{{\"board_name\":{},\"mcu_name\":{},\"tick\":{},\"climate\":{{\"temperature_c\":{},\"humidity_percent\":{},\"pressure_pa\":{},\"app_frame\":[{},{}],\"physical_lcd_frame\":[{},{}]}},\"distance\":{{\"distance_mm\":{},\"sensor_name\":{}}},\"imu\":{{\"sensor_name\":{},\"accel_mg\":[{},{},{}],\"gyro_mdps\":[{},{},{}],\"temperature_c\":{}}},\"servo\":{{\"angle_degrees\":{}}},\"motor_driver\":{{\"driver_name\":{},\"left\":{{\"direction\":{},\"duty_percent\":{}}},\"right\":{{\"direction\":{},\"duty_percent\":{}}}}},\"wiring\":{{\"sda_pin\":{},\"scl_pin\":{},\"power_pin\":{},\"ground_pin\":{},\"attached_devices\":[{}],\"selected_devices\":[{}],\"show_bus_labels\":{},\"diagram_lines\":[{}]}},\"i2c\":{{\"operation_count\":{},\"recent_operations\":[{}]}},\"light\":{{\"lux_x100\":{},\"lux\":{},\"sensor_name\":{}}},\"camera\":{{\"width\":{},\"height\":{},\"sequence\":{},\"sensor_name\":{}}},\"gas\":{{\"co2_ppm\":{},\"voc_ppb\":{},\"sensor_name\":{}}},\"rtc\":{{\"datetime_str\":{},\"sensor_name\":{}}},\"tof\":{{\"distance_mm\":{},\"sensor_name\":{}}},\"diagnostics\":{{\"event_count\":{},\"recent_events\":[{}]}}}}",
+        "{{\"board_name\":{},\"mcu_name\":{},\"tick\":{},\"climate\":{{\"temperature_c\":{},\"humidity_percent\":{},\"pressure_pa\":{},\"app_frame\":[{},{}],\"physical_lcd_frame\":[{},{}]}},\"distance\":{{\"distance_mm\":{},\"sensor_name\":{}}},\"imu\":{{\"sensor_name\":{},\"accel_mg\":[{},{},{}],\"gyro_mdps\":[{},{},{}],\"temperature_c\":{}}},\"servo\":{{\"angle_degrees\":{}}},\"motor_driver\":{{\"driver_name\":{},\"left\":{{\"direction\":{},\"duty_percent\":{}}},\"right\":{{\"direction\":{},\"duty_percent\":{}}}}},\"wiring\":{{\"sda_pin\":{},\"scl_pin\":{},\"power_pin\":{},\"ground_pin\":{},\"attached_devices\":[{}],\"selected_devices\":[{}],\"show_bus_labels\":{},\"diagram_lines\":[{}]}},\"i2c\":{{\"operation_count\":{},\"recent_operations\":[{}]}},\"light\":{{\"lux_x100\":{},\"lux\":{},\"sensor_name\":{}}},\"camera\":{{\"width\":{},\"height\":{},\"sequence\":{},\"sensor_name\":{}}},\"gas\":{{\"co2_ppm\":{},\"voc_ppb\":{},\"sensor_name\":{}}},\"rtc\":{{\"datetime_str\":{},\"sensor_name\":{}}},\"tof\":{{\"distance_mm\":{},\"sensor_name\":{}}},\"oled\":{{\"frame\":[{},{}],\"sensor_name\":{}}},\"diagnostics\":{{\"event_count\":{},\"recent_events\":[{}]}}}}",
         json_string(&state.board_name),
         json_string(&state.mcu_name),
         state.tick,
@@ -192,6 +199,9 @@ pub fn state_to_json(state: &DeviceDashboardState) -> String {
         json_string(&state.rtc.sensor_name),
         json_option_u32(state.tof.distance_mm),
         json_string(&state.tof.sensor_name),
+        json_string(&state.oled.frame[0]),
+        json_string(&state.oled.frame[1]),
+        json_string(&state.oled.sensor_name),
         state.diagnostics.event_count,
         join_diag_events(&state.diagnostics.recent_events),
     );
