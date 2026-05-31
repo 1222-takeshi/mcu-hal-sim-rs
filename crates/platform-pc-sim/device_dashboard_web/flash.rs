@@ -106,7 +106,7 @@ pub(super) fn flash_targets() -> &'static [FlashTarget] {
 
 /// ~/.rustup/toolchains/esp/xtensa-esp-elf/<ver>/xtensa-esp-elf/bin を探す。
 /// PATH に既に入っていれば None を返しても問題ない。
-pub(super) fn find_xtensa_gcc_bin_path() -> Option<std::path::PathBuf> {
+fn find_xtensa_gcc_bin_path() -> Option<std::path::PathBuf> {
     let home = std::env::var("HOME").ok()?;
     let base = std::path::PathBuf::from(&home).join(".rustup/toolchains/esp/xtensa-esp-elf");
     std::fs::read_dir(&base).ok()?.find_map(|entry| {
@@ -120,7 +120,7 @@ pub(super) fn find_xtensa_gcc_bin_path() -> Option<std::path::PathBuf> {
 }
 
 /// `stream` に SSE ヘッダを書き出す。失敗時は false を返す。
-pub(super) fn write_sse_header(stream: &mut TcpStream) -> bool {
+fn write_sse_header(stream: &mut TcpStream) -> bool {
     let header = "HTTP/1.1 200 OK\r\n\
         Content-Type: text/event-stream\r\n\
         Cache-Control: no-cache\r\n\
@@ -133,7 +133,7 @@ pub(super) fn write_sse_header(stream: &mut TcpStream) -> bool {
 /// コマンドを実行し、stdout/stderr を SSE ラインとして stream に流す。
 /// タイムアウト超過または stream への書き込みエラーで強制終了。
 /// 戻り値: exit code (タイムアウト/エラー時は -1)
-pub(super) fn stream_command(
+fn stream_command(
     stream: &mut TcpStream,
     cmd: &str,
     args: &[&str],

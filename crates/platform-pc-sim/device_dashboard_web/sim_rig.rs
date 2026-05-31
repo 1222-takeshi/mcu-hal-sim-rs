@@ -639,7 +639,7 @@ pub(super) fn blank_lines() -> [String; 2] {
     ]
 }
 
-pub(super) fn frame_to_lines(frame: hal_api::display::TextFrame16x2) -> [String; 2] {
+fn frame_to_lines(frame: hal_api::display::TextFrame16x2) -> [String; 2] {
     [line_to_string(&frame, 0), line_to_string(&frame, 1)]
 }
 
@@ -649,7 +649,7 @@ fn line_to_string(frame: &hal_api::display::TextFrame16x2, row: usize) -> String
         .to_string()
 }
 
-pub(super) fn build_wiring_diagram(config: &WiringConfig) -> Vec<String> {
+fn build_wiring_diagram(config: &WiringConfig) -> Vec<String> {
     let mut lines: Vec<String> = Vec::new();
     let sda_prefix = format!("{} SDA ", config.sda_pin);
     let cont = " ".repeat(sda_prefix.len());
@@ -791,7 +791,7 @@ pub(super) fn motor_commands_from_state(
     }
 }
 
-pub(super) fn channel_state(command: MotorCommand) -> MotorChannelState {
+fn channel_state(command: MotorCommand) -> MotorChannelState {
     MotorChannelState {
         direction: match command.direction {
             MotorDirection::Forward => "forward",
@@ -804,13 +804,13 @@ pub(super) fn channel_state(command: MotorCommand) -> MotorChannelState {
     }
 }
 
-pub(super) fn disabled_motor_command() -> MotorCommand {
+fn disabled_motor_command() -> MotorCommand {
     MotorCommand::new(MotorDirection::Coast, 0)
 }
 
 // ── I2C address display helpers ────────────────────────────────────────────
 
-pub(super) fn display_i2c_addr(addr: u8) -> u8 {
+fn display_i2c_addr(addr: u8) -> u8 {
     if addr == DS3231_SIM_ADDRESS {
         DS3231_ADDRESS
     } else {
@@ -818,7 +818,7 @@ pub(super) fn display_i2c_addr(addr: u8) -> u8 {
     }
 }
 
-pub(super) fn operation_addr(operation: &VirtualI2cOperation) -> u8 {
+fn operation_addr(operation: &VirtualI2cOperation) -> u8 {
     match operation {
         VirtualI2cOperation::Write { addr, .. }
         | VirtualI2cOperation::Read { addr, .. }
@@ -826,7 +826,7 @@ pub(super) fn operation_addr(operation: &VirtualI2cOperation) -> u8 {
     }
 }
 
-pub(super) fn format_operation(operation: &VirtualI2cOperation) -> String {
+fn format_operation(operation: &VirtualI2cOperation) -> String {
     match operation {
         VirtualI2cOperation::Write { addr, bytes } => {
             let addr = display_i2c_addr(*addr);
