@@ -1,58 +1,43 @@
-use core::str;
+#[path = "device_dashboard_web/flash.rs"]
+mod flash;
+#[path = "device_dashboard_web/http_util.rs"]
+mod http_util;
+#[path = "device_dashboard_web/sim_rig.rs"]
+mod sim_rig;
+
 use std::collections::VecDeque;
 use std::env;
-use std::fmt::Write as FmtWrite;
 use std::io::{self, Read as _, Write as _};
 use std::net::{TcpListener, TcpStream};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use core_app::climate_display::{frame_from_reading, ClimateDisplayApp, ClimateDisplayConfig};
-use embedded_hal::delay::DelayNs;
-use hal_api::actuator::{DualMotorDriver, MotorCommand, MotorDirection, ServoMotor};
-use hal_api::camera::CameraCapture;
-use hal_api::distance::DistanceSensor;
-use hal_api::gas::GasSensor;
-use hal_api::imu::ImuSensor;
-use hal_api::light::LightSensor;
-use hal_api::rtc::RtcSensor;
-use hal_api::sensor::EnvSensor;
-use platform_pc_sim::bme280_mock::{demo_raw_samples, MockBme280Device};
-use platform_pc_sim::camera_mock::MockCamera;
 use platform_pc_sim::dashboard::BoardProfile;
-use platform_pc_sim::ds3231_mock::{demo_timestamps, MockDs3231Device};
-use platform_pc_sim::hc_sr04_mock::{demo_echo_pulses_us, MockHcSr04Device};
-use platform_pc_sim::lcd1602_mock::MockLcd1602Device;
-use platform_pc_sim::mock_hal::MockPin;
-use platform_pc_sim::mpu6050_mock::{demo_raw_frames, MockMpu6050Device};
-use platform_pc_sim::pwm_mock::MockPwmOutput;
-use platform_pc_sim::sgp30_mock::MockSgp30Device;
-use platform_pc_sim::virtual_i2c::{VirtualI2cBus, VirtualI2cOperation};
-use platform_pc_sim::vl53l0x_mock::MockVl53l0xDevice;
-use platform_pc_sim::web_dashboard::{
-    dashboard_html, join_diag_events, state_to_json, CameraPanelState, ClimatePanelState,
-    DeviceDashboardState, DiagEvent, DiagnosticsPanelState, DistancePanelState, GasPanelState,
-    I2cPanelState, ImuPanelState, LightPanelState, MotorChannelState, MotorDriverPanelState,
-    RtcPanelState, ServoPanelState, TofPanelState, WiringPanelState,
-};
+use platform_pc_sim::web_dashboard::{dashboard_html, join_diag_events, state_to_json};
 use platform_pc_sim::wiring_config::{
-    normalize_supported_device_selection, ConnectionType, DeviceKind, SensorProfile, WiringConfig,
+    normalize_supported_device_selection, DeviceKind, SensorProfile, WiringConfig,
 };
 use platform_pc_sim::wiring_svg::wiring_svg;
-use reference_drivers::bh1750::{Bh1750Sensor, BH1750_ADDRESS_LOW};
-use reference_drivers::bme280::{Bme280Sensor, BME280_ADDRESS_PRIMARY};
-use reference_drivers::ds3231::{Ds3231Sensor, DS3231_ADDRESS};
-use reference_drivers::hc_sr04::HcSr04Sensor;
-use reference_drivers::l298n::{L298nChannel, L298nDualDriver};
-use reference_drivers::lcd1602::{Lcd1602Display, LCD1602_ADDRESS_PRIMARY};
-use reference_drivers::mpu6050::{Mpu6050Sensor, MPU6050_ADDRESS_PRIMARY};
-use reference_drivers::servo::ServoDriver;
-use reference_drivers::sgp30::{Sgp30Sensor, SGP30_ADDRESS};
-use reference_drivers::vl53l0x::{Vl53l0xSensor, VL53L0X_ADDRESS};
+
+use flash::{flash_targets, handle_flash_stream, list_serial_ports};
+use http_util::{
+    parse_board_from_json, parse_json_bool_field, parse_json_string_array_field,
+    parse_sensor_profile_from_json, respond,
+};
+use sim_rig::DeviceSimulationRig;
+
+// Items only needed in the test module — pulled into test scope via `use super::*`.
+#[cfg(test)]
+use flash::{board_kind_from_str, detect_binary_name, detect_build_target, BoardKind};
+#[cfg(test)]
+use hal_api::actuator::MotorDirection;
+#[cfg(test)]
+use http_util::parse_json_string_field;
+#[cfg(test)]
+use sim_rig::{blank_lines, distance_to_servo_angle, motor_commands_from_state};
 
 const DEFAULT_PORT: u16 = 7878;
-const DS3231_SIM_ADDRESS: u8 = DS3231_ADDRESS + 1;
 
 /// Combined board + sensor profile state read/written as a unit.
 #[derive(Clone)]
@@ -73,6 +58,78 @@ fn dashboard_wiring_config(
         .with_bus_labels(show_bus_labels)
 }
 
+/// Ring buffer holding the most recent N sensor readings for history charts.
+struct SensorHistoryBuffer {
+    /// (temperature_centi_celsius, humidity_centi_percent, pressure_pascal)
+    climate: VecDeque<(i32, u32, Option<u32>)>,
+    /// distance_mm
+    distance: VecDeque<Option<u32>>,
+    capacity: usize,
+}
+
+impl SensorHistoryBuffer {
+    fn new(capacity: usize) -> Self {
+        Self {
+            climate: VecDeque::with_capacity(capacity),
+            distance: VecDeque::with_capacity(capacity),
+            capacity,
+        }
+    }
+
+    fn push_climate(&mut self, temp_cc: i32, hum_cp: u32, pressure_pa: Option<u32>) {
+        if self.climate.len() >= self.capacity {
+            self.climate.pop_front();
+        }
+        self.climate.push_back((temp_cc, hum_cp, pressure_pa));
+    }
+
+    fn push_distance(&mut self, distance_mm: Option<u32>) {
+        if self.distance.len() >= self.capacity {
+            self.distance.pop_front();
+        }
+        self.distance.push_back(distance_mm);
+    }
+
+    fn climate_json(&self) -> String {
+        let temp: Vec<String> = self
+            .climate
+            .iter()
+            .map(|(t, _, _)| format!("{:.2}", *t as f32 / 100.0))
+            .collect();
+        let hum: Vec<String> = self
+            .climate
+            .iter()
+            .map(|(_, h, _)| format!("{:.2}", *h as f32 / 100.0))
+            .collect();
+        let press: Vec<String> = self
+            .climate
+            .iter()
+            .map(|(_, _, p)| {
+                p.map(|v| v.to_string())
+                    .unwrap_or_else(|| "null".to_string())
+            })
+            .collect();
+        format!(
+            "{{\"temperature\":[{}],\"humidity\":[{}],\"pressure\":[{}]}}",
+            temp.join(","),
+            hum.join(","),
+            press.join(",")
+        )
+    }
+
+    fn distance_json(&self) -> String {
+        let vals: Vec<String> = self
+            .distance
+            .iter()
+            .map(|d| {
+                d.map(|v| v.to_string())
+                    .unwrap_or_else(|| "null".to_string())
+            })
+            .collect();
+        format!("{{\"distance\":[{}]}}", vals.join(","))
+    }
+}
+
 /// Shared server state passed to every connection-handler thread.
 struct ServerContext {
     latest_json: Mutex<String>,
@@ -87,6 +144,8 @@ struct ServerContext {
     editor_json: Mutex<String>,
     /// Snapshot of diagnostics ring from the last sim tick (for /api/diagnostics).
     latest_diagnostics: Mutex<String>,
+    /// Ring buffer of sensor readings for /api/history.
+    history: Mutex<SensorHistoryBuffer>,
 }
 
 impl ServerContext {
@@ -107,6 +166,7 @@ impl ServerContext {
             }),
             editor_json: Mutex::new("{}".into()),
             latest_diagnostics: Mutex::new("[]".into()),
+            history: Mutex::new(SensorHistoryBuffer::new(300)),
         })
     }
 
@@ -120,1681 +180,9 @@ impl ServerContext {
     }
 }
 
-#[derive(Default)]
-struct NoopDelay;
-
-impl DelayNs for NoopDelay {
-    fn delay_ns(&mut self, _ns: u32) {}
-    fn delay_us(&mut self, _us: u32) {}
-    fn delay_ms(&mut self, _ms: u32) {}
-}
-
-type ServoRig = ServoDriver<MockPwmOutput>;
-type MotorChannelRig = L298nChannel<MockPin, MockPin, MockPwmOutput>;
-type MotorDriverRig = L298nDualDriver<MotorChannelRig, MotorChannelRig>;
-
-struct DeviceSimulationRig {
-    board: BoardProfile,
-    bus: VirtualI2cBus,
-    bme280: MockBme280Device,
-    lcd: MockLcd1602Device,
-    mpu6050: MockMpu6050Device,
-    climate_sensor: Bme280Sensor<VirtualI2cBus>,
-    app: ClimateDisplayApp<Bme280Sensor<VirtualI2cBus>, Lcd1602Display<VirtualI2cBus, NoopDelay>>,
-    bme280_samples: Vec<[u8; 8]>,
-    bme280_sample_index: usize,
-    distance_sensor: HcSr04Sensor<MockHcSr04Device>,
-    imu_sensor: Mpu6050Sensor<VirtualI2cBus>,
-    imu_frames: Vec<[u8; 14]>,
-    imu_frame_index: usize,
-    servo: ServoRig,
-    motor_driver: MotorDriverRig,
-    tick: u32,
-    last_distance_mm: Option<u32>,
-    last_imu: Option<hal_api::imu::ImuReading>,
-    light_sensor: Bh1750Sensor<VirtualI2cBus>,
-    bh1750_mock: platform_pc_sim::bh1750_mock::MockBh1750Device,
-    camera: MockCamera,
-    last_lux_x100: u32,
-    last_camera_sequence: u32,
-    // New sensors: SGP30, DS3231, VL53L0X
-    ds3231_mock: MockDs3231Device,
-    ds3231_timestamps: Vec<platform_pc_sim::ds3231_mock::MockRtcTimestamp>,
-    ds3231_ts_index: usize,
-    rtc_sensor: Ds3231Sensor<VirtualI2cBus>,
-    sgp30_mock: MockSgp30Device,
-    sgp30_sensor: Sgp30Sensor<VirtualI2cBus>,
-    vl53l0x_mock: MockVl53l0xDevice,
-    tof_sensor: Vl53l0xSensor<VirtualI2cBus>,
-    last_gas: Option<hal_api::gas::GasReading>,
-    last_rtc_str: String,
-    last_tof_mm: Option<u32>,
-    /// Ring buffer of diagnostic events (capacity 20, most-recent-last).
-    diag_ring: VecDeque<DiagEvent>,
-    /// Cumulative diagnostic event counter.
-    diag_event_count: u32,
-    /// Monotonic start time for elapsed-ms timestamps in diag events.
-    start_instant: std::time::Instant,
-    /// Device selection from the previous tick — used to detect toggle events.
-    last_selected_devices: Vec<DeviceKind>,
-}
-
-impl DeviceSimulationRig {
-    fn new(board: BoardProfile) -> Self {
-        let bus = VirtualI2cBus::new();
-        let bme280 = MockBme280Device::new();
-        let lcd = MockLcd1602Device::new();
-        let mpu6050 = MockMpu6050Device::new();
-        let bh1750_mock = platform_pc_sim::bh1750_mock::MockBh1750Device::looping(vec![
-            8_500, 12_000, 15_300, 9_800, 7_200,
-        ]);
-        // DS3231 shares 0x68 with MPU6050 in real hardware, so the simulator
-        // attaches it internally at 0x69 to avoid the collision. Dashboard
-        // surfaces translate it back to the logical hardware address 0x68.
-        let ds3231_mock = MockDs3231Device::new();
-        let sgp30_mock = MockSgp30Device::new();
-        let vl53l0x_mock = MockVl53l0xDevice::new();
-
-        bus.attach_device(BME280_ADDRESS_PRIMARY, bme280.clone());
-        bus.attach_device(LCD1602_ADDRESS_PRIMARY, lcd.clone());
-        bus.attach_device(MPU6050_ADDRESS_PRIMARY, mpu6050.clone());
-        bus.attach_device(BH1750_ADDRESS_LOW, bh1750_mock.clone());
-        bus.attach_device(DS3231_SIM_ADDRESS, ds3231_mock.clone());
-        bus.attach_device(SGP30_ADDRESS, sgp30_mock.clone());
-        bus.attach_device(VL53L0X_ADDRESS, vl53l0x_mock.clone());
-
-        let app = ClimateDisplayApp::new_with_config(
-            Bme280Sensor::new(bus.clone()),
-            Lcd1602Display::new(bus.clone(), NoopDelay),
-            ClimateDisplayConfig {
-                refresh_period_ticks: 5,
-                refresh_on_first_tick: true,
-            },
-        );
-        let climate_sensor = Bme280Sensor::new(bus.clone());
-        let distance_sensor = HcSr04Sensor::new(MockHcSr04Device::looping(demo_echo_pulses_us()));
-        let imu_sensor = Mpu6050Sensor::new(bus.clone());
-        let light_sensor = Bh1750Sensor::new(bus.clone(), BH1750_ADDRESS_LOW)
-            .expect("BH1750 mock device should initialise");
-        let camera = MockCamera::qvga_jpeg();
-        let rtc_sensor = Ds3231Sensor::new(bus.clone(), DS3231_SIM_ADDRESS);
-        let sgp30_sensor =
-            Sgp30Sensor::new(bus.clone(), SGP30_ADDRESS).expect("SGP30 mock init should succeed");
-        let tof_sensor = Vl53l0xSensor::new(bus.clone(), VL53L0X_ADDRESS)
-            .expect("VL53L0X mock init should succeed");
-
-        let servo = ServoDriver::new(MockPwmOutput::new());
-        let motor_driver = L298nDualDriver::new(
-            L298nChannel::new(MockPin::new(0), MockPin::new(0), MockPwmOutput::new()),
-            L298nChannel::new(MockPin::new(0), MockPin::new(0), MockPwmOutput::new()),
-        );
-
-        Self {
-            board,
-            bus,
-            bme280,
-            lcd,
-            mpu6050,
-            climate_sensor,
-            app,
-            bme280_samples: demo_raw_samples(),
-            bme280_sample_index: 0,
-            distance_sensor,
-            imu_sensor,
-            imu_frames: demo_raw_frames(),
-            imu_frame_index: 0,
-            servo,
-            motor_driver,
-            tick: 0,
-            last_distance_mm: None,
-            last_imu: None,
-            light_sensor,
-            bh1750_mock,
-            camera,
-            last_lux_x100: 0,
-            last_camera_sequence: 0,
-            ds3231_mock,
-            ds3231_timestamps: demo_timestamps(),
-            ds3231_ts_index: 0,
-            rtc_sensor,
-            sgp30_mock,
-            sgp30_sensor,
-            vl53l0x_mock,
-            tof_sensor,
-            last_gas: None,
-            last_rtc_str: String::new(),
-            last_tof_mm: None,
-            diag_ring: VecDeque::new(),
-            diag_event_count: 0,
-            start_instant: std::time::Instant::now(),
-            last_selected_devices: vec![],
-        }
-    }
-
-    fn sync_selected_devices(&mut self, selected_devices: &[DeviceKind]) {
-        if selected_devices.contains(&DeviceKind::Bme280) {
-            self.bus
-                .attach_device(BME280_ADDRESS_PRIMARY, self.bme280.clone());
-        } else {
-            self.bus.detach_device(BME280_ADDRESS_PRIMARY);
-        }
-
-        if selected_devices.contains(&DeviceKind::Lcd1602) {
-            self.bus
-                .attach_device(LCD1602_ADDRESS_PRIMARY, self.lcd.clone());
-        } else {
-            self.bus.detach_device(LCD1602_ADDRESS_PRIMARY);
-        }
-
-        if selected_devices.contains(&DeviceKind::Mpu6050) {
-            self.bus
-                .attach_device(MPU6050_ADDRESS_PRIMARY, self.mpu6050.clone());
-        } else {
-            self.bus.detach_device(MPU6050_ADDRESS_PRIMARY);
-        }
-
-        if selected_devices.contains(&DeviceKind::Bh1750) {
-            self.bus
-                .attach_device(BH1750_ADDRESS_LOW, self.bh1750_mock.clone());
-        } else {
-            self.bus.detach_device(BH1750_ADDRESS_LOW);
-        }
-
-        if selected_devices.contains(&DeviceKind::Ds3231) {
-            self.bus
-                .attach_device(DS3231_SIM_ADDRESS, self.ds3231_mock.clone());
-        } else {
-            self.bus.detach_device(DS3231_SIM_ADDRESS);
-        }
-
-        if selected_devices.contains(&DeviceKind::Sgp30) {
-            self.bus
-                .attach_device(SGP30_ADDRESS, self.sgp30_mock.clone());
-        } else {
-            self.bus.detach_device(SGP30_ADDRESS);
-        }
-
-        if selected_devices.contains(&DeviceKind::Vl53l0x) {
-            self.bus
-                .attach_device(VL53L0X_ADDRESS, self.vl53l0x_mock.clone());
-        } else {
-            self.bus.detach_device(VL53L0X_ADDRESS);
-        }
-    }
-
-    fn push_diag(&mut self, severity: &str, msg: String) {
-        const MAX_RING: usize = 20;
-        self.diag_event_count = self.diag_event_count.saturating_add(1);
-        if self.diag_ring.len() >= MAX_RING {
-            self.diag_ring.pop_front();
-        }
-        self.diag_ring.push_back(DiagEvent {
-            elapsed_ms: self.start_instant.elapsed().as_millis() as u64,
-            severity: severity.to_string(),
-            message: msg,
-        });
-    }
-
-    fn step(&mut self, wiring_state: &WiringState) -> DeviceDashboardState {
-        self.tick = self.tick.wrapping_add(1);
-        let tick = self.tick;
-        let selected_devices = normalize_supported_device_selection(
-            wiring_state.board,
-            &wiring_state.selected_devices,
-        );
-        self.sync_selected_devices(&selected_devices);
-        self.bus.clear_operations();
-
-        // Detect device toggle events compared to the previous tick.
-        if tick > 1 {
-            let enabled_events: Vec<String> = selected_devices
-                .iter()
-                .filter(|k| !self.last_selected_devices.contains(k))
-                .map(|k| format!("{} enabled", k.slug()))
-                .collect();
-            let disabled_events: Vec<String> = self
-                .last_selected_devices
-                .iter()
-                .filter(|k| !selected_devices.contains(k))
-                .map(|k| format!("{} disabled", k.slug()))
-                .collect();
-            for msg in enabled_events.into_iter().chain(disabled_events) {
-                self.push_diag("info", msg);
-            }
-        }
-        self.last_selected_devices = selected_devices.clone();
-
-        let is_enabled = |kind: DeviceKind| selected_devices.contains(&kind);
-        let bme280_enabled = is_enabled(DeviceKind::Bme280);
-        let lcd_enabled = is_enabled(DeviceKind::Lcd1602);
-
-        if !is_enabled(DeviceKind::HcSr04) {
-            self.last_distance_mm = None;
-        }
-        if !is_enabled(DeviceKind::Mpu6050) {
-            self.last_imu = None;
-        }
-        if !is_enabled(DeviceKind::Bh1750) {
-            self.last_lux_x100 = 0;
-        }
-        if !is_enabled(DeviceKind::Esp32Cam) {
-            self.last_camera_sequence = 0;
-        }
-        if !is_enabled(DeviceKind::Sgp30) {
-            self.last_gas = None;
-        }
-        if !is_enabled(DeviceKind::Ds3231) {
-            self.last_rtc_str.clear();
-        }
-        if !is_enabled(DeviceKind::Vl53l0x) {
-            self.last_tof_mm = None;
-        }
-
-        if bme280_enabled {
-            self.bme280
-                .set_raw_sample(self.bme280_samples[self.bme280_sample_index]);
-            self.bme280_sample_index = (self.bme280_sample_index + 1) % self.bme280_samples.len();
-        }
-
-        if is_enabled(DeviceKind::Mpu6050) {
-            self.mpu6050
-                .set_raw_frame(self.imu_frames[self.imu_frame_index]);
-            self.imu_frame_index = (self.imu_frame_index + 1) % self.imu_frames.len();
-        }
-
-        if bme280_enabled && lcd_enabled {
-            self.app
-                .tick()
-                .expect("dashboard climate app should keep running");
-        }
-        if is_enabled(DeviceKind::HcSr04) && (tick == 1 || tick % 2 == 0) {
-            self.last_distance_mm = Some(
-                self.distance_sensor
-                    .read_distance()
-                    .expect("distance driver should read from host-side pulse device")
-                    .distance_mm,
-            );
-        }
-
-        if is_enabled(DeviceKind::Mpu6050) && (tick == 1 || tick % 3 == 0) {
-            self.last_imu = Some(
-                self.imu_sensor
-                    .read_imu()
-                    .expect("imu driver should read from host-side mock device"),
-            );
-        }
-
-        if is_enabled(DeviceKind::Bh1750) && (tick == 1 || tick % 5 == 0) {
-            match self.light_sensor.read_lux() {
-                Ok(reading) => self.last_lux_x100 = reading.lux_x100,
-                Err(_) => self.push_diag("error", "[bh1750] read_lux error".into()),
-            }
-        }
-
-        if is_enabled(DeviceKind::Esp32Cam) && (tick == 1 || tick % 7 == 0) {
-            match self.camera.capture_frame() {
-                Ok(frame) => self.last_camera_sequence = frame.sequence,
-                Err(_) => self.push_diag("error", "[esp32cam] capture_frame error".into()),
-            }
-        }
-
-        // Poll SGP30 gas sensor every 11 ticks
-        if is_enabled(DeviceKind::Sgp30) && (tick == 1 || tick % 11 == 0) {
-            match self.sgp30_sensor.read_gas() {
-                Ok(reading) => self.last_gas = Some(reading),
-                Err(_) => self.push_diag("error", "[sgp30] read_gas error".into()),
-            }
-        }
-
-        // Poll DS3231 RTC every tick so /api/state recent_operations always reflects the
-        // currently selected simulator address.
-        if is_enabled(DeviceKind::Ds3231) {
-            let ts = self.ds3231_timestamps[self.ds3231_ts_index];
-            self.ds3231_ts_index = (self.ds3231_ts_index + 1) % self.ds3231_timestamps.len();
-            self.ds3231_mock.set_timestamp(ts);
-            match self.rtc_sensor.read_datetime() {
-                Ok(dt) => {
-                    let mut s = String::new();
-                    let _ = write!(
-                        s,
-                        "{}-{:02}-{:02} {:02}:{:02}:{:02}",
-                        dt.year(),
-                        dt.month,
-                        dt.day,
-                        dt.hour,
-                        dt.minute,
-                        dt.second
-                    );
-                    self.last_rtc_str = s;
-                }
-                Err(_) => self.push_diag("error", "[ds3231] read_datetime error".into()),
-            }
-        }
-
-        // Poll VL53L0X ToF sensor every 4 ticks
-        if is_enabled(DeviceKind::Vl53l0x) && (tick == 1 || tick % 4 == 0) {
-            match self.tof_sensor.read_distance() {
-                Ok(reading) => self.last_tof_mm = Some(reading.distance_mm),
-                Err(_) => self.push_diag("error", "[vl53l0x] read_distance error".into()),
-            }
-        }
-
-        if is_enabled(DeviceKind::Servo) {
-            let servo_angle = if is_enabled(DeviceKind::HcSr04) {
-                distance_to_servo_angle(self.last_distance_mm.unwrap_or(180))
-            } else {
-                0
-            };
-            self.servo
-                .set_angle_degrees(servo_angle)
-                .expect("servo angle should remain in range");
-        } else {
-            self.servo
-                .set_angle_degrees(0)
-                .expect("disabled servo should reset to zero angle");
-        }
-
-        if is_enabled(DeviceKind::L298n) {
-            let (left, right) = if is_enabled(DeviceKind::HcSr04) && is_enabled(DeviceKind::Mpu6050)
-            {
-                motor_commands_from_state(self.last_distance_mm, self.last_imu)
-            } else {
-                (
-                    MotorCommand::new(MotorDirection::Coast, 0),
-                    MotorCommand::new(MotorDirection::Coast, 0),
-                )
-            };
-            self.motor_driver
-                .apply_channels(left, right)
-                .expect("motor commands should remain in range");
-        } else {
-            self.motor_driver
-                .apply_channels(disabled_motor_command(), disabled_motor_command())
-                .expect("disabled motor driver should reset to coast");
-        }
-
-        let wiring_config = dashboard_wiring_config(
-            wiring_state.board,
-            wiring_state.sensor_profile,
-            &selected_devices,
-            wiring_state.show_bus_labels,
-        );
-        let attached_devices = wiring_config
-            .devices
-            .iter()
-            .map(|device| device.label.clone())
-            .collect::<Vec<_>>();
-        let attached_addresses = self
-            .bus
-            .attached_addresses()
-            .into_iter()
-            .map(display_i2c_addr)
-            .collect::<Vec<_>>();
-        let recent_operations = self
-            .bus
-            .operations()
-            .iter()
-            .rev()
-            .filter(|operation| attached_addresses.contains(&operation_addr(operation)))
-            .take(10)
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .map(format_operation)
-            .collect::<Vec<_>>();
-        let physical_lcd_frame = frame_to_lines(self.lcd.frame());
-        let climate = if bme280_enabled {
-            if lcd_enabled {
-                self.app.last_reading()
-            } else {
-                self.climate_sensor.read().ok()
-            }
-        } else {
-            None
-        };
-        let app_frame = if lcd_enabled {
-            self.app
-                .last_frame()
-                .map(frame_to_lines)
-                .unwrap_or_else(blank_lines)
-        } else {
-            climate
-                .and_then(|reading| frame_from_reading(reading).ok())
-                .map(frame_to_lines)
-                .unwrap_or_else(blank_lines)
-        };
-        let imu = self
-            .last_imu
-            .unwrap_or_else(|| hal_api::imu::ImuReading::new([0, 0, 0], [0, 0, 0], None));
-        let lcd_frame = if bme280_enabled && lcd_enabled {
-            physical_lcd_frame
-        } else {
-            blank_lines()
-        };
-
-        DeviceDashboardState {
-            board_name: self.board.name().to_string(),
-            mcu_name: self.board.mcu().to_string(),
-            tick,
-            climate: ClimatePanelState {
-                temperature_c: if bme280_enabled {
-                    climate.map(|value| value.temperature_centi_celsius as f32 / 100.0)
-                } else {
-                    None
-                },
-                humidity_percent: if bme280_enabled {
-                    climate.map(|value| value.humidity_centi_percent as f32 / 100.0)
-                } else {
-                    None
-                },
-                pressure_pa: if bme280_enabled {
-                    climate.and_then(|value| value.pressure_pascal)
-                } else {
-                    None
-                },
-                app_frame: if lcd_enabled {
-                    app_frame
-                } else {
-                    blank_lines()
-                },
-                physical_lcd_frame: lcd_frame,
-            },
-            distance: DistancePanelState {
-                distance_mm: if is_enabled(DeviceKind::HcSr04) {
-                    self.last_distance_mm
-                } else {
-                    None
-                },
-                sensor_name: "HC-SR04".to_string(),
-            },
-            imu: ImuPanelState {
-                sensor_name: "MPU6050".to_string(),
-                accel_mg: if is_enabled(DeviceKind::Mpu6050) {
-                    imu.accel_mg
-                } else {
-                    [0, 0, 0]
-                },
-                gyro_mdps: if is_enabled(DeviceKind::Mpu6050) {
-                    imu.gyro_mdps
-                } else {
-                    [0, 0, 0]
-                },
-                temperature_c: if is_enabled(DeviceKind::Mpu6050) {
-                    imu.temperature_centi_celsius
-                        .map(|value| value as f32 / 100.0)
-                } else {
-                    None
-                },
-            },
-            servo: ServoPanelState {
-                angle_degrees: if is_enabled(DeviceKind::Servo) {
-                    self.servo.current_angle()
-                } else {
-                    0
-                },
-            },
-            motor_driver: MotorDriverPanelState {
-                driver_name: "L298N dual H-bridge".to_string(),
-                left: if is_enabled(DeviceKind::L298n) {
-                    channel_state(self.motor_driver.channel_a().current_command())
-                } else {
-                    channel_state(MotorCommand::new(MotorDirection::Coast, 0))
-                },
-                right: if is_enabled(DeviceKind::L298n) {
-                    channel_state(self.motor_driver.channel_b().current_command())
-                } else {
-                    channel_state(MotorCommand::new(MotorDirection::Coast, 0))
-                },
-            },
-            wiring: WiringPanelState {
-                sda_pin: wiring_config.sda_pin.clone(),
-                scl_pin: wiring_config.scl_pin.clone(),
-                power_pin: wiring_config.power_pin.clone(),
-                ground_pin: wiring_config.ground_pin.clone(),
-                diagram_lines: build_wiring_diagram(&wiring_config),
-                attached_devices,
-                selected_devices: selected_devices
-                    .iter()
-                    .map(|kind| kind.slug().to_string())
-                    .collect(),
-                show_bus_labels: wiring_state.show_bus_labels,
-            },
-            i2c: I2cPanelState {
-                operation_count: self.bus.operation_count(),
-                recent_operations,
-            },
-            light: LightPanelState {
-                lux_x100: self.last_lux_x100,
-                sensor_name: "BH1750".to_string(),
-            },
-            camera: CameraPanelState {
-                width: self.camera.resolution().0,
-                height: self.camera.resolution().1,
-                sequence: self.last_camera_sequence,
-                sensor_name: "ESP32-CAM".to_string(),
-            },
-            gas: GasPanelState {
-                co2_ppm: self.last_gas.map(|g| g.co2_ppm),
-                voc_ppb: self.last_gas.map(|g| g.voc_ppb),
-                sensor_name: "SGP30".to_string(),
-            },
-            rtc: RtcPanelState {
-                datetime_str: self.last_rtc_str.clone(),
-                sensor_name: "DS3231".to_string(),
-            },
-            tof: TofPanelState {
-                distance_mm: self.last_tof_mm,
-                sensor_name: "VL53L0X".to_string(),
-            },
-            diagnostics: DiagnosticsPanelState {
-                recent_events: self.diag_ring.iter().rev().cloned().collect(),
-                event_count: self.diag_event_count,
-            },
-        }
-    }
-}
-
-fn blank_lines() -> [String; 2] {
-    [
-        String::from("                "),
-        String::from("                "),
-    ]
-}
-
-fn frame_to_lines(frame: hal_api::display::TextFrame16x2) -> [String; 2] {
-    [line_to_string(&frame, 0), line_to_string(&frame, 1)]
-}
-
-fn line_to_string(frame: &hal_api::display::TextFrame16x2, row: usize) -> String {
-    str::from_utf8(frame.line(row))
-        .unwrap_or("????????????????")
-        .to_string()
-}
-
-fn build_wiring_diagram(config: &WiringConfig) -> Vec<String> {
-    let mut lines: Vec<String> = Vec::new();
-    let sda_prefix = format!("{} SDA ", config.sda_pin);
-    let cont = " ".repeat(sda_prefix.len());
-    let i2c_devices: Vec<_> = config
-        .devices
-        .iter()
-        .filter(|device| device.kind.connection_type() == ConnectionType::I2c)
-        .collect();
-    let gpio_devices: Vec<_> = config
-        .devices
-        .iter()
-        .filter(|device| device.kind.connection_type() == ConnectionType::Gpio)
-        .collect();
-    let pwm_devices: Vec<_> = config
-        .devices
-        .iter()
-        .filter(|device| device.kind.connection_type() == ConnectionType::Pwm)
-        .collect();
-
-    lines.push("── I2C Bus ──────────────────────────────────────".to_string());
-    if i2c_devices.is_empty() {
-        lines.push(format!("{}---- (no devices)", sda_prefix));
-    } else {
-        for (i, device) in i2c_devices.iter().enumerate() {
-            if i == 0 {
-                lines.push(format!("{}--+-- {}", sda_prefix, device.label));
-            } else {
-                lines.push(format!("{}  +-- {}", cont, device.label));
-            }
-        }
-    }
-    lines.push(format!("{} SCL ---- (shared bus)", config.scl_pin));
-    lines.push(format!("{} VCC ---- sensor power", config.power_pin));
-    lines.push("GND      ---- shared ground".to_string());
-    lines.push(String::new());
-
-    lines.push("── GPIO ─────────────────────────────────────────".to_string());
-    if gpio_devices.is_empty() {
-        lines.push("(none selected)".to_string());
-    } else {
-        for device in gpio_devices {
-            match device.kind {
-                DeviceKind::HcSr04 => {
-                    lines.push(format!("{} TRIG --- HC-SR04 TRIG", config.trig_pin));
-                    lines.push(format!("{} ECHO --- HC-SR04 ECHO", config.echo_pin));
-                }
-                DeviceKind::Esp32Cam => {
-                    lines.push(format!(
-                        "{} GPIO --- ESP32-CAM boot/control",
-                        config.cam_pin
-                    ));
-                }
-                _ => {}
-            }
-        }
-    }
-    lines.push(String::new());
-
-    lines.push("── PWM / Motor ──────────────────────────────────".to_string());
-    if pwm_devices.is_empty() {
-        lines.push("(none selected)".to_string());
-    } else {
-        for device in pwm_devices {
-            match device.kind {
-                DeviceKind::Servo => {
-                    lines.push(format!("{} PWM  --- Servo signal", config.servo_pin));
-                }
-                DeviceKind::L298n => {
-                    lines.push(format!(
-                        "{} ENA  --- Motor-A enable (PWM)",
-                        config.motor_pin
-                    ));
-                    lines.push(format!(
-                        "{} IN1  --- Motor-A direction 1",
-                        config.board.motor_in1_pin()
-                    ));
-                    lines.push(format!(
-                        "{} IN2  --- Motor-A direction 2",
-                        config.board.motor_in2_pin()
-                    ));
-                    lines.push(format!(
-                        "{} ENB  --- Motor-B enable (PWM)",
-                        config.board.motor_enb_pin()
-                    ));
-                    lines.push(format!(
-                        "{} IN3  --- Motor-B direction 1",
-                        config.board.motor_in3_pin()
-                    ));
-                    lines.push(format!(
-                        "{} IN4  --- Motor-B direction 2",
-                        config.board.motor_in4_pin()
-                    ));
-                }
-                _ => {}
-            }
-        }
-    }
-
-    lines
-}
-
-fn distance_to_servo_angle(distance_mm: u32) -> u16 {
-    let clamped = distance_mm.clamp(80, 360) - 80;
-    ((clamped * 180) / 280) as u16
-}
-
-fn motor_commands_from_state(
-    distance_mm: Option<u32>,
-    imu: Option<hal_api::imu::ImuReading>,
-) -> (MotorCommand, MotorCommand) {
-    let distance_mm = distance_mm.unwrap_or(180);
-    let imu = imu.unwrap_or_else(|| hal_api::imu::ImuReading::new([0, 0, 0], [0, 0, 0], None));
-
-    if distance_mm < 160 {
-        return (
-            MotorCommand::new(MotorDirection::Reverse, 30),
-            MotorCommand::new(MotorDirection::Reverse, 30),
-        );
-    }
-
-    let yaw = imu.gyro_mdps[2];
-    if yaw > 40 {
-        (
-            MotorCommand::new(MotorDirection::Forward, 28),
-            MotorCommand::new(MotorDirection::Forward, 46),
-        )
-    } else if yaw < -40 {
-        (
-            MotorCommand::new(MotorDirection::Forward, 46),
-            MotorCommand::new(MotorDirection::Forward, 28),
-        )
-    } else {
-        (
-            MotorCommand::new(MotorDirection::Forward, 42),
-            MotorCommand::new(MotorDirection::Forward, 42),
-        )
-    }
-}
-
-fn channel_state(command: MotorCommand) -> MotorChannelState {
-    MotorChannelState {
-        direction: match command.direction {
-            MotorDirection::Forward => "forward",
-            MotorDirection::Reverse => "reverse",
-            MotorDirection::Brake => "brake",
-            MotorDirection::Coast => "coast",
-        }
-        .to_string(),
-        duty_percent: command.duty_percent,
-    }
-}
-
-fn disabled_motor_command() -> MotorCommand {
-    MotorCommand::new(MotorDirection::Coast, 0)
-}
-
-fn display_i2c_addr(addr: u8) -> u8 {
-    if addr == DS3231_SIM_ADDRESS {
-        DS3231_ADDRESS
-    } else {
-        addr
-    }
-}
-
-fn operation_addr(operation: &VirtualI2cOperation) -> u8 {
-    match operation {
-        VirtualI2cOperation::Write { addr, .. }
-        | VirtualI2cOperation::Read { addr, .. }
-        | VirtualI2cOperation::WriteRead { addr, .. } => display_i2c_addr(*addr),
-    }
-}
-
-fn format_operation(operation: &VirtualI2cOperation) -> String {
-    match operation {
-        VirtualI2cOperation::Write { addr, bytes } => {
-            let addr = display_i2c_addr(*addr);
-            format!("WRITE addr=0x{addr:02X} bytes={bytes:02X?}")
-        }
-        VirtualI2cOperation::Read { addr, len } => {
-            let addr = display_i2c_addr(*addr);
-            format!("READ addr=0x{addr:02X} len={len}")
-        }
-        VirtualI2cOperation::WriteRead { addr, bytes, len } => {
-            let addr = display_i2c_addr(*addr);
-            format!("WRITE_READ addr=0x{addr:02X} bytes={bytes:02X?} len={len}")
-        }
-    }
-}
-
-/// Extract a string field value from a minimal JSON body.
-///
-/// Handles `{"key":"value"}` without a full JSON parser.
-fn parse_json_string_field<'a>(json: &'a str, key: &str) -> Option<&'a str> {
-    let key_literal = format!("\"{key}\"");
-    let after_key = json.split(key_literal.as_str()).nth(1)?;
-    let after_colon = after_key.split(':').nth(1)?.trim_start();
-    let inner = after_colon.strip_prefix('"')?;
-    let end = inner.find('"')?;
-    Some(&inner[..end])
-}
-
-/// Extract the `"board"` string value from a minimal JSON object.
-///
-/// Handles `{"board":"arduino-nano"}` without pulling in a full JSON parser.
-fn parse_board_from_json(json: &str) -> Option<&str> {
-    parse_json_string_field(json, "board")
-}
-
-/// Extract `sensor_profile` field from a JSON body string.
-///
-/// Handles `{"sensor_profile":"climate"}` without a full JSON parser.
-fn parse_sensor_profile_from_json(json: &str) -> Option<&str> {
-    parse_json_string_field(json, "sensor_profile")
-}
-
-fn parse_json_string_array_field(json: &str, key: &str) -> Option<Vec<String>> {
-    let key_literal = format!("\"{key}\"");
-    let after_key = json.split(key_literal.as_str()).nth(1)?;
-    let after_colon = after_key.split(':').nth(1)?.trim_start();
-    let inner = after_colon.strip_prefix('[')?;
-    let end = inner.find(']')?;
-    let values = inner[..end].trim();
-    if values.is_empty() {
-        return Some(vec![]);
-    }
-
-    Some(
-        values
-            .split(',')
-            .filter_map(|entry| {
-                let trimmed = entry.trim();
-                let without_prefix = trimmed.strip_prefix('"')?;
-                let end = without_prefix.find('"')?;
-                Some(without_prefix[..end].to_string())
-            })
-            .collect(),
-    )
-}
-
-fn parse_json_bool_field(json: &str, key: &str) -> Option<bool> {
-    let key_literal = format!("\"{key}\"");
-    let after_key = json.split(key_literal.as_str()).nth(1)?;
-    let after_colon = after_key.split(':').nth(1)?.trim_start();
-    if after_colon.starts_with("true") {
-        Some(true)
-    } else if after_colon.starts_with("false") {
-        Some(false)
-    } else {
-        None
-    }
-}
-
 #[cfg(test)]
 fn parse_selected_devices_from_json(json: &str) -> Vec<String> {
     parse_json_string_array_field(json, "selected_devices").unwrap_or_default()
-}
-
-fn respond(stream: &mut TcpStream, status: &str, content_type: &str, body: &str) {
-    let response = format!(
-        "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-        body.len(),
-        body
-    );
-    let _ = stream.write_all(response.as_bytes());
-}
-
-/// Stream `cargo test --workspace` output as Server-Sent Events.
-///
-/// Blocks until the test process exits. Each stdout/stderr line is sent as
-/// Returns available serial ports likely connected to an MCU.
-// ── Firmware Flash targets ──────────────────────────────────────────────────
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum BoardKind {
-    Esp32,
-    M5StickC,
-    ArduinoNano,
-    RaspberryPiPico,
-}
-
-impl BoardKind {
-    fn label(self) -> &'static str {
-        match self {
-            BoardKind::Esp32 => "ESP32",
-            BoardKind::M5StickC => "M5StickC",
-            BoardKind::ArduinoNano => "Arduino Nano",
-            BoardKind::RaspberryPiPico => "Raspberry Pi Pico",
-        }
-    }
-}
-
-struct FlashTarget {
-    id: &'static str,
-    label: &'static str,
-    firmware_dir: &'static str,
-    binary_name: &'static str,
-    target_triple: &'static str,
-    board: BoardKind,
-}
-
-fn flash_targets() -> &'static [FlashTarget] {
-    &[
-        // ── ESP32 ──────────────────────────────────────────────────────────
-        FlashTarget {
-            id: "esp32-climate-display",
-            label: "BME280 + LCD1602 (climate display)",
-            firmware_dir: "firmware/original-esp32-climate-display",
-            binary_name: "original-esp32-climate-display",
-            target_triple: "xtensa-esp32-none-elf",
-            board: BoardKind::Esp32,
-        },
-        FlashTarget {
-            id: "esp32-robot-base",
-            label: "Robot base (servo + motors)",
-            firmware_dir: "firmware/original-esp32-robot-base",
-            binary_name: "original-esp32-robot-base",
-            target_triple: "xtensa-esp32-none-elf",
-            board: BoardKind::Esp32,
-        },
-        FlashTarget {
-            id: "esp32-bringup",
-            label: "Bringup (GPIO / I2C check)",
-            firmware_dir: "firmware/original-esp32-bringup",
-            binary_name: "original-esp32-bringup",
-            target_triple: "xtensa-esp32-none-elf",
-            board: BoardKind::Esp32,
-        },
-        // ── M5StickC ───────────────────────────────────────────────────────
-        FlashTarget {
-            id: "m5stickc-bringup",
-            label: "Bringup (GPIO / I2C check)",
-            firmware_dir: "firmware/m5stickc-bringup",
-            binary_name: "m5stickc-bringup",
-            target_triple: "xtensa-esp32-none-elf",
-            board: BoardKind::M5StickC,
-        },
-        // ── Arduino Nano ───────────────────────────────────────────────────
-        FlashTarget {
-            id: "arduino-nano-climate-display",
-            label: "BME280 + LCD1602 (climate display)",
-            firmware_dir: "firmware/arduino-nano-climate-display",
-            binary_name: "arduino-nano-climate-display",
-            target_triple: "avr-none",
-            board: BoardKind::ArduinoNano,
-        },
-        FlashTarget {
-            id: "arduino-nano-bringup",
-            label: "Bringup (GPIO / I2C check)",
-            firmware_dir: "firmware/arduino-nano-bringup",
-            binary_name: "arduino-nano-bringup",
-            target_triple: "avr-none",
-            board: BoardKind::ArduinoNano,
-        },
-        // ── Raspberry Pi Pico ──────────────────────────────────────────────
-        FlashTarget {
-            id: "raspi-pico-climate-display",
-            label: "BME280 + LCD1602 (climate display)",
-            firmware_dir: "firmware/raspi-pico-climate-display",
-            binary_name: "raspi-pico-climate-display",
-            target_triple: "thumbv6m-none-eabi",
-            board: BoardKind::RaspberryPiPico,
-        },
-        FlashTarget {
-            id: "raspi-pico-bringup",
-            label: "Bringup (GPIO / I2C check)",
-            firmware_dir: "firmware/raspi-pico-bringup",
-            binary_name: "raspi-pico-bringup",
-            target_triple: "thumbv6m-none-eabi",
-            board: BoardKind::RaspberryPiPico,
-        },
-    ]
-}
-
-/// ~/.rustup/toolchains/esp/xtensa-esp-elf/<ver>/xtensa-esp-elf/bin を探す。
-/// PATH に既に入っていれば None を返しても問題ない。
-fn find_xtensa_gcc_bin_path() -> Option<std::path::PathBuf> {
-    let home = std::env::var("HOME").ok()?;
-    let base = std::path::PathBuf::from(&home).join(".rustup/toolchains/esp/xtensa-esp-elf");
-    std::fs::read_dir(&base).ok()?.find_map(|entry| {
-        let bin = entry.ok()?.path().join("xtensa-esp-elf/bin");
-        if bin.is_dir() {
-            Some(bin)
-        } else {
-            None
-        }
-    })
-}
-
-/// `stream` に SSE ヘッダを書き出す。失敗時は false を返す。
-fn write_sse_header(stream: &mut TcpStream) -> bool {
-    let header = "HTTP/1.1 200 OK\r\n\
-        Content-Type: text/event-stream\r\n\
-        Cache-Control: no-cache\r\n\
-        Connection: keep-alive\r\n\
-        Access-Control-Allow-Origin: *\r\n\
-        \r\n";
-    stream.write_all(header.as_bytes()).is_ok()
-}
-
-/// コマンドを実行し、stdout/stderr を SSE ラインとして stream に流す。
-/// タイムアウト超過または stream への書き込みエラーで強制終了。
-/// 戻り値: exit code (タイムアウト/エラー時は -1)
-fn stream_command(
-    stream: &mut TcpStream,
-    cmd: &str,
-    args: &[&str],
-    cwd: &std::path::Path,
-    env_extra: &[(&str, &str)],
-    timeout_secs: u64,
-) -> i32 {
-    use std::io::{BufRead, BufReader};
-    use std::process::{Command, Stdio};
-    use std::sync::mpsc;
-
-    let mut command = Command::new(cmd);
-    command
-        .args(args)
-        .current_dir(cwd)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    for (k, v) in env_extra {
-        command.env(k, v);
-    }
-
-    let mut child = match command.spawn() {
-        Ok(c) => c,
-        Err(e) => {
-            let _ = stream.write_all(
-                format!("data: [ERROR] failed to spawn `{cmd}`: {e}\n\ndata: [DONE] exit=1\n\n")
-                    .as_bytes(),
-            );
-            return 1;
-        }
-    };
-
-    let (tx, rx) = mpsc::channel::<String>();
-    let tx2 = tx.clone();
-    let stdout = child.stdout.take().expect("stdout piped");
-    std::thread::spawn(move || {
-        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-            if tx.send(line).is_err() {
-                break;
-            }
-        }
-    });
-    let stderr = child.stderr.take().expect("stderr piped");
-    std::thread::spawn(move || {
-        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-            if tx2.send(line).is_err() {
-                break;
-            }
-        }
-    });
-
-    let started = std::time::Instant::now();
-    let timeout = std::time::Duration::from_secs(timeout_secs);
-
-    for line in rx {
-        if started.elapsed() > timeout {
-            let _ = stream.write_all(
-                format!("data: [ERROR] timeout after {timeout_secs}s\n\ndata: [DONE] exit=1\n\n")
-                    .as_bytes(),
-            );
-            let _ = child.kill();
-            return -1;
-        }
-        // ANSI 制御コードを除去して送信
-        let clean: String = line
-            .chars()
-            .scan(false, |in_esc, c| {
-                if *in_esc {
-                    *in_esc = c != 'm' && c != 'K' && c != 'J' && !c.is_alphabetic();
-                    if c.is_alphabetic() {
-                        *in_esc = false;
-                    }
-                    Some(None)
-                } else if c == '\x1b' {
-                    *in_esc = true;
-                    Some(None)
-                } else {
-                    Some(Some(c))
-                }
-            })
-            .flatten()
-            .collect();
-        let msg = format!("data: {}\n\n", clean.replace('\n', " "));
-        if stream.write_all(msg.as_bytes()).is_err() {
-            let _ = child.kill();
-            return -1;
-        }
-    }
-
-    child.wait().map(|s| s.code().unwrap_or(-1)).unwrap_or(-1)
-}
-
-fn list_serial_ports() -> Vec<String> {
-    let Ok(dir) = std::fs::read_dir("/dev") else {
-        return vec![];
-    };
-    let mut ports: Vec<String> = dir
-        .filter_map(|e| e.ok())
-        .map(|e| e.path().to_string_lossy().to_string())
-        .filter(|name| {
-            // macOS: cu.usbserial*, cu.SLAB*, cu.wchusbserial*, cu.usbmodem*
-            // Linux: ttyUSB*, ttyACM*
-            name.contains("/cu.usbserial")
-                || name.contains("/cu.SLAB")
-                || name.contains("/cu.wchusbserial")
-                || name.contains("/cu.usbmodem")
-                || name.contains("/ttyUSB")
-                || name.contains("/ttyACM")
-        })
-        .collect();
-    ports.sort();
-    ports
-}
-
-/// Convert a board string (from query param) to a `BoardKind`.
-fn board_kind_from_str(s: &str) -> BoardKind {
-    match s {
-        "m5stickc" => BoardKind::M5StickC,
-        "arduino-nano" => BoardKind::ArduinoNano,
-        "raspi-pico" => BoardKind::RaspberryPiPico,
-        _ => BoardKind::Esp32,
-    }
-}
-
-/// Read `.cargo/config.toml` in `dir` and extract the `target = "..."` line.
-fn detect_build_target(dir: &std::path::Path) -> Option<String> {
-    let content = std::fs::read_to_string(dir.join(".cargo").join("config.toml")).ok()?;
-    content
-        .lines()
-        .find(|l| l.trim_start().starts_with("target ="))
-        .and_then(|l| l.split('"').nth(1))
-        .map(String::from)
-}
-
-/// Read `Cargo.toml` in `dir` and extract the package `name = "..."` line.
-fn detect_binary_name(dir: &std::path::Path) -> Option<String> {
-    let content = std::fs::read_to_string(dir.join("Cargo.toml")).ok()?;
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with("name =") {
-            return trimmed.split('"').nth(1).map(String::from);
-        }
-    }
-    None
-}
-
-/// ターゲット指定 or 旧来の bin 指定でビルド＋書き込みを SSE ストリーム。
-///
-/// Query params:
-///   target=<id>      (flash_targets() の id を指定)
-///   port=<device>
-///   board=<board>    (custom_elf/custom_dir 時のボード指定)
-///   custom_elf=<abs> (ビルド済み ELF を直接 flash)
-///   custom_dir=<abs> (外部 Rust プロジェクトを cargo build + flash)
-///   bin=<path>       (後方互換: target 未指定時の旧 ESP32 直接 flash)
-fn handle_flash_stream(stream: &mut TcpStream, query: &str) {
-    use std::process::{Command, Stdio};
-
-    if !write_sse_header(stream) {
-        return;
-    }
-
-    let parse = |prefix: &str| -> String {
-        query
-            .split('&')
-            .find_map(|kv| kv.strip_prefix(prefix))
-            .unwrap_or("")
-            .replace("%2F", "/")
-            .replace("%3A", ":")
-            .replace("%20", " ")
-    };
-
-    let target_id = parse("target=");
-    let port = parse("port=");
-    let bin = parse("bin=");
-    let custom_elf = parse("custom_elf=");
-    let custom_dir = parse("custom_dir=");
-    let board_str = parse("board=");
-
-    // ── target= が指定されている場合: build + flash ──────────────────────────
-    if !target_id.is_empty() {
-        let Some(target) = flash_targets().iter().find(|t| t.id == target_id) else {
-            let _ = stream.write_all(
-                format!("data: [ERROR] Unknown target: {target_id}\n\ndata: [DONE] exit=1\n\n")
-                    .as_bytes(),
-            );
-            return;
-        };
-
-        if port.is_empty() && !matches!(target.board, BoardKind::RaspberryPiPico) {
-            let _ =
-                stream.write_all(b"data: [ERROR] No port specified.\n\ndata: [DONE] exit=1\n\n");
-            return;
-        }
-
-        let workspace = std::env::current_dir().unwrap_or_default();
-        let firmware_dir = workspace.join(target.firmware_dir);
-
-        match target.board {
-            BoardKind::Esp32 | BoardKind::M5StickC => {
-                // Step 1: cargo build --release (Xtensa GCC を PATH に追加)
-                let _ = stream.write_all(
-                    format!("data: [BUILD] Building {}...\n\n", target.label).as_bytes(),
-                );
-
-                let mut path_val = std::env::var("PATH").unwrap_or_default();
-                if let Some(gcc_bin) = find_xtensa_gcc_bin_path() {
-                    path_val = format!("{}:{}", gcc_bin.display(), path_val);
-                }
-
-                let build_code = stream_command(
-                    stream,
-                    "cargo",
-                    &["build", "--release", "--color", "never"],
-                    &firmware_dir,
-                    &[("PATH", &path_val)],
-                    300,
-                );
-                if build_code != 0 {
-                    let _ = stream.write_all(
-                        format!("data: [ERROR] Build failed (exit={build_code})\n\ndata: [DONE] exit={build_code}\n\n")
-                            .as_bytes(),
-                    );
-                    return;
-                }
-
-                // espflash が存在するか確認
-                if Command::new("espflash")
-                    .arg("--version")
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .status()
-                    .is_err()
-                {
-                    let _ = stream.write_all(
-                        b"data: [ERROR] espflash not found. Install: cargo install espflash\n\ndata: [DONE] exit=1\n\n",
-                    );
-                    return;
-                }
-
-                // Step 2: espflash flash --port <port> <elf>
-                let elf = firmware_dir
-                    .join("target")
-                    .join(target.target_triple)
-                    .join("release")
-                    .join(target.binary_name);
-
-                let _ = stream.write_all(b"data: [FLASH] Flashing via espflash...\n\n");
-                let flash_code = stream_command(
-                    stream,
-                    "espflash",
-                    &["flash", "--port", &port, elf.to_str().unwrap_or("")],
-                    &workspace,
-                    &[("PATH", &path_val)],
-                    120,
-                );
-                let _ = stream.write_all(format!("data: [DONE] exit={flash_code}\n\n").as_bytes());
-            }
-
-            BoardKind::ArduinoNano => {
-                // ravedude が存在するか確認
-                if Command::new("ravedude")
-                    .arg("--version")
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .status()
-                    .is_err()
-                {
-                    let _ = stream.write_all(
-                        b"data: [ERROR] ravedude not found.\n\n\
-                          data: Install: cargo install ravedude\n\n\
-                          data: Docs: https://github.com/Rahix/avr-hal/tree/main/ravedude\n\n\
-                          data: [DONE] exit=1\n\n",
-                    );
-                    return;
-                }
-
-                let _ = stream.write_all(
-                    format!(
-                        "data: [BUILD+FLASH] Building and flashing {} via ravedude...\n\n",
-                        target.label
-                    )
-                    .as_bytes(),
-                );
-
-                // cargo run --release: ravedude が build 後に自動書き込み
-                let exit_code = stream_command(
-                    stream,
-                    "cargo",
-                    &["run", "--release", "--color", "never"],
-                    &firmware_dir,
-                    &[("RAVEDUDE_PORT", &port)],
-                    300,
-                );
-                let _ = stream.write_all(format!("data: [DONE] exit={exit_code}\n\n").as_bytes());
-            }
-
-            BoardKind::RaspberryPiPico => {
-                // elf2uf2-rs が存在するか確認
-                if Command::new("elf2uf2-rs")
-                    .arg("--help")
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .status()
-                    .is_err()
-                {
-                    let _ = stream.write_all(
-                        b"data: [ERROR] elf2uf2-rs not found.\n\n\
-                          data: Install: cargo install elf2uf2-rs\n\n\
-                          data: [DONE] exit=1\n\n",
-                    );
-                    return;
-                }
-
-                // Step 1: cargo build --release
-                let _ = stream.write_all(
-                    format!("data: [BUILD] Building {}...\n\n", target.label).as_bytes(),
-                );
-                let build_code = stream_command(
-                    stream,
-                    "cargo",
-                    &["build", "--release", "--color", "never"],
-                    &firmware_dir,
-                    &[],
-                    300,
-                );
-                if build_code != 0 {
-                    let _ = stream.write_all(
-                        format!("data: [ERROR] Build failed (exit={build_code})\n\ndata: [DONE] exit={build_code}\n\n")
-                            .as_bytes(),
-                    );
-                    return;
-                }
-
-                // Step 2: elf2uf2-rs -d <elf>  (-d = deploy, waits for BOOTSEL mode)
-                let elf = firmware_dir
-                    .join("target")
-                    .join(target.target_triple)
-                    .join("release")
-                    .join(target.binary_name);
-
-                let _ = stream.write_all(
-                    b"data: [FLASH] Waiting for Pico in BOOTSEL mode (hold BOOTSEL then plug USB)...\n\n",
-                );
-                let flash_code = stream_command(
-                    stream,
-                    "elf2uf2-rs",
-                    &["-d", elf.to_str().unwrap_or("")],
-                    &workspace,
-                    &[],
-                    120,
-                );
-                let _ = stream.write_all(format!("data: [DONE] exit={flash_code}\n\n").as_bytes());
-            }
-        }
-        return;
-    }
-
-    // ── custom_elf= : flash a pre-built ELF ─────────────────────────────────
-    if !custom_elf.is_empty() {
-        let board = board_kind_from_str(&board_str);
-        let elf_path = std::path::Path::new(&custom_elf);
-        if !elf_path.is_absolute() {
-            let _ = stream.write_all(
-                b"data: [ERROR] Path must be absolute (e.g. /home/user/firmware.elf).\n\n\
-                  data: [DONE] exit=1\n\n",
-            );
-            return;
-        }
-        if !elf_path.exists() {
-            let _ = stream.write_all(
-                format!("data: [ERROR] ELF not found: {custom_elf}\n\ndata: [DONE] exit=1\n\n")
-                    .as_bytes(),
-            );
-            return;
-        }
-        let workspace = std::env::current_dir().unwrap_or_default();
-        match board {
-            BoardKind::Esp32 | BoardKind::M5StickC => {
-                if port.is_empty() {
-                    let _ = stream
-                        .write_all(b"data: [ERROR] No port specified.\n\ndata: [DONE] exit=1\n\n");
-                    return;
-                }
-                if Command::new("espflash")
-                    .arg("--version")
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .status()
-                    .is_err()
-                {
-                    let _ = stream.write_all(
-                        b"data: [ERROR] espflash not found. Install: cargo install espflash\n\n\
-                          data: [DONE] exit=1\n\n",
-                    );
-                    return;
-                }
-                let _ = stream.write_all(b"data: [FLASH] Flashing via espflash...\n\n");
-                let code = stream_command(
-                    stream,
-                    "espflash",
-                    &["flash", "--port", &port, &custom_elf],
-                    &workspace,
-                    &[],
-                    120,
-                );
-                let _ = stream.write_all(format!("data: [DONE] exit={code}\n\n").as_bytes());
-            }
-            BoardKind::ArduinoNano => {
-                if port.is_empty() {
-                    let _ = stream
-                        .write_all(b"data: [ERROR] No port specified.\n\ndata: [DONE] exit=1\n\n");
-                    return;
-                }
-                let _ = stream.write_all(b"data: [FLASH] Flashing via avrdude...\n\n");
-                let flash_arg = format!("flash:w:{custom_elf}:e");
-                let code = stream_command(
-                    stream,
-                    "avrdude",
-                    &[
-                        "-p", "m328p", "-c", "arduino", "-P", &port, "-b", "115200", "-U",
-                        &flash_arg,
-                    ],
-                    &workspace,
-                    &[],
-                    120,
-                );
-                let _ = stream.write_all(format!("data: [DONE] exit={code}\n\n").as_bytes());
-            }
-            BoardKind::RaspberryPiPico => {
-                if Command::new("elf2uf2-rs")
-                    .arg("--help")
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .status()
-                    .is_err()
-                {
-                    let _ = stream.write_all(
-                        b"data: [ERROR] elf2uf2-rs not found. Install: cargo install elf2uf2-rs\n\n\
-                          data: [DONE] exit=1\n\n",
-                    );
-                    return;
-                }
-                let _ = stream.write_all(
-                    b"data: [FLASH] Waiting for Pico in BOOTSEL mode (hold BOOTSEL then plug USB)...\n\n",
-                );
-                let code = stream_command(
-                    stream,
-                    "elf2uf2-rs",
-                    &["-d", &custom_elf],
-                    &workspace,
-                    &[],
-                    120,
-                );
-                let _ = stream.write_all(format!("data: [DONE] exit={code}\n\n").as_bytes());
-            }
-        }
-        return;
-    }
-
-    // ── custom_dir= : cargo build + flash an external Rust project ───────────
-    if !custom_dir.is_empty() {
-        let board = board_kind_from_str(&board_str);
-        let dir_path = std::path::PathBuf::from(&custom_dir);
-        if !dir_path.is_absolute() {
-            let _ = stream.write_all(
-                b"data: [ERROR] Path must be absolute (e.g. /home/user/my-firmware).\n\n\
-                  data: [DONE] exit=1\n\n",
-            );
-            return;
-        }
-        if !dir_path.exists() {
-            let _ = stream.write_all(
-                format!(
-                    "data: [ERROR] Directory not found: {custom_dir}\n\ndata: [DONE] exit=1\n\n"
-                )
-                .as_bytes(),
-            );
-            return;
-        }
-        let workspace = std::env::current_dir().unwrap_or_default();
-        match board {
-            BoardKind::Esp32 | BoardKind::M5StickC => {
-                if port.is_empty() {
-                    let _ = stream
-                        .write_all(b"data: [ERROR] No port specified.\n\ndata: [DONE] exit=1\n\n");
-                    return;
-                }
-                let _ = stream.write_all(b"data: [BUILD] Building (cargo build --release)...\n\n");
-                let mut path_val = std::env::var("PATH").unwrap_or_default();
-                if let Some(gcc_bin) = find_xtensa_gcc_bin_path() {
-                    path_val = format!("{}:{}", gcc_bin.display(), path_val);
-                }
-                let build_code = stream_command(
-                    stream,
-                    "cargo",
-                    &["build", "--release", "--color", "never"],
-                    &dir_path,
-                    &[("PATH", &path_val)],
-                    300,
-                );
-                if build_code != 0 {
-                    let _ = stream.write_all(
-                        format!("data: [ERROR] Build failed (exit={build_code})\n\ndata: [DONE] exit={build_code}\n\n")
-                            .as_bytes(),
-                    );
-                    return;
-                }
-                if Command::new("espflash")
-                    .arg("--version")
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .status()
-                    .is_err()
-                {
-                    let _ = stream.write_all(
-                        b"data: [ERROR] espflash not found. Install: cargo install espflash\n\n\
-                          data: [DONE] exit=1\n\n",
-                    );
-                    return;
-                }
-                let target_triple = detect_build_target(&dir_path)
-                    .unwrap_or_else(|| "xtensa-esp32-none-elf".to_string());
-                let bin_name =
-                    detect_binary_name(&dir_path).unwrap_or_else(|| "firmware".to_string());
-                let elf = dir_path
-                    .join("target")
-                    .join(&target_triple)
-                    .join("release")
-                    .join(&bin_name);
-                let elf_str = elf.to_string_lossy().to_string();
-                if !elf.exists() {
-                    let _ = stream.write_all(
-                        format!(
-                            "data: [ERROR] Built ELF not found: {elf_str}\n\n\
-                             data: Hint: check binary name in Cargo.toml and .cargo/config.toml\n\n\
-                             data: [DONE] exit=1\n\n"
-                        )
-                        .as_bytes(),
-                    );
-                    return;
-                }
-                let _ = stream.write_all(b"data: [FLASH] Flashing via espflash...\n\n");
-                let code = stream_command(
-                    stream,
-                    "espflash",
-                    &["flash", "--port", &port, &elf_str],
-                    &workspace,
-                    &[("PATH", &path_val)],
-                    120,
-                );
-                let _ = stream.write_all(format!("data: [DONE] exit={code}\n\n").as_bytes());
-            }
-            BoardKind::ArduinoNano => {
-                if port.is_empty() {
-                    let _ = stream
-                        .write_all(b"data: [ERROR] No port specified.\n\ndata: [DONE] exit=1\n\n");
-                    return;
-                }
-                if Command::new("ravedude")
-                    .arg("--version")
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .status()
-                    .is_err()
-                {
-                    let _ = stream.write_all(
-                        b"data: [ERROR] ravedude not found. Install: cargo install ravedude\n\n\
-                          data: [DONE] exit=1\n\n",
-                    );
-                    return;
-                }
-                let _ = stream
-                    .write_all(b"data: [BUILD+FLASH] Building and flashing via ravedude...\n\n");
-                let code = stream_command(
-                    stream,
-                    "cargo",
-                    &["run", "--release", "--color", "never"],
-                    &dir_path,
-                    &[("RAVEDUDE_PORT", &port)],
-                    300,
-                );
-                let _ = stream.write_all(format!("data: [DONE] exit={code}\n\n").as_bytes());
-            }
-            BoardKind::RaspberryPiPico => {
-                if Command::new("elf2uf2-rs")
-                    .arg("--help")
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .status()
-                    .is_err()
-                {
-                    let _ = stream.write_all(
-                        b"data: [ERROR] elf2uf2-rs not found. Install: cargo install elf2uf2-rs\n\n\
-                          data: [DONE] exit=1\n\n",
-                    );
-                    return;
-                }
-                let _ = stream.write_all(b"data: [BUILD] Building (cargo build --release)...\n\n");
-                let build_code = stream_command(
-                    stream,
-                    "cargo",
-                    &["build", "--release", "--color", "never"],
-                    &dir_path,
-                    &[],
-                    300,
-                );
-                if build_code != 0 {
-                    let _ = stream.write_all(
-                        format!("data: [ERROR] Build failed (exit={build_code})\n\ndata: [DONE] exit={build_code}\n\n")
-                            .as_bytes(),
-                    );
-                    return;
-                }
-                let target_triple = detect_build_target(&dir_path)
-                    .unwrap_or_else(|| "thumbv6m-none-eabi".to_string());
-                let bin_name =
-                    detect_binary_name(&dir_path).unwrap_or_else(|| "firmware".to_string());
-                let elf = dir_path
-                    .join("target")
-                    .join(&target_triple)
-                    .join("release")
-                    .join(&bin_name);
-                let elf_str = elf.to_string_lossy().to_string();
-                if !elf.exists() {
-                    let _ = stream.write_all(
-                        format!(
-                            "data: [ERROR] Built ELF not found: {elf_str}\n\n\
-                             data: Hint: check binary name in Cargo.toml and .cargo/config.toml\n\n\
-                             data: [DONE] exit=1\n\n"
-                        )
-                        .as_bytes(),
-                    );
-                    return;
-                }
-                let _ = stream.write_all(
-                    b"data: [FLASH] Waiting for Pico in BOOTSEL mode (hold BOOTSEL then plug USB)...\n\n",
-                );
-                let code = stream_command(
-                    stream,
-                    "elf2uf2-rs",
-                    &["-d", &elf_str],
-                    &workspace,
-                    &[],
-                    120,
-                );
-                let _ = stream.write_all(format!("data: [DONE] exit={code}\n\n").as_bytes());
-            }
-        }
-        return;
-    }
-
-    // ── 後方互換: bin= or port= のみの旧 ESP32 直接 flash ───────────────────
-    if Command::new("espflash")
-        .arg("--version")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_err()
-    {
-        let _ = stream.write_all(
-            b"data: [ERROR] espflash not found.\n\n\
-              data: Install: cargo install espflash\n\n\
-              data: [DONE] exit=1\n\n",
-        );
-        return;
-    }
-
-    if port.is_empty() {
-        let _ = stream.write_all(b"data: [ERROR] No port specified.\n\ndata: [DONE] exit=1\n\n");
-        return;
-    }
-
-    let workspace = std::env::current_dir().unwrap_or_default();
-    let mut args = vec!["flash", "--port", &port];
-    if !bin.is_empty() {
-        args.push(&bin);
-    }
-    let exit_code = stream_command(stream, "espflash", &args, &workspace, &[], 120);
-    let _ = stream.write_all(format!("data: [DONE] exit={exit_code}\n\n").as_bytes());
 }
 
 /// `data: {line}\n\n`.  A final `data: [DONE] exit=N\n\n` closes the stream.
@@ -1918,6 +306,20 @@ fn main() {
                 "{{\"event_count\":{},\"recent_events\":[{}]}}",
                 diag.event_count, events_json
             );
+            // Append to history ring buffers when sensors are active.
+            {
+                let mut hist = ctx.history.lock().unwrap();
+                let cli = &state.climate;
+                if cli.temperature_c.is_some() || cli.humidity_percent.is_some() {
+                    let temp_cc = cli.temperature_c.map(|v| (v * 100.0) as i32).unwrap_or(0);
+                    let hum_cp = cli
+                        .humidity_percent
+                        .map(|v| (v * 100.0) as u32)
+                        .unwrap_or(0);
+                    hist.push_climate(temp_cc, hum_cp, cli.pressure_pa);
+                }
+                hist.push_distance(state.distance.distance_mm);
+            }
             ctx.push_state(state_to_json(&state), diag_json);
         }
 
@@ -2104,6 +506,32 @@ fn handle_connection(
         }
         (_, "/api/diagnostics") => {
             let json = ctx.latest_diagnostics.lock().unwrap().clone();
+            respond(
+                &mut stream,
+                "200 OK",
+                "application/json; charset=utf-8",
+                &json,
+            );
+        }
+        (_, "/api/history") => {
+            let sensor = query_str
+                .split('&')
+                .find_map(|part| {
+                    let (k, v) = part.split_once('=')?;
+                    if k == "sensor" {
+                        Some(v)
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or("bme280");
+            let json = {
+                let hist = ctx.history.lock().unwrap();
+                match sensor {
+                    "distance" => hist.distance_json(),
+                    _ => hist.climate_json(),
+                }
+            };
             respond(
                 &mut stream,
                 "200 OK",
@@ -2802,5 +1230,118 @@ mod tests {
     fn detect_binary_name_returns_none_if_no_cargo_toml() {
         let dir = tempfile::tempdir().expect("tmp dir");
         assert_eq!(detect_binary_name(dir.path()), None);
+    }
+
+    // ── SensorHistoryBuffer ───────────────────────────────────────────────────
+
+    #[test]
+    fn sensor_history_buffer_caps_at_capacity() {
+        let mut buf = SensorHistoryBuffer::new(3);
+        for i in 0..5u32 {
+            buf.push_climate(i as i32 * 100, i * 10, Some(101000 + i));
+        }
+        assert_eq!(buf.climate.len(), 3);
+        // Oldest entries should be evicted — last 3 pushed are indices 2..4
+        assert_eq!(buf.climate[0].0, 200);
+        assert_eq!(buf.climate[2].0, 400);
+    }
+
+    #[test]
+    fn sensor_history_buffer_distance_caps_at_capacity() {
+        let mut buf = SensorHistoryBuffer::new(5);
+        for i in 0..10u32 {
+            buf.push_distance(Some(i * 10));
+        }
+        assert_eq!(buf.distance.len(), 5);
+    }
+
+    #[test]
+    fn sensor_history_buffer_climate_json_valid() {
+        let mut buf = SensorHistoryBuffer::new(10);
+        buf.push_climate(2500, 6000, Some(101325));
+        buf.push_climate(2600, 5500, None);
+        let json = buf.climate_json();
+        assert!(json.contains("\"temperature\""));
+        assert!(json.contains("\"humidity\""));
+        assert!(json.contains("\"pressure\""));
+        assert!(json.contains("25.00"));
+        assert!(json.contains("null"));
+    }
+
+    #[test]
+    fn sensor_history_buffer_distance_json_valid() {
+        let mut buf = SensorHistoryBuffer::new(10);
+        buf.push_distance(Some(350));
+        buf.push_distance(None);
+        let json = buf.distance_json();
+        assert!(json.contains("\"distance\""));
+        assert!(json.contains("350"));
+        assert!(json.contains("null"));
+    }
+
+    #[test]
+    fn api_history_endpoint_returns_json() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("listener should bind");
+        let addr = listener.local_addr().expect("addr");
+        let ctx = ServerContext::new(BoardProfile::OriginalEsp32);
+        {
+            let mut hist = ctx.history.lock().unwrap();
+            hist.push_climate(2500, 6000, Some(101325));
+        }
+
+        let (board_tx, board_rx) = mpsc::channel::<BoardProfile>();
+        drop(board_rx);
+        let ctx_for_thread = Arc::clone(&ctx);
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().expect("test client should connect");
+            handle_connection(stream, ctx_for_thread, board_tx);
+        });
+
+        let resp = send_request(
+            addr,
+            "GET /api/history?sensor=bme280 HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        );
+        assert!(resp.contains("200 OK"), "expected 200, got: {resp}");
+        assert!(
+            resp.contains("\"temperature\""),
+            "body missing temperature: {resp}"
+        );
+        assert!(
+            resp.contains("\"humidity\""),
+            "body missing humidity: {resp}"
+        );
+        assert!(resp.contains("25.00"), "body missing value: {resp}");
+        server.join().expect("server thread should exit");
+    }
+
+    #[test]
+    fn api_history_endpoint_distance_returns_json() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("listener should bind");
+        let addr = listener.local_addr().expect("addr");
+        let ctx = ServerContext::new(BoardProfile::OriginalEsp32);
+        {
+            let mut hist = ctx.history.lock().unwrap();
+            hist.push_distance(Some(400));
+        }
+
+        let (board_tx, board_rx) = mpsc::channel::<BoardProfile>();
+        drop(board_rx);
+        let ctx_for_thread = Arc::clone(&ctx);
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().expect("test client should connect");
+            handle_connection(stream, ctx_for_thread, board_tx);
+        });
+
+        let resp = send_request(
+            addr,
+            "GET /api/history?sensor=distance HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        );
+        assert!(resp.contains("200 OK"), "expected 200, got: {resp}");
+        assert!(
+            resp.contains("\"distance\""),
+            "body missing distance: {resp}"
+        );
+        assert!(resp.contains("400"), "body missing value: {resp}");
+        server.join().expect("server thread should exit");
     }
 }

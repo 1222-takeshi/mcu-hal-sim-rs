@@ -118,6 +118,7 @@ impl SensorProfile {
                 DeviceKind::Ds3231,
                 DeviceKind::Sgp30,
                 DeviceKind::Vl53l0x,
+                DeviceKind::Ssd1306,
                 DeviceKind::Servo,
                 DeviceKind::L298n,
                 DeviceKind::HcSr04,
@@ -159,6 +160,8 @@ pub enum DeviceKind {
     Sgp30,
     /// VL53L0X ToF distance sensor (I2C 0x29)
     Vl53l0x,
+    /// SSD1306 OLED display (I2C 0x3C)
+    Ssd1306,
 }
 
 impl DeviceKind {
@@ -175,6 +178,7 @@ impl DeviceKind {
             DeviceKind::Ds3231 => "ds3231",
             DeviceKind::Sgp30 => "sgp30",
             DeviceKind::Vl53l0x => "vl53l0x",
+            DeviceKind::Ssd1306 => "ssd1306",
         }
     }
 
@@ -191,6 +195,7 @@ impl DeviceKind {
             "ds3231" => Some(DeviceKind::Ds3231),
             "sgp30" => Some(DeviceKind::Sgp30),
             "vl53l0x" => Some(DeviceKind::Vl53l0x),
+            "ssd1306" => Some(DeviceKind::Ssd1306),
             _ => None,
         }
     }
@@ -208,6 +213,7 @@ impl DeviceKind {
             DeviceKind::L298n,
             DeviceKind::HcSr04,
             DeviceKind::Esp32Cam,
+            DeviceKind::Ssd1306,
         ]
     }
 
@@ -224,6 +230,7 @@ impl DeviceKind {
             DeviceKind::Ds3231 => "DS3231",
             DeviceKind::Sgp30 => "SGP30",
             DeviceKind::Vl53l0x => "VL53L0X",
+            DeviceKind::Ssd1306 => "SSD1306",
         }
     }
 
@@ -251,6 +258,7 @@ impl DeviceKind {
             DeviceKind::Ds3231 => Some(0x68),
             DeviceKind::Sgp30 => Some(0x58),
             DeviceKind::Vl53l0x => Some(0x29),
+            DeviceKind::Ssd1306 => Some(0x3C),
             DeviceKind::HcSr04 | DeviceKind::Servo | DeviceKind::L298n | DeviceKind::Esp32Cam => {
                 None
             }
@@ -545,13 +553,14 @@ mod tests {
     #[test]
     fn wiring_config_has_eleven_devices() {
         let cfg = WiringConfig::from_board(BoardProfile::OriginalEsp32);
-        assert_eq!(cfg.devices.len(), 11);
-        // I2C devices: [0-6]
+        assert_eq!(cfg.devices.len(), 12);
+        // I2C devices: [0-6] and [11]
         assert_eq!(cfg.devices[0].kind, DeviceKind::Bme280);
         assert_eq!(cfg.devices[3].kind, DeviceKind::Bh1750);
         assert_eq!(cfg.devices[4].kind, DeviceKind::Ds3231);
         assert_eq!(cfg.devices[5].kind, DeviceKind::Sgp30);
         assert_eq!(cfg.devices[6].kind, DeviceKind::Vl53l0x);
+        assert_eq!(cfg.devices[11].kind, DeviceKind::Ssd1306);
         // PWM: [7-8]
         assert_eq!(cfg.devices[7].kind, DeviceKind::Servo);
         assert_eq!(cfg.devices[7].kind.connection_type(), ConnectionType::Pwm);
@@ -578,6 +587,7 @@ mod tests {
             ConnectionType::Pwm,  // [8] L298N
             ConnectionType::Gpio, // [9] HC-SR04
             ConnectionType::Gpio, // [10] ESP32-CAM
+            ConnectionType::I2c,  // [11] SSD1306
         ];
         for (i, exp) in expected.iter().enumerate() {
             assert_eq!(
@@ -656,8 +666,8 @@ mod tests {
         let full =
             WiringConfig::from_board_with_sensors(BoardProfile::OriginalEsp32, SensorProfile::Full);
         let default = WiringConfig::from_board(BoardProfile::OriginalEsp32);
-        assert_eq!(full.devices.len(), 11);
-        assert_eq!(default.devices.len(), 11);
+        assert_eq!(full.devices.len(), 12);
+        assert_eq!(default.devices.len(), 12);
         assert_eq!(full.sensor_profile, SensorProfile::Full);
         assert_eq!(default.sensor_profile, SensorProfile::Full);
     }
@@ -667,7 +677,7 @@ mod tests {
         let cfg = WiringConfig::from_board(BoardProfile::ArduinoNano);
         let kinds: Vec<_> = cfg.devices.iter().map(|d| d.kind).collect();
 
-        assert_eq!(cfg.devices.len(), 10);
+        assert_eq!(cfg.devices.len(), 11);
         assert!(!kinds.contains(&DeviceKind::Esp32Cam));
     }
 
