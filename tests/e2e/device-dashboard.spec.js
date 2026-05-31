@@ -906,3 +906,26 @@ test("/api/flash/stream returns error for non-absolute custom_elf path", async (
   expect(result).toContain("absolute");
 });
 
+test("/api/history?sensor=bme280 returns JSON with temperature array", async ({ page }) => {
+  // Wait for at least one sim tick to populate history
+  await page.goto("/");
+  await page.waitForTimeout(2000);
+  const res = await page.request.get("/api/history?sensor=bme280");
+  expect(res.ok()).toBe(true);
+  expect(res.headers()["content-type"]).toContain("application/json");
+  const body = await res.json();
+  expect(Array.isArray(body.temperature)).toBe(true);
+  expect(Array.isArray(body.humidity)).toBe(true);
+  expect(Array.isArray(body.pressure)).toBe(true);
+});
+
+test("/api/history?sensor=distance returns JSON with distance array", async ({ page }) => {
+  await page.goto("/");
+  await page.waitForTimeout(2000);
+  const res = await page.request.get("/api/history?sensor=distance");
+  expect(res.ok()).toBe(true);
+  expect(res.headers()["content-type"]).toContain("application/json");
+  const body = await res.json();
+  expect(Array.isArray(body.distance)).toBe(true);
+});
+

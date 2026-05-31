@@ -1349,6 +1349,28 @@ pub fn dashboard_html() -> &'static str {
 
     evtSrc.onerror = () => { setErr('SSE reconnecting\u2026'); };
 
+    // ── Seed sparklines from server history on page load ──
+    function fetchHistory(sensor) {
+      fetch('/api/history?sensor=' + sensor)
+        .then(r => r.json())
+        .then(d => {
+          if (sensor === 'distance') {
+            for (const v of (d.distance || [])) if (v != null) push('dist', v);
+            sparkline('spark-dist', hist.dist);
+          } else {
+            for (const v of (d.temperature || [])) if (v != null) push('temp', v);
+            for (const v of (d.humidity || [])) if (v != null) push('hum', v);
+            for (const v of (d.pressure || [])) if (v != null) push('press', v);
+            sparkline('spark-temp',  hist.temp);
+            sparkline('spark-hum',   hist.hum);
+            sparkline('spark-press', hist.press);
+          }
+        })
+        .catch(() => {});
+    }
+    fetchHistory('bme280');
+    fetchHistory('distance');
+
     // ── Pause/resume ──
     $("pbtn").addEventListener("click", () => {
       paused = !paused;
@@ -1849,6 +1871,9 @@ mod tests {
         assert!(html.contains("extFlashStart"));
         assert!(html.contains("custom_elf"));
         assert!(html.contains("custom_dir"));
+        // History fetch from server
+        assert!(html.contains("fetchHistory"));
+        assert!(html.contains("/api/history"));
     }
 
     #[test]
