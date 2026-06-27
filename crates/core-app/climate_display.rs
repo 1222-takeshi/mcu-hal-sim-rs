@@ -72,7 +72,7 @@ where
     }
 
     pub fn tick(&mut self) -> Result<(), ClimateDisplayError> {
-        self.tick_count += 1;
+        self.tick_count = self.tick_count.wrapping_add(1);
 
         if self.should_refresh() {
             self.refresh()?;
