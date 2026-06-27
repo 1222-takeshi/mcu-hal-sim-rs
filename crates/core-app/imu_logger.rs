@@ -91,7 +91,7 @@ where
 
     /// 1 tick 進める。`sample_period_ticks` の倍数 tick でセンサを読み取る。
     pub fn tick(&mut self) -> Result<(), ImuLoggerError<IMU::Error>> {
-        self.tick_count += 1;
+        self.tick_count = self.tick_count.wrapping_add(1);
         let period = self.config.sample_period_ticks.max(1);
         if self.tick_count % period == 0 {
             let reading = self.imu.read_imu().map_err(ImuLoggerError::Sensor)?;
