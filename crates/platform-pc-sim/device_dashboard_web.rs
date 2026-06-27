@@ -1112,4 +1112,3 @@ mod tests {
         assert_eq!(detect_binary_name(dir.path()), None);
     }
 }
-
