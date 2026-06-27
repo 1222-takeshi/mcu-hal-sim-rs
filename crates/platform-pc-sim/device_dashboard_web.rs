@@ -62,9 +62,6 @@ struct ServerContext {
     latest_json: Mutex<String>,
     sse_clients: Mutex<Vec<mpsc::SyncSender<String>>>,
     current_board: Mutex<BoardProfile>,
-    /// Kept for future use; wiring API reads now go through `wiring_state`.
-    #[allow(dead_code)]
-    current_sensor_profile: Mutex<SensorProfile>,
     /// Atomic board + sensor profile state for wiring API reads.
     wiring_state: Mutex<WiringState>,
     /// Last wiring-editor JSON submitted via POST /api/wiring/editor.
@@ -79,7 +76,6 @@ impl ServerContext {
             latest_json: Mutex::new("{}".into()),
             sse_clients: Mutex::new(vec![]),
             current_board: Mutex::new(board),
-            current_sensor_profile: Mutex::new(SensorProfile::Full),
             wiring_state: Mutex::new(WiringState {
                 board,
                 sensor_profile: SensorProfile::Full,
@@ -1116,3 +1112,4 @@ mod tests {
         assert_eq!(detect_binary_name(dir.path()), None);
     }
 }
+
