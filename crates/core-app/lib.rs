@@ -270,7 +270,7 @@ where
     /// }
     /// ```
     pub fn tick(&mut self) -> Result<(), AppError> {
-        self.tick_count += 1;
+        self.tick_count = self.tick_count.wrapping_add(1);
 
         // 100 tickごと（1秒想定）にLED切り替え
         if self.tick_count % 100 == 0 {
