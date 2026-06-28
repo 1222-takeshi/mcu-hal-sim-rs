@@ -5,6 +5,7 @@ mod http_util;
 #[path = "device_dashboard_web/sim_rig.rs"]
 mod sim_rig;
 
+use std::collections::VecDeque;
 use std::env;
 use std::io::{self, Read as _, Write as _};
 use std::net::{TcpListener, TcpStream};
@@ -57,17 +58,94 @@ fn dashboard_wiring_config(
         .with_bus_labels(show_bus_labels)
 }
 
+/// Ring buffer holding the most recent N sensor readings for history charts.
+struct SensorHistoryBuffer {
+    /// (temperature_centi_celsius, humidity_centi_percent, pressure_pascal)
+    climate: VecDeque<(i32, u32, Option<u32>)>,
+    /// distance_mm
+    distance: VecDeque<Option<u32>>,
+    capacity: usize,
+}
+
+impl SensorHistoryBuffer {
+    fn new(capacity: usize) -> Self {
+        Self {
+            climate: VecDeque::with_capacity(capacity),
+            distance: VecDeque::with_capacity(capacity),
+            capacity,
+        }
+    }
+
+    fn push_climate(&mut self, temp_cc: i32, hum_cp: u32, pressure_pa: Option<u32>) {
+        if self.climate.len() >= self.capacity {
+            self.climate.pop_front();
+        }
+        self.climate.push_back((temp_cc, hum_cp, pressure_pa));
+    }
+
+    fn push_distance(&mut self, distance_mm: Option<u32>) {
+        if self.distance.len() >= self.capacity {
+            self.distance.pop_front();
+        }
+        self.distance.push_back(distance_mm);
+    }
+
+    fn climate_json(&self) -> String {
+        let temp: Vec<String> = self
+            .climate
+            .iter()
+            .map(|(t, _, _)| format!("{:.2}", *t as f32 / 100.0))
+            .collect();
+        let hum: Vec<String> = self
+            .climate
+            .iter()
+            .map(|(_, h, _)| format!("{:.2}", *h as f32 / 100.0))
+            .collect();
+        let press: Vec<String> = self
+            .climate
+            .iter()
+            .map(|(_, _, p)| {
+                p.map(|v| v.to_string())
+                    .unwrap_or_else(|| "null".to_string())
+            })
+            .collect();
+        format!(
+            "{{\"temperature\":[{}],\"humidity\":[{}],\"pressure\":[{}]}}",
+            temp.join(","),
+            hum.join(","),
+            press.join(",")
+        )
+    }
+
+    fn distance_json(&self) -> String {
+        let vals: Vec<String> = self
+            .distance
+            .iter()
+            .map(|d| {
+                d.map(|v| v.to_string())
+                    .unwrap_or_else(|| "null".to_string())
+            })
+            .collect();
+        format!("{{\"distance\":[{}]}}", vals.join(","))
+    }
+}
+
 /// Shared server state passed to every connection-handler thread.
 struct ServerContext {
     latest_json: Mutex<String>,
     sse_clients: Mutex<Vec<mpsc::SyncSender<String>>>,
     current_board: Mutex<BoardProfile>,
+    /// Kept for future use; wiring API reads now go through `wiring_state`.
+    #[allow(dead_code)]
+    current_sensor_profile: Mutex<SensorProfile>,
     /// Atomic board + sensor profile state for wiring API reads.
     wiring_state: Mutex<WiringState>,
     /// Last wiring-editor JSON submitted via POST /api/wiring/editor.
     editor_json: Mutex<String>,
     /// Snapshot of diagnostics ring from the last sim tick (for /api/diagnostics).
     latest_diagnostics: Mutex<String>,
+    /// Ring buffer of sensor readings for /api/history.
+    history: Mutex<SensorHistoryBuffer>,
 }
 
 impl ServerContext {
@@ -76,6 +154,7 @@ impl ServerContext {
             latest_json: Mutex::new("{}".into()),
             sse_clients: Mutex::new(vec![]),
             current_board: Mutex::new(board),
+            current_sensor_profile: Mutex::new(SensorProfile::Full),
             wiring_state: Mutex::new(WiringState {
                 board,
                 sensor_profile: SensorProfile::Full,
@@ -87,6 +166,7 @@ impl ServerContext {
             }),
             editor_json: Mutex::new("{}".into()),
             latest_diagnostics: Mutex::new("[]".into()),
+            history: Mutex::new(SensorHistoryBuffer::new(300)),
         })
     }
 
@@ -226,6 +306,20 @@ fn main() {
                 "{{\"event_count\":{},\"recent_events\":[{}]}}",
                 diag.event_count, events_json
             );
+            // Append to history ring buffers when sensors are active.
+            {
+                let mut hist = ctx.history.lock().unwrap();
+                let cli = &state.climate;
+                if cli.temperature_c.is_some() || cli.humidity_percent.is_some() {
+                    let temp_cc = cli.temperature_c.map(|v| (v * 100.0) as i32).unwrap_or(0);
+                    let hum_cp = cli
+                        .humidity_percent
+                        .map(|v| (v * 100.0) as u32)
+                        .unwrap_or(0);
+                    hist.push_climate(temp_cc, hum_cp, cli.pressure_pa);
+                }
+                hist.push_distance(state.distance.distance_mm);
+            }
             ctx.push_state(state_to_json(&state), diag_json);
         }
 
@@ -412,6 +506,32 @@ fn handle_connection(
         }
         (_, "/api/diagnostics") => {
             let json = ctx.latest_diagnostics.lock().unwrap().clone();
+            respond(
+                &mut stream,
+                "200 OK",
+                "application/json; charset=utf-8",
+                &json,
+            );
+        }
+        (_, "/api/history") => {
+            let sensor = query_str
+                .split('&')
+                .find_map(|part| {
+                    let (k, v) = part.split_once('=')?;
+                    if k == "sensor" {
+                        Some(v)
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or("bme280");
+            let json = {
+                let hist = ctx.history.lock().unwrap();
+                match sensor {
+                    "distance" => hist.distance_json(),
+                    _ => hist.climate_json(),
+                }
+            };
             respond(
                 &mut stream,
                 "200 OK",
@@ -1110,5 +1230,118 @@ mod tests {
     fn detect_binary_name_returns_none_if_no_cargo_toml() {
         let dir = tempfile::tempdir().expect("tmp dir");
         assert_eq!(detect_binary_name(dir.path()), None);
+    }
+
+    // ── SensorHistoryBuffer ───────────────────────────────────────────────────
+
+    #[test]
+    fn sensor_history_buffer_caps_at_capacity() {
+        let mut buf = SensorHistoryBuffer::new(3);
+        for i in 0..5u32 {
+            buf.push_climate(i as i32 * 100, i * 10, Some(101000 + i));
+        }
+        assert_eq!(buf.climate.len(), 3);
+        // Oldest entries should be evicted — last 3 pushed are indices 2..4
+        assert_eq!(buf.climate[0].0, 200);
+        assert_eq!(buf.climate[2].0, 400);
+    }
+
+    #[test]
+    fn sensor_history_buffer_distance_caps_at_capacity() {
+        let mut buf = SensorHistoryBuffer::new(5);
+        for i in 0..10u32 {
+            buf.push_distance(Some(i * 10));
+        }
+        assert_eq!(buf.distance.len(), 5);
+    }
+
+    #[test]
+    fn sensor_history_buffer_climate_json_valid() {
+        let mut buf = SensorHistoryBuffer::new(10);
+        buf.push_climate(2500, 6000, Some(101325));
+        buf.push_climate(2600, 5500, None);
+        let json = buf.climate_json();
+        assert!(json.contains("\"temperature\""));
+        assert!(json.contains("\"humidity\""));
+        assert!(json.contains("\"pressure\""));
+        assert!(json.contains("25.00"));
+        assert!(json.contains("null"));
+    }
+
+    #[test]
+    fn sensor_history_buffer_distance_json_valid() {
+        let mut buf = SensorHistoryBuffer::new(10);
+        buf.push_distance(Some(350));
+        buf.push_distance(None);
+        let json = buf.distance_json();
+        assert!(json.contains("\"distance\""));
+        assert!(json.contains("350"));
+        assert!(json.contains("null"));
+    }
+
+    #[test]
+    fn api_history_endpoint_returns_json() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("listener should bind");
+        let addr = listener.local_addr().expect("addr");
+        let ctx = ServerContext::new(BoardProfile::OriginalEsp32);
+        {
+            let mut hist = ctx.history.lock().unwrap();
+            hist.push_climate(2500, 6000, Some(101325));
+        }
+
+        let (board_tx, board_rx) = mpsc::channel::<BoardProfile>();
+        drop(board_rx);
+        let ctx_for_thread = Arc::clone(&ctx);
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().expect("test client should connect");
+            handle_connection(stream, ctx_for_thread, board_tx);
+        });
+
+        let resp = send_request(
+            addr,
+            "GET /api/history?sensor=bme280 HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        );
+        assert!(resp.contains("200 OK"), "expected 200, got: {resp}");
+        assert!(
+            resp.contains("\"temperature\""),
+            "body missing temperature: {resp}"
+        );
+        assert!(
+            resp.contains("\"humidity\""),
+            "body missing humidity: {resp}"
+        );
+        assert!(resp.contains("25.00"), "body missing value: {resp}");
+        server.join().expect("server thread should exit");
+    }
+
+    #[test]
+    fn api_history_endpoint_distance_returns_json() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("listener should bind");
+        let addr = listener.local_addr().expect("addr");
+        let ctx = ServerContext::new(BoardProfile::OriginalEsp32);
+        {
+            let mut hist = ctx.history.lock().unwrap();
+            hist.push_distance(Some(400));
+        }
+
+        let (board_tx, board_rx) = mpsc::channel::<BoardProfile>();
+        drop(board_rx);
+        let ctx_for_thread = Arc::clone(&ctx);
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().expect("test client should connect");
+            handle_connection(stream, ctx_for_thread, board_tx);
+        });
+
+        let resp = send_request(
+            addr,
+            "GET /api/history?sensor=distance HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        );
+        assert!(resp.contains("200 OK"), "expected 200, got: {resp}");
+        assert!(
+            resp.contains("\"distance\""),
+            "body missing distance: {resp}"
+        );
+        assert!(resp.contains("400"), "body missing value: {resp}");
+        server.join().expect("server thread should exit");
     }
 }

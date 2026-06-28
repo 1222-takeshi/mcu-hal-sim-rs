@@ -594,9 +594,9 @@ mod tests {
         assert_eq!(svg.matches(r#"class="w-gnd w-bus-trunk""#).count(), 1);
         assert_eq!(svg.matches(r#"class="w-sda w-bus-trunk""#).count(), 1);
         assert_eq!(svg.matches(r#"class="w-scl w-bus-trunk""#).count(), 1);
-        assert_eq!(svg.matches(r#"class="w-vcc w-bus-branch""#).count(), 11);
-        assert_eq!(svg.matches(r#"class="w-sda w-bus-branch""#).count(), 7);
-        assert_eq!(svg.matches(r#"class="w-scl w-bus-branch""#).count(), 7);
+        assert_eq!(svg.matches(r#"class="w-vcc w-bus-branch""#).count(), 12);
+        assert_eq!(svg.matches(r#"class="w-sda w-bus-branch""#).count(), 8);
+        assert_eq!(svg.matches(r#"class="w-scl w-bus-branch""#).count(), 8);
     }
 
     #[test]
@@ -616,7 +616,7 @@ mod tests {
         let cfg = WiringConfig::from_board(BoardProfile::OriginalEsp32);
         let svg = wiring_svg(&cfg);
         assert!(
-            svg.contains(r#"viewBox="0 0 580 662""#),
+            svg.contains(r#"viewBox="0 0 580 714""#),
             "full wiring SVG should expand vertically for dense layouts"
         );
     }

@@ -22,13 +22,14 @@ use platform_pc_sim::mock_hal::MockPin;
 use platform_pc_sim::mpu6050_mock::{demo_raw_frames, MockMpu6050Device};
 use platform_pc_sim::pwm_mock::MockPwmOutput;
 use platform_pc_sim::sgp30_mock::MockSgp30Device;
+use platform_pc_sim::ssd1306_mock::MockSsd1306TextDisplay;
 use platform_pc_sim::virtual_i2c::{VirtualI2cBus, VirtualI2cOperation};
 use platform_pc_sim::vl53l0x_mock::MockVl53l0xDevice;
 use platform_pc_sim::web_dashboard::{
     CameraPanelState, ClimatePanelState, DeviceDashboardState, DiagEvent, DiagnosticsPanelState,
     DistancePanelState, GasPanelState, I2cPanelState, ImuPanelState, LightPanelState,
-    MotorChannelState, MotorDriverPanelState, RtcPanelState, ServoPanelState, TofPanelState,
-    WiringPanelState,
+    MotorChannelState, MotorDriverPanelState, OledPanelState, RtcPanelState, ServoPanelState,
+    TofPanelState, WiringPanelState,
 };
 use platform_pc_sim::wiring_config::{
     normalize_supported_device_selection, ConnectionType, DeviceKind, WiringConfig,
@@ -102,9 +103,11 @@ pub(super) struct DeviceSimulationRig {
     pub sgp30_sensor: Sgp30Sensor<VirtualI2cBus>,
     pub vl53l0x_mock: MockVl53l0xDevice,
     pub tof_sensor: Vl53l0xSensor<VirtualI2cBus>,
+    pub ssd1306_display: MockSsd1306TextDisplay,
     pub last_gas: Option<hal_api::gas::GasReading>,
     pub last_rtc_str: String,
     pub last_tof_mm: Option<u32>,
+    pub last_oled_frame: Option<[String; 2]>,
     /// Ring buffer of diagnostic events (capacity 20, most-recent-last).
     pub diag_ring: VecDeque<DiagEvent>,
     /// Cumulative diagnostic event counter.
@@ -130,6 +133,7 @@ impl DeviceSimulationRig {
         let ds3231_mock = MockDs3231Device::new();
         let sgp30_mock = MockSgp30Device::new();
         let vl53l0x_mock = MockVl53l0xDevice::new();
+        let ssd1306_display = MockSsd1306TextDisplay::new();
 
         bus.attach_device(BME280_ADDRESS_PRIMARY, bme280.clone());
         bus.attach_device(LCD1602_ADDRESS_PRIMARY, lcd.clone());
@@ -197,9 +201,11 @@ impl DeviceSimulationRig {
             sgp30_sensor,
             vl53l0x_mock,
             tof_sensor,
+            ssd1306_display,
             last_gas: None,
             last_rtc_str: String::new(),
             last_tof_mm: None,
+            last_oled_frame: None,
             diag_ring: VecDeque::new(),
             diag_event_count: 0,
             start_instant: std::time::Instant::now(),
@@ -324,6 +330,9 @@ impl DeviceSimulationRig {
         }
         if !is_enabled(DeviceKind::Vl53l0x) {
             self.last_tof_mm = None;
+        }
+        if !is_enabled(DeviceKind::Ssd1306) {
+            self.last_oled_frame = None;
         }
 
         if bme280_enabled {
@@ -508,6 +517,19 @@ impl DeviceSimulationRig {
             blank_lines()
         };
 
+        // Render climate frame to SSD1306 display every 5 ticks when both are enabled
+        if is_enabled(DeviceKind::Ssd1306) && bme280_enabled && (tick == 1 || tick % 5 == 0) {
+            if let Some(reading) = climate {
+                if let Ok(frame) = frame_from_reading(reading) {
+                    let _ = hal_api::display::TextDisplay16x2::render(
+                        &mut self.ssd1306_display,
+                        &frame,
+                    );
+                    self.last_oled_frame = self.ssd1306_display.last_frame();
+                }
+            }
+        }
+
         DeviceDashboardState {
             board_name: self.board.name().to_string(),
             mcu_name: self.board.mcu().to_string(),
@@ -621,6 +643,13 @@ impl DeviceSimulationRig {
             tof: TofPanelState {
                 distance_mm: self.last_tof_mm,
                 sensor_name: "VL53L0X".to_string(),
+            },
+            oled: OledPanelState {
+                frame: self
+                    .last_oled_frame
+                    .clone()
+                    .unwrap_or_else(|| ["".to_string(), "".to_string()]),
+                sensor_name: "SSD1306".to_string(),
             },
             diagnostics: DiagnosticsPanelState {
                 recent_events: self.diag_ring.iter().rev().cloned().collect(),
