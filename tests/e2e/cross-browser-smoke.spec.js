@@ -52,15 +52,15 @@ test.describe("cross-browser smoke", () => {
     await waitForOnline(page);
     await expect(
       page.locator("#device-toggle-list input[data-device-kind]"),
-    ).toHaveCount(11);
+    ).toHaveCount(12);
   });
 
   test("wiring SVG renders shared bus trunks", async ({ page }) => {
     await waitForOnline(page);
-    // Full profile (set by beforeEach) guarantees 11 I2C devices and all four bus trunks.
+    // Full profile (set by beforeEach) guarantees all 12 devices and all four bus trunks.
     await expect(
       page.locator("#device-toggle-list input[data-device-kind]:checked"),
-    ).toHaveCount(11, { timeout: 10000 });
+    ).toHaveCount(12, { timeout: 10000 });
     await expect(
       page.locator("#wiring-svg-wrap svg .w-sda.w-bus-trunk"),
     ).toHaveCount(1);
@@ -80,7 +80,7 @@ test.describe("cross-browser smoke", () => {
     // beforeEach has already set full profile; confirm the UI reflects it.
     await expect(
       page.locator("#device-toggle-list input[data-device-kind]:checked"),
-    ).toHaveCount(11, { timeout: 10000 });
+    ).toHaveCount(12, { timeout: 10000 });
 
     // Use waitForResponse to ensure the POST /api/wiring completes before asserting.
     // This is required for WebKit where the async fetch may not be immediately visible.
@@ -103,7 +103,7 @@ test.describe("cross-browser smoke", () => {
     // beforeEach ensures bme280 is active via full profile.
     await expect(
       page.locator("#device-toggle-list input[data-device-kind]:checked"),
-    ).toHaveCount(11, { timeout: 10000 });
+    ).toHaveCount(12, { timeout: 10000 });
     await expect(page.locator("#temp-value")).not.toContainText("--", {
       timeout: 10000,
     });

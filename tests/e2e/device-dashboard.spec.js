@@ -139,7 +139,7 @@ test.describe("device dashboard", () => {
     });
     await page.reload({ waitUntil: "load" });
     await waitForDashboardReady(page);
-    await expect(page.locator("#device-toggle-list input[data-device-kind]:checked")).toHaveCount(11);
+    await expect(page.locator("#device-toggle-list input[data-device-kind]:checked")).toHaveCount(12);
     await expect(page.locator("#light-card")).toHaveJSProperty("hidden", false);
     await expect(page.locator("#show-bus-labels-toggle")).not.toBeChecked();
   });
@@ -200,7 +200,7 @@ test.describe("device dashboard", () => {
         return data.show_bus_labels;
       })
       .toBe(true);
-    await expect(page.locator("#wiring-svg-wrap svg .dev-pin")).toHaveCount(36);
+    await expect(page.locator("#wiring-svg-wrap svg .dev-pin")).toHaveCount(40);
     await expectBusLabelsLeftOfDeviceBoxes(page);
 
     await page.locator("#show-bus-labels-toggle").uncheck();
@@ -296,6 +296,7 @@ test.describe("device dashboard", () => {
             "servo",
             "l298n",
             "hc_sr04",
+            "ssd1306",
           ],
           available_devices: [
             "bme280",
@@ -308,6 +309,7 @@ test.describe("device dashboard", () => {
             "servo",
             "l298n",
             "hc_sr04",
+            "ssd1306",
           ],
         }),
       );
@@ -425,7 +427,7 @@ test.describe("device dashboard", () => {
       );
 
     await expect(page.locator("#show-bus-labels-toggle")).toBeChecked();
-    await expect(page.locator("#wiring-svg-wrap svg .dev-pin")).toHaveCount(32);
+    await expect(page.locator("#wiring-svg-wrap svg .dev-pin")).toHaveCount(36);
   });
 
   test("persists device toggle overrides and refreshes the diagram", async ({ page }) => {
@@ -648,7 +650,7 @@ test("serializes rapid profile and device toggle updates so the latest choice wi
     .toBe(
       JSON.stringify({
         sensor_profile: "full",
-        selected_devices: 11,
+        selected_devices: 12,
       }),
     );
 
