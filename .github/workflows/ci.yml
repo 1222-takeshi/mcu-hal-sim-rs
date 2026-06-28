@@ -112,18 +112,21 @@ jobs:
         with:
           path: ~/.cargo/registry
           key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
 
       - name: Cache cargo index
         uses: actions/cache@v4
         with:
           path: ~/.cargo/git
           key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
 
       - name: Cache cargo build
         uses: actions/cache@v4
         with:
           path: target
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
 
       - name: Run clippy
         run: cargo clippy --all --all-targets -- -D warnings
@@ -146,12 +149,14 @@ jobs:
         with:
           path: ~/.cargo/registry
           key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
 
       - name: Cache cargo index
         uses: actions/cache@v4
         with:
           path: ~/.cargo/git
           key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
 
       - name: Check hal-api for no_std target
         run: cargo check -p hal-api --lib --target $NO_STD_TARGET --no-default-features
@@ -210,12 +215,14 @@ jobs:
         with:
           path: ~/.cargo/registry
           key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
 
       - name: Cache cargo index
         uses: actions/cache@v4
         with:
           path: ~/.cargo/git
           key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
 
       - name: Check arduino-nano-climate-display firmware
         working-directory: firmware/arduino-nano-climate-display
@@ -239,18 +246,21 @@ jobs:
         with:
           path: ~/.cargo/registry
           key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
 
       - name: Cache cargo index
         uses: actions/cache@v4
         with:
           path: ~/.cargo/git
           key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
 
       - name: Cache cargo build
         uses: actions/cache@v4
         with:
           path: target
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
 
       - name: Check hal-api for ESP32-C3
         run: cargo check -p hal-api --lib --target $ESP32C3_TARGET --no-default-features
@@ -297,18 +307,21 @@ jobs:
         with:
           path: ~/.cargo/registry
           key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
 
       - name: Cache cargo index
         uses: actions/cache@v4
         with:
           path: ~/.cargo/git
           key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
 
       - name: Cache cargo build
         uses: actions/cache@v4
         with:
           path: target
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
 
       - name: Install npm dependencies
         run: npm ci
@@ -346,12 +359,14 @@ jobs:
         with:
           path: ~/.cargo/registry
           key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
 
       - name: Cache cargo index
         uses: actions/cache@v4
         with:
           path: ~/.cargo/git
           key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
 
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@v2
