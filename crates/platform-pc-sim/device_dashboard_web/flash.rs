@@ -232,7 +232,7 @@ pub(super) fn list_serial_ports() -> Vec<String> {
     };
     let mut ports: Vec<String> = dir
         .filter_map(|e| e.ok())
-        .map(|e| e.path().to_string_lossy().to_string())
+        .map(|e| e.path().to_string_lossy().into_owned())
         .filter(|name| {
             // macOS: cu.usbserial*, cu.SLAB*, cu.wchusbserial*, cu.usbmodem*
             // Linux: ttyUSB*, ttyACM*
