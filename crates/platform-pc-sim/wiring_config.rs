@@ -108,9 +108,9 @@ impl SensorProfile {
     }
 
     /// Device kinds included in this profile, in canonical dashboard order.
-    pub fn device_kinds(self) -> Vec<DeviceKind> {
+    pub fn device_kinds(self) -> &'static [DeviceKind] {
         match self {
-            Self::Full => vec![
+            Self::Full => &[
                 DeviceKind::Bme280,
                 DeviceKind::Mpu6050,
                 DeviceKind::Lcd1602,
@@ -124,21 +124,21 @@ impl SensorProfile {
                 DeviceKind::HcSr04,
                 DeviceKind::Esp32Cam,
             ],
-            Self::ClimateStation => vec![
+            Self::ClimateStation => &[
                 DeviceKind::Bme280,
                 DeviceKind::Bh1750,
                 DeviceKind::Sgp30,
                 DeviceKind::Ds3231,
                 DeviceKind::Lcd1602,
             ],
-            Self::RobotBase => vec![
+            Self::RobotBase => &[
                 DeviceKind::Mpu6050,
                 DeviceKind::Vl53l0x,
                 DeviceKind::HcSr04,
                 DeviceKind::Servo,
                 DeviceKind::L298n,
             ],
-            Self::Minimal => vec![DeviceKind::Bme280, DeviceKind::Lcd1602],
+            Self::Minimal => &[DeviceKind::Bme280, DeviceKind::Lcd1602],
         }
     }
 }
@@ -351,7 +351,7 @@ impl WiringConfig {
         Self::from_board_with_selected_devices(
             board,
             sensor_profile,
-            &sensor_profile.device_kinds(),
+            sensor_profile.device_kinds(),
         )
     }
 
