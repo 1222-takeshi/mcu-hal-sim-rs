@@ -501,12 +501,12 @@ impl DeviceSimulationRig {
             self.app
                 .last_frame()
                 .map(frame_to_lines)
-                .unwrap_or_else(blank_lines)
+                .unwrap_or_else(|| blank_lines().map(|s| s.to_owned()))
         } else {
             climate
                 .and_then(|reading| frame_from_reading(reading).ok())
                 .map(frame_to_lines)
-                .unwrap_or_else(blank_lines)
+                .unwrap_or_else(|| blank_lines().map(|s| s.to_owned()))
         };
         let imu = self
             .last_imu
@@ -514,7 +514,7 @@ impl DeviceSimulationRig {
         let lcd_frame = if bme280_enabled && lcd_enabled {
             physical_lcd_frame
         } else {
-            blank_lines()
+            blank_lines().map(|s| s.to_owned())
         };
 
         // Render climate frame to SSD1306 display every 5 ticks when both are enabled
@@ -553,7 +553,7 @@ impl DeviceSimulationRig {
                 app_frame: if lcd_enabled {
                     app_frame
                 } else {
-                    blank_lines()
+                    blank_lines().map(|s| s.to_owned())
                 },
                 physical_lcd_frame: lcd_frame,
             },
@@ -661,21 +661,16 @@ impl DeviceSimulationRig {
 
 // ── Display helpers ─────────────────────────────────────────────────────────
 
-pub(super) fn blank_lines() -> [String; 2] {
-    [
-        String::from("                "),
-        String::from("                "),
-    ]
+pub(super) fn blank_lines() -> [&'static str; 2] {
+    ["                ", "                "]
 }
 
 fn frame_to_lines(frame: hal_api::display::TextFrame16x2) -> [String; 2] {
-    [line_to_string(&frame, 0), line_to_string(&frame, 1)]
-}
-
-fn line_to_string(frame: &hal_api::display::TextFrame16x2, row: usize) -> String {
-    str::from_utf8(frame.line(row))
-        .unwrap_or("????????????????")
-        .to_string()
+    [0, 1].map(|row| {
+        str::from_utf8(frame.line(row))
+            .unwrap_or("????????????????")
+            .to_owned()
+    })
 }
 
 fn build_wiring_diagram(config: &WiringConfig) -> Vec<String> {
