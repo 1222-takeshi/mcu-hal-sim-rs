@@ -9,7 +9,7 @@ documentation = "https://docs.rs/hal-api"
 readme = "README.md"
 keywords = ["embedded", "hal", "mcu", "simulator", "no-std"]
 categories = ["embedded", "no-std", "hardware-support"]
-rust-version = "1.66"
+rust-version = "1.70"
 
 [features]
 default = ["std"]
