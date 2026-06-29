@@ -4,6 +4,7 @@ use crate::bme280_mock::Bme280ControlRegisters;
 use crate::virtual_i2c::VirtualI2cOperation;
 use hal_api::display::TextFrame16x2;
 use hal_api::sensor::EnvReading;
+use std::collections::VecDeque;
 use std::fmt::Write as _;
 use std::string::String;
 use std::vec::Vec;
@@ -141,7 +142,7 @@ pub struct DashboardSnapshot<'a> {
     pub lcd_initialized: bool,
     pub lcd_backlight: bool,
     pub attached_addresses: &'a [u8],
-    pub operations: &'a [VirtualI2cOperation],
+    pub operations: &'a VecDeque<VirtualI2cOperation>,
 }
 
 pub fn render_dashboard(snapshot: &DashboardSnapshot<'_>) -> String {
@@ -284,6 +285,7 @@ fn format_operation(operation: &VirtualI2cOperation) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::VecDeque;
 
     #[test]
     fn dashboard_renders_board_profile_and_devices() {
@@ -303,11 +305,11 @@ mod tests {
             lcd_initialized: true,
             lcd_backlight: true,
             attached_addresses: &[0x27, 0x77],
-            operations: &[VirtualI2cOperation::WriteRead {
+            operations: &VecDeque::from([VirtualI2cOperation::WriteRead {
                 addr: 0x77,
                 bytes: vec![0xF7],
                 len: 8,
-            }],
+            }]),
         };
 
         let output = render_dashboard(&snapshot);
