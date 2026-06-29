@@ -931,3 +931,31 @@ test("/api/history?sensor=distance returns JSON with distance array", async ({ p
   expect(Array.isArray(body.distance)).toBe(true);
 });
 
+test("BME280 sparklines render SVG points after SSE data flows", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator("#stext")).toContainText("Online", { timeout: 20000 });
+  // sparkline() requires >=2 data points; wait for SSE to deliver enough readings
+  await expect(page.locator("#spark-temp polyline")).toHaveAttribute("points", /\d/, { timeout: 15000 });
+  await expect(page.locator("#spark-hum polyline")).toHaveAttribute("points", /\d/, { timeout: 5000 });
+  await expect(page.locator("#spark-press polyline")).toHaveAttribute("points", /\d/, { timeout: 5000 });
+});
+
+test("distance sparkline renders SVG points after SSE data flows", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator("#stext")).toContainText("Online", { timeout: 20000 });
+  await expect(page.locator("#spark-dist polyline")).toHaveAttribute("points", /\d/, { timeout: 15000 });
+});
+
+test("sparklines are seeded from /api/history on page reload", async ({ page }) => {
+  // First visit: let history accumulate server-side
+  await page.goto("/");
+  await expect(page.locator("#stext")).toContainText("Online", { timeout: 20000 });
+  await page.waitForTimeout(3000);
+
+  // Reload: fetchHistory() on boot must immediately seed sparklines from server history
+  await page.reload({ waitUntil: "load" });
+  await expect(page.locator("#stext")).toContainText("Online", { timeout: 20000 });
+  await expect(page.locator("#spark-temp polyline")).toHaveAttribute("points", /\d/, { timeout: 10000 });
+  await expect(page.locator("#spark-dist polyline")).toHaveAttribute("points", /\d/, { timeout: 10000 });
+});
+
