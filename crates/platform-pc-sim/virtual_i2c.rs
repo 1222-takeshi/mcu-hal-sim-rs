@@ -2,7 +2,7 @@
 
 use hal_api::error::I2cError;
 use hal_api::i2c::I2cBus;
-use std::cell::RefCell;
+use std::cell::{Ref, RefCell};
 use std::collections::VecDeque;
 use std::rc::Rc;
 use std::vec::Vec;
@@ -73,8 +73,8 @@ impl VirtualI2cBus {
             .retain(|(candidate, _)| *candidate != addr);
     }
 
-    pub fn operations(&self) -> Vec<VirtualI2cOperation> {
-        self.state.borrow().operations.iter().cloned().collect()
+    pub fn operations(&self) -> Ref<'_, VecDeque<VirtualI2cOperation>> {
+        Ref::map(self.state.borrow(), |s| &s.operations)
     }
 
     pub fn operation_count(&self) -> usize {
@@ -209,12 +209,12 @@ mod tests {
 
         assert_eq!(chip_id, [0x60]);
         assert_eq!(
-            bus.operations(),
-            vec![VirtualI2cOperation::WriteRead {
+            *bus.operations(),
+            VecDeque::from([VirtualI2cOperation::WriteRead {
                 addr: 0x77,
                 bytes: vec![0xD0],
                 len: 1,
-            }]
+            }])
         );
     }
 
