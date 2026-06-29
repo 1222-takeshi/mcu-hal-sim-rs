@@ -16,6 +16,8 @@ hal-api = { version = "0.1.0", path = "../hal-api" }
 core-app = { version = "0.1.0", path = "../core-app" }
 embedded-hal = "1.0"
 reference-drivers = { version = "0.1.0", path = "../reference-drivers" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 [lib]
 path = "lib.rs"

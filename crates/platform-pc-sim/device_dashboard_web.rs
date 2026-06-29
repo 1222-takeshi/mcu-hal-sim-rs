@@ -14,7 +14,7 @@ use std::thread;
 use std::time::Duration;
 
 use platform_pc_sim::dashboard::BoardProfile;
-use platform_pc_sim::web_dashboard::{dashboard_html, join_diag_events, state_to_json};
+use platform_pc_sim::web_dashboard::{dashboard_html, state_to_json};
 use platform_pc_sim::wiring_config::{
     normalize_supported_device_selection, DeviceKind, SensorProfile, WiringConfig,
 };
@@ -301,11 +301,7 @@ fn main() {
         // Push JSON to SSE clients every 10 ticks (~100 ms).
         if push_ticker % 10 == 0 {
             let diag = &state.diagnostics;
-            let events_json = join_diag_events(&diag.recent_events);
-            let diag_json = format!(
-                "{{\"event_count\":{},\"recent_events\":[{}]}}",
-                diag.event_count, events_json
-            );
+            let diag_json = serde_json::to_string(diag).unwrap_or_default();
             // Append to history ring buffers when sensors are active.
             {
                 let mut hist = ctx.history.lock().unwrap();
