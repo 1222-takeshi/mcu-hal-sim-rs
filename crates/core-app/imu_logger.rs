@@ -25,7 +25,7 @@
 //! ```
 
 use hal_api::imu::{ImuReading, ImuSensor};
-use heapless::Vec;
+use heapless::Deque;
 
 #[cfg(test)]
 extern crate std;
@@ -66,7 +66,7 @@ pub struct ImuLoggerApp<IMU> {
     tick_count: u32,
     config: ImuLoggerConfig,
     last_reading: Option<ImuReading>,
-    log: Vec<ImuReading, IMU_LOG_CAPACITY>,
+    log: Deque<ImuReading, IMU_LOG_CAPACITY>,
     motion_detected: bool,
 }
 
@@ -84,7 +84,7 @@ where
             tick_count: 0,
             config,
             last_reading: None,
-            log: Vec::new(),
+            log: Deque::new(),
             motion_detected: false,
         }
     }
@@ -97,9 +97,9 @@ where
             let reading = self.imu.read_imu().map_err(ImuLoggerError::Sensor)?;
             self.motion_detected = detect_motion(&reading, self.config.motion_threshold_mg);
             if self.log.is_full() {
-                self.log.remove(0);
+                self.log.pop_front();
             }
-            self.log.push(reading).ok();
+            self.log.push_back(reading).ok();
             self.last_reading = Some(reading);
         }
         Ok(())
@@ -116,7 +116,7 @@ where
     }
 
     /// 直近のサンプルログ（最大 [`IMU_LOG_CAPACITY`] 件、古い順）。
-    pub fn log(&self) -> &[ImuReading] {
+    pub fn log(&self) -> &Deque<ImuReading, IMU_LOG_CAPACITY> {
         &self.log
     }
 
