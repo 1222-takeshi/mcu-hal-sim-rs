@@ -939,8 +939,11 @@ mod tests {
         assert!(state.climate.temperature_c.is_some());
         assert!(state.climate.humidity_percent.is_some());
         assert!(state.climate.pressure_pa.is_some());
-        assert_eq!(state.climate.app_frame, blank_lines());
-        assert_eq!(state.climate.physical_lcd_frame, blank_lines());
+        assert_eq!(state.climate.app_frame, blank_lines().map(|s| s.to_owned()));
+        assert_eq!(
+            state.climate.physical_lcd_frame,
+            blank_lines().map(|s| s.to_owned())
+        );
     }
 
     #[test]
@@ -962,7 +965,10 @@ mod tests {
         assert_eq!(state.climate.temperature_c, None);
         assert_eq!(state.climate.humidity_percent, None);
         assert_eq!(state.climate.pressure_pa, None);
-        assert_eq!(state.climate.physical_lcd_frame, blank_lines());
+        assert_eq!(
+            state.climate.physical_lcd_frame,
+            blank_lines().map(|s| s.to_owned())
+        );
     }
 
     #[test]
