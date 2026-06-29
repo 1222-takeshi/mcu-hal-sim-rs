@@ -3,6 +3,7 @@
 use hal_api::error::I2cError;
 use hal_api::i2c::I2cBus;
 use std::cell::RefCell;
+use std::collections::VecDeque;
 use std::rc::Rc;
 use std::vec::Vec;
 
@@ -41,7 +42,7 @@ type SharedVirtualDevice = Rc<RefCell<Box<dyn VirtualI2cDevice>>>;
 #[derive(Default)]
 struct VirtualI2cBusState {
     devices: Vec<(u8, SharedVirtualDevice)>,
-    operations: Vec<VirtualI2cOperation>,
+    operations: VecDeque<VirtualI2cOperation>,
 }
 
 #[derive(Clone, Default)]
@@ -73,7 +74,7 @@ impl VirtualI2cBus {
     }
 
     pub fn operations(&self) -> Vec<VirtualI2cOperation> {
-        self.state.borrow().operations.clone()
+        self.state.borrow().operations.iter().cloned().collect()
     }
 
     pub fn operation_count(&self) -> usize {
@@ -118,9 +119,9 @@ fn push_operation(state: &mut VirtualI2cBusState, operation: VirtualI2cOperation
     const MAX_RECORDED_OPERATIONS: usize = 256;
 
     if state.operations.len() >= MAX_RECORDED_OPERATIONS {
-        state.operations.remove(0);
+        state.operations.pop_front();
     }
-    state.operations.push(operation);
+    state.operations.push_back(operation);
 }
 
 impl I2cBus for VirtualI2cBus {

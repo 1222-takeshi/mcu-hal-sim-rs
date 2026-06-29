@@ -160,7 +160,7 @@ impl ServerContext {
                 sensor_profile: SensorProfile::Full,
                 selected_devices: normalize_supported_device_selection(
                     board,
-                    &SensorProfile::Full.device_kinds(),
+                    SensorProfile::Full.device_kinds(),
                 ),
                 show_bus_labels: false,
             }),
@@ -401,7 +401,7 @@ fn handle_connection(
                 if let Some(profile_slug) = parse_sensor_profile_from_json(body) {
                     if let Some(profile) = SensorProfile::from_slug(profile_slug) {
                         ws.sensor_profile = profile;
-                        ws.selected_devices = profile.device_kinds();
+                        ws.selected_devices = profile.device_kinds().to_vec();
                     }
                 }
                 if let Some(selected_devices) =
@@ -439,7 +439,7 @@ fn handle_connection(
                 .map(|p| {
                     let devices = p
                         .device_kinds()
-                        .into_iter()
+                        .iter()
                         .map(|kind| format!(r#""{}""#, kind.slug()))
                         .collect::<Vec<_>>()
                         .join(",");
