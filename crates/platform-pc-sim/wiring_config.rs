@@ -348,11 +348,7 @@ impl WiringConfig {
     /// assert_eq!(cfg.devices.len(), 2);
     /// ```
     pub fn from_board_with_sensors(board: BoardProfile, sensor_profile: SensorProfile) -> Self {
-        Self::from_board_with_selected_devices(
-            board,
-            sensor_profile,
-            sensor_profile.device_kinds(),
-        )
+        Self::from_board_with_selected_devices(board, sensor_profile, sensor_profile.device_kinds())
     }
 
     pub fn from_board_with_selected_devices(

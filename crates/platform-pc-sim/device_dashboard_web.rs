@@ -439,7 +439,7 @@ fn handle_connection(
                 .map(|p| {
                     let devices = p
                         .device_kinds()
-                        .into_iter()
+                        .iter()
                         .map(|kind| format!(r#""{}""#, kind.slug()))
                         .collect::<Vec<_>>()
                         .join(",");
