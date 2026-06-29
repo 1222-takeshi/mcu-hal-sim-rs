@@ -7,7 +7,7 @@ mod sim_rig;
 
 use std::collections::VecDeque;
 use std::env;
-use std::io::{self, Read as _, Write as _};
+use std::io::{Read as _, Write as _};
 use std::net::{TcpListener, TcpStream};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
@@ -271,12 +271,10 @@ fn main() {
         .unwrap_or(DEFAULT_PORT);
 
     let listener = TcpListener::bind(("127.0.0.1", port)).expect("server should bind");
-    listener
-        .set_nonblocking(true)
-        .expect("non-blocking should be supported");
 
     let ctx = ServerContext::new(board);
     let (board_tx, board_rx) = mpsc::channel::<BoardProfile>();
+    let (stream_tx, stream_rx) = mpsc::channel::<TcpStream>();
     let mut rig = DeviceSimulationRig::new(board);
     let mut push_ticker: u32 = 0;
 
@@ -284,6 +282,14 @@ fn main() {
     println!("open http://127.0.0.1:{port}");
     println!("board profile: {}", board.name());
     println!("SSE endpoint: http://127.0.0.1:{port}/api/events");
+
+    thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            if stream_tx.send(stream).is_err() {
+                break;
+            }
+        }
+    });
 
     loop {
         // Apply pending board change from a handler thread.
@@ -319,20 +325,14 @@ fn main() {
             ctx.push_state(state_to_json(&state), diag_json);
         }
 
-        // Accept new TCP connections (non-blocking).
-        loop {
-            match listener.accept() {
-                Ok((stream, _)) => {
-                    let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
-                    let ctx_clone = Arc::clone(&ctx);
-                    let board_tx_clone = board_tx.clone();
-                    thread::spawn(move || {
-                        handle_connection(stream, ctx_clone, board_tx_clone);
-                    });
-                }
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                Err(_) => break,
-            }
+        // Dispatch any connections accepted by the accept thread.
+        while let Ok(stream) = stream_rx.try_recv() {
+            let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+            let ctx_clone = Arc::clone(&ctx);
+            let board_tx_clone = board_tx.clone();
+            thread::spawn(move || {
+                handle_connection(stream, ctx_clone, board_tx_clone);
+            });
         }
 
         thread::sleep(Duration::from_millis(10));
@@ -622,6 +622,7 @@ fn handle_sse_events(stream: &mut TcpStream, ctx: Arc<ServerContext>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io;
     use std::net::{Shutdown, TcpListener, TcpStream};
     use std::sync::Arc;
     use std::time::Duration;
