@@ -25,23 +25,21 @@
 extern crate alloc;
 
 use alloc::vec::Vec;
+use core::convert::Infallible;
 use core::str;
 
+use embedded_io_async::{ErrorType, Read};
 use esp_backtrace as _;
-use esp_bootloader_esp_idf::esp_app_desc;
 use esp_hal::{
     main,
     rng::Rng,
     timer::timg::TimerGroup,
 };
 use esp_println::println;
+use esp_storage::FlashStorage;
 use esp_wifi::{
     init,
-    wifi::{
-        ClientConfiguration, Configuration, WifiController, WifiDevice, WifiEvent, WifiStaDevice,
-        WifiState,
-    },
-    EspWifiInitFor,
+    wifi::{ClientConfiguration, Configuration, WifiDevice},
 };
 use smoltcp::{
     iface::{Config as IfaceConfig, Interface, SocketSet},
@@ -50,9 +48,11 @@ use smoltcp::{
     wire::{EthernetAddress, IpAddress, IpCidr, Ipv4Address},
 };
 
-esp_app_desc!();
-
 // ─── compile-time WiFi credentials ───────────────────────────────────────────
+esp_bootloader_esp_idf::esp_app_desc!();
+#[used]
+static _KEEP_APP_DESC: &esp_bootloader_esp_idf::EspAppDesc = &ESP_APP_DESC;
+
 const WIFI_SSID: &str = env!("OTA_WIFI_SSID");
 const WIFI_PSK: &str = env!("OTA_WIFI_PSK");
 
@@ -60,6 +60,34 @@ const WIFI_PSK: &str = env!("OTA_WIFI_PSK");
 const OTA_TCP_PORT: u16 = 8080;
 /// Maximum firmware image size accepted (4 MB).
 const MAX_OTA_SIZE: usize = 4 * 1024 * 1024;
+
+struct SliceAsyncReader<'a> {
+    data: &'a [u8],
+    cursor: usize,
+}
+
+impl<'a> SliceAsyncReader<'a> {
+    fn new(data: &'a [u8]) -> Self {
+        Self { data, cursor: 0 }
+    }
+}
+
+impl ErrorType for SliceAsyncReader<'_> {
+    type Error = Infallible;
+}
+
+impl Read for SliceAsyncReader<'_> {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        if self.cursor >= self.data.len() {
+            return Ok(0);
+        }
+        let remaining = self.data.len() - self.cursor;
+        let n = remaining.min(buf.len());
+        buf[..n].copy_from_slice(&self.data[self.cursor..self.cursor + n]);
+        self.cursor += n;
+        Ok(n)
+    }
+}
 
 // ─── HTTP helpers ─────────────────────────────────────────────────────────────
 
@@ -103,7 +131,7 @@ fn current_millis() -> u64 {
     // esp-hal provides `esp_hal::time::Instant`; convert to ms.
     esp_hal::time::Instant::now()
         .duration_since_epoch()
-        .to_millis()
+        .as_millis()
 }
 
 // ─── main ──────────────────────────────────────────────────────────────────────
@@ -111,26 +139,28 @@ fn current_millis() -> u64 {
 fn main() -> ! {
     let peripherals = esp_hal::init(esp_hal::Config::default());
 
+    // If we booted from a freshly updated slot, mark it as accepted.
+    {
+        let mut flash = FlashStorage::new();
+        if esp_ota_nostd::ota_accept(&mut flash).is_ok() {
+            println!("[ota] current slot marked as valid");
+        }
+    }
+
     // esp-wifi requires a hardware timer for its internal scheduler.
-    let timg1 = TimerGroup::new(peripherals.TIMG1);
+    let timg0 = TimerGroup::new(peripherals.TIMG0);
     let mut rng = Rng::new(peripherals.RNG);
 
     // Sample two 32-bit values before handing the RNG to esp-wifi, so that
     // the smoltcp TCP ISN seed is non-deterministic even after a cold boot.
     let random_seed: u64 = (rng.random() as u64) << 32 | rng.random() as u64;
 
-    let init = init(
-        EspWifiInitFor::Wifi,
-        timg1.timer0,
-        rng,
-        peripherals.RADIO_CLK,
-    )
-    .expect("esp-wifi init failed");
+    let init = init(timg0.timer0, rng, peripherals.RADIO_CLK).expect("esp-wifi init failed");
 
-    // Create WiFi station-mode device + controller.
-    let (wifi_device, mut wifi_controller) =
-        esp_wifi::wifi::new_with_mode(&init, peripherals.WIFI, WifiStaDevice)
-            .expect("wifi new failed");
+    // Create WiFi controller and use STA interface.
+    let (mut wifi_controller, interfaces) =
+        esp_wifi::wifi::new(&init, peripherals.WIFI).expect("wifi new failed");
+    let mut wifi_device = interfaces.sta;
 
     // Configure the station with our SSID / PSK.
     wifi_controller
@@ -171,7 +201,7 @@ fn main() -> ! {
     let mut iface_config = IfaceConfig::new(ethernet_addr.into());
     iface_config.random_seed = random_seed;
 
-    let mut iface = Interface::new(iface_config, &mut &wifi_device, smoltcp_now());
+    let mut iface = Interface::new(iface_config, &mut wifi_device, smoltcp_now());
 
     // Use DHCP-assigned address when available; placeholder until lease arrives.
     iface.update_ip_addrs(|addrs| {
@@ -192,7 +222,7 @@ fn main() -> ! {
     let ota_handle = sockets.add(ota_socket);
 
     // ── wait for DHCP then print IP ────────────────────────────────────────────
-    let local_ip = wait_for_dhcp(&mut iface, &wifi_device, &mut sockets);
+    let local_ip = wait_for_dhcp(&mut iface, &mut wifi_device, &mut sockets);
     println!(
         "[ota] IP address: {}  OTA port: {}",
         local_ip, OTA_TCP_PORT
@@ -217,7 +247,7 @@ fn main() -> ! {
 
     loop {
         let timestamp = smoltcp_now();
-        iface.poll(timestamp, &mut &wifi_device, &mut sockets);
+        iface.poll(timestamp, &mut wifi_device, &mut sockets);
 
         let socket = sockets.get_mut::<TcpSocket>(ota_handle);
 
@@ -289,7 +319,7 @@ fn main() -> ! {
                                     let deadline = esp_hal::time::Instant::now()
                                         + esp_hal::time::Duration::from_millis(500);
                                     loop {
-                                        iface.poll(smoltcp_now(), &mut &wifi_device, &mut sockets);
+                                        iface.poll(smoltcp_now(), &mut wifi_device, &mut sockets);
                                         let s = sockets.get_mut::<TcpSocket>(ota_handle);
                                         let drained = s.send_queue() == 0;
                                         let timed_out = esp_hal::time::Instant::now() >= deadline;
@@ -350,22 +380,19 @@ enum OtaError {
 
 /// Write `image` to the inactive OTA slot and schedule it as the next boot.
 fn write_ota_image(image: &[u8]) -> Result<(), OtaError> {
-    let mut ota = esp_ota::OtaUpdate::begin().map_err(|_| OtaError::BeginFailed)?;
+    let mut flash = FlashStorage::new();
+    let mut reader = SliceAsyncReader::new(image);
+    embassy_futures::block_on(esp_ota_nostd::ota_begin(
+        &mut flash,
+        &mut reader,
+        |written| {
+            if written % (64 * 1024) == 0 || written == image.len() {
+                println!("[ota] flashed {} / {} bytes", written, image.len());
+            }
+        },
+    ))
+    .map_err(|_| OtaError::WriteFailed)?;
 
-    const CHUNK: usize = 4096;
-    let mut offset = 0;
-    while offset < image.len() {
-        let end = (offset + CHUNK).min(image.len());
-        ota.write(&image[offset..end])
-            .map_err(|_| OtaError::WriteFailed)?;
-        offset = end;
-        // Progress indicator every 64 KB.
-        if offset % (64 * 1024) == 0 || offset == image.len() {
-            println!("[ota] flashed {} / {} bytes", offset, image.len());
-        }
-    }
-
-    ota.finish().map_err(|_| OtaError::FinishFailed)?;
     Ok(())
 }
 
@@ -385,11 +412,11 @@ fn blocking_delay_ms(ms: u32) {
 /// Poll until a non-zero IP address is assigned (DHCP).  Returns the address.
 fn wait_for_dhcp(
     iface: &mut Interface,
-    device: &WifiDevice<WifiStaDevice>,
+    device: &mut WifiDevice<'_>,
     sockets: &mut SocketSet<'_>,
 ) -> Ipv4Address {
     loop {
-        iface.poll(smoltcp_now(), &mut &*device, sockets);
+        iface.poll(smoltcp_now(), device, sockets);
 
         let addr = iface.ipv4_addr();
         if let Some(ip) = addr {
