@@ -4,20 +4,27 @@
 #
 # 使用方法:
 #   ./scripts/flash-esp32.sh <firmware-dir> [port]
+#   ./scripts/flash-esp32.sh <firmware-dir> --ota <IP[:PORT]>
 #
 # 引数:
-#   firmware-dir  ファームウェアのディレクトリ (例: firmware/original-esp32-robot-base)
-#   port          シリアルポート (省略時は自動検出)
+#   firmware-dir      ファームウェアのディレクトリ (例: firmware/original-esp32-robot-base)
+#   port              シリアルポート (省略時は自動検出)
+#   --ota <IP[:PORT]> USB の代わりに WiFi OTA で書き込む
+#                     ESP32 が original-esp32-ota-bringup で起動している必要があります。
+#                     PORT 省略時は 8080 を使用します。
 #
 # 例:
 #   ./scripts/flash-esp32.sh firmware/original-esp32-robot-base
 #   ./scripts/flash-esp32.sh firmware/original-esp32-climate-display /dev/ttyUSB0
+#   ./scripts/flash-esp32.sh firmware/original-esp32-climate-display --ota 192.168.1.42
+#   ./scripts/flash-esp32.sh firmware/original-esp32-climate-display --ota 192.168.1.42:8080
 #
 # 依存ツール:
-#   espflash  (cargo install espflash)
+#   espflash  (cargo install espflash)           — USB フラッシュ / バイナリ生成
+#   curl                                          — OTA 転送 (通常 OS 同梱)
 #   esp       xtensa ツールチェーン (espup install)
 #
-# シリアルポート自動検出:
+# シリアルポート自動検出 (USB モード):
 #   macOS: /dev/cu.usbserial-* または /dev/cu.SLAB_USBtoUART* または /dev/cu.wchusbserial*
 #   Linux: /dev/ttyUSB0, /dev/ttyUSB1, /dev/ttyACM0
 #   WSL2 + Windows: 環境変数 ESP32_PORT に COM ポートを指定するか
@@ -54,6 +61,18 @@ fi
 
 FIRMWARE_DIR="${1}"
 MANUAL_PORT="${2:-}"
+OTA_TARGET=""
+
+# ── OTA モード検出 (--ota <IP[:PORT]>) ─────────────────────────────────────────
+if [[ "${2:-}" == "--ota" ]]; then
+    if [[ -z "${3:-}" ]]; then
+        log_error "--ota には <IP> または <IP:PORT> を指定してください"
+        echo "    例: $0 ${FIRMWARE_DIR} --ota 192.168.1.42"
+        exit 1
+    fi
+    OTA_TARGET="${3}"
+    MANUAL_PORT=""
+fi
 
 # ── ファームウェアディレクトリ確認 ─────────────────────────────────────────────
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -116,6 +135,76 @@ detect_port() {
     echo ""
 }
 
+# ── ビルド ──────────────────────────────────────────────────────────────────────
+log_info "ビルド中: ${FIRMWARE_DIR}"
+cd "${FIRMWARE_PATH}"
+cargo build --release
+log_ok "ビルド完了"
+
+# ── OTA モード ──────────────────────────────────────────────────────────────────
+if [[ -n "${OTA_TARGET}" ]]; then
+    # OTA_TARGET が IP のみの場合はデフォルトポートを付加する。
+    if [[ "${OTA_TARGET}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        OTA_HOST="${OTA_TARGET}"
+        OTA_PORT="8080"
+    else
+        OTA_HOST="${OTA_TARGET%:*}"
+        OTA_PORT="${OTA_TARGET##*:}"
+    fi
+
+    # espflash でアプリバイナリを抽出する。
+    BINARY_PATH="/tmp/ota_firmware_$$.bin"
+    log_info "OTA バイナリを抽出中…"
+    if ! espflash save-image --chip esp32 "${BINARY_PATH}" 2>/dev/null; then
+        # 古い espflash バージョン向けフォールバック
+        BIN_PATH="$(find target -name "*.bin" -path "*/release/*" | head -1)"
+        if [[ -z "${BIN_PATH}" ]]; then
+            log_error "OTA バイナリが見つかりません。先に cargo build --release を実行してください。"
+            exit 1
+        fi
+        cp "${BIN_PATH}" "${BINARY_PATH}"
+    fi
+    log_ok "バイナリサイズ: $(du -h "${BINARY_PATH}" | cut -f1)"
+
+    # curl で ESP32 の OTA エンドポイントに送信する。
+    OTA_URL="http://${OTA_HOST}:${OTA_PORT}/ota"
+    log_info "OTA 送信中: ${OTA_URL}"
+    echo -e "${CYAN}------------------------------------------------------------------${NC}"
+
+    HTTP_STATUS=$(curl \
+        --silent \
+        --show-error \
+        --write-out "%{http_code}" \
+        --output /tmp/ota_response_$$.txt \
+        --request POST \
+        --header "Content-Type: application/octet-stream" \
+        --data-binary "@${BINARY_PATH}" \
+        --max-time 120 \
+        "${OTA_URL}" || echo "000")
+
+    OTA_RESPONSE=$(cat /tmp/ota_response_$$.txt 2>/dev/null || echo "")
+    rm -f "${BINARY_PATH}" /tmp/ota_response_$$.txt
+
+    echo -e "${CYAN}------------------------------------------------------------------${NC}"
+
+    if [[ "${HTTP_STATUS}" == "200" ]]; then
+        log_ok "OTA 書き込み成功 — ESP32 が再起動します"
+        log_info "レスポンス: ${OTA_RESPONSE}"
+    else
+        log_error "OTA 失敗 (HTTP ${HTTP_STATUS})"
+        [[ -n "${OTA_RESPONSE}" ]] && log_error "レスポンス: ${OTA_RESPONSE}"
+        echo ""
+        echo "確認事項:"
+        echo "  1. ESP32 が original-esp32-ota-bringup で起動しているか"
+        echo "  2. IP アドレスが正しいか  (シリアルログで確認: espflash monitor)"
+        echo "  3. WiFi に接続できているか"
+        echo "  4. ポート ${OTA_PORT} がファイアウォールでブロックされていないか"
+        exit 1
+    fi
+    exit 0
+fi
+
+# ── USB シリアルモード ──────────────────────────────────────────────────────────
 if [[ -n "${MANUAL_PORT}" ]]; then
     PORT="${MANUAL_PORT}"
     log_info "シリアルポート（指定）: ${PORT}"
@@ -127,16 +216,13 @@ else
         echo "    $0 ${FIRMWARE_DIR} /dev/cu.usbserial-XXXX   # macOS"
         echo "    $0 ${FIRMWARE_DIR} /dev/ttyUSB0              # Linux"
         echo "    ESP32_PORT=/dev/ttyUSB0 $0 ${FIRMWARE_DIR}  # 環境変数"
+        echo ""
+        echo "OTA で書き込む場合:"
+        echo "    $0 ${FIRMWARE_DIR} --ota <ESP32のIPアドレス>"
         exit 1
     fi
     log_ok "シリアルポート（自動検出）: ${PORT}"
 fi
-
-# ── ビルド ──────────────────────────────────────────────────────────────────────
-log_info "ビルド中: ${FIRMWARE_DIR}"
-cd "${FIRMWARE_PATH}"
-cargo build --release
-log_ok "ビルド完了"
 
 # ── フラッシュ + モニタ ─────────────────────────────────────────────────────────
 log_info "フラッシュ中: ${PORT}"
