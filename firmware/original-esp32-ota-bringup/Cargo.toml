@@ -21,30 +21,24 @@ publish = false
 #   version mismatches run `cargo update` and pin to the versions that resolve.
 
 [dependencies]
-esp-backtrace    = { version = "0.18.0", features = ["panic-handler", "println", "esp32"] }
+esp-backtrace    = { version = "0.18.1", features = ["panic-handler", "println", "esp32"] }
 esp-bootloader-esp-idf = { version = "0.4.0", features = ["esp32"] }
-esp-hal          = { version = "1.0.0",  features = ["esp32"] }
-esp-println      = { version = "0.16.0", features = ["esp32"] }
+esp-hal          = { version = "=1.0.0-beta.0",  features = ["esp32", "unstable"] }
+esp-println      = { version = "0.16.1", features = ["esp32"] }
 # WiFi stack — must match esp-hal minor series
-esp-wifi         = { version = "0.13.0", default-features = false,
-                     features = ["esp32", "wifi", "smoltcp", "async"] }
-smoltcp          = { version = "0.11",   default-features = false,
-                     features = [
-                         "medium-ethernet",
-                         "proto-ipv4",
-                         "proto-dhcpv4",
-                         "socket-tcp",
-                     ] }
+esp-wifi = { version = "=0.13.0", features = ["esp32", "wifi", "smoltcp"] }
+smoltcp = { version = "0.12", default-features = false, features = ["medium-ethernet", "proto-ipv4", "proto-dhcpv4", "socket-tcp", "socket-raw"] }
 # OTA partition management
-esp-ota          = { version = "0.1" }
+esp-ota-nostd    = "0.1.0"
+embassy-futures  = "0.1.2"
+embedded-io-async = "0.6.1"
+esp-storage      = { version = "0.7.0", default-features = false, features = ["esp32"] }
 heapless         = "0.8"
+xtensa-lx-rt     = { version = "0.18.0", features = ["esp32"] }
 
 [profile.release]
 debug            = true
 debug-assertions = false
 opt-level        = "s"
-lto              = "fat"
+lto              = false
 codegen-units    = 1
-
-[patch.crates-io]
-esp-rom-sys = { path = "../../vendor/esp-rom-sys" }

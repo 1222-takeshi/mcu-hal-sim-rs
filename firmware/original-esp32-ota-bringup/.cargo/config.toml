@@ -8,6 +8,7 @@ runner = "espflash flash --monitor"
 rustflags = [
   "-C", "link-arg=-Wl,-Tlinkall.x",
   "-C", "link-arg=-nostartfiles",
+  "-C", "link-arg=-Wl,--allow-multiple-definition",
 ]
 
 [env]
