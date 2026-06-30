@@ -63,6 +63,17 @@ const MAX_OTA_SIZE: usize = 4 * 1024 * 1024;
 
 // ─── HTTP helpers ─────────────────────────────────────────────────────────────
 
+/// Return `true` if the first HTTP request line is `POST /ota HTTP/1.x`.
+fn is_valid_ota_request(header_block: &[u8]) -> bool {
+    let text = match str::from_utf8(header_block) {
+        Ok(t) => t,
+        Err(_) => return false,
+    };
+    let first_line = text.lines().next().unwrap_or("").trim();
+    // Accept both HTTP/1.0 and HTTP/1.1.
+    first_line.starts_with("POST /ota HTTP/1.")
+}
+
 /// Extract `Content-Length` value from a raw HTTP header block.
 fn parse_content_length(header: &[u8]) -> Option<usize> {
     let text = str::from_utf8(header).ok()?;
@@ -102,7 +113,11 @@ fn main() -> ! {
 
     // esp-wifi requires a hardware timer for its internal scheduler.
     let timg1 = TimerGroup::new(peripherals.TIMG1);
-    let rng = Rng::new(peripherals.RNG);
+    let mut rng = Rng::new(peripherals.RNG);
+
+    // Sample two 32-bit values before handing the RNG to esp-wifi, so that
+    // the smoltcp TCP ISN seed is non-deterministic even after a cold boot.
+    let random_seed: u64 = (rng.random() as u64) << 32 | rng.random() as u64;
 
     let init = init(
         EspWifiInitFor::Wifi,
@@ -154,7 +169,7 @@ fn main() -> ! {
     let ethernet_addr = EthernetAddress(mac);
 
     let mut iface_config = IfaceConfig::new(ethernet_addr.into());
-    iface_config.random_seed = 0xDEAD_BEEF;
+    iface_config.random_seed = random_seed;
 
     let mut iface = Interface::new(iface_config, &mut &wifi_device, smoltcp_now());
 
@@ -215,6 +230,14 @@ fn main() -> ! {
                         header_buf.extend_from_slice(&chunk[..n]);
 
                         if let Some(body_start) = header_end(&header_buf) {
+                            // Validate HTTP method and path before doing anything else.
+                            if !is_valid_ota_request(&header_buf[..body_start]) {
+                                println!("[ota] ERROR: not a POST /ota request, rejecting");
+                                socket.send_slice(b"HTTP/1.0 400 Bad Request\r\nContent-Length: 12\r\n\r\nBad Request\n").ok();
+                                socket.close();
+                                continue;
+                            }
+
                             // Parse Content-Length from headers.
                             if let Some(cl) = parse_content_length(&header_buf[..body_start]) {
                                 expected_len = Some(cl);
@@ -255,12 +278,27 @@ fn main() -> ! {
 
                             match write_ota_image(&firmware_buf) {
                                 Ok(()) => {
-                                    println!("[ota] write OK — rebooting into new firmware");
+                                    println!("[ota] write OK — flushing response then rebooting");
                                     socket
                                         .send_slice(b"HTTP/1.0 200 OK\r\nContent-Length: 7\r\n\r\nOTA OK\n")
                                         .ok();
-                                    // Flush before reset.
-                                    blocking_delay_ms(200);
+                                    // Drive iface.poll() until the TX buffer drains so the
+                                    // 200 response actually reaches the host before reset.
+                                    // smoltcp only transmits frames inside poll(); a bare
+                                    // blocking_delay_ms() would leave the data in RAM.
+                                    let deadline = esp_hal::time::Instant::now()
+                                        + esp_hal::time::Duration::from_millis(500);
+                                    loop {
+                                        iface.poll(smoltcp_now(), &mut &wifi_device, &mut sockets);
+                                        let s = sockets.get_mut::<TcpSocket>(ota_handle);
+                                        let drained = s.send_queue() == 0;
+                                        let timed_out = esp_hal::time::Instant::now() >= deadline;
+                                        if drained || timed_out {
+                                            break;
+                                        }
+                                        // Short delay to avoid hammering the WiFi driver.
+                                        blocking_delay_ms(5);
+                                    }
                                     esp_hal::system::software_reset();
                                 }
                                 Err(e) => {
@@ -292,6 +330,7 @@ fn main() -> ! {
         // Accept next connection after the previous one is closed.
         if !socket.is_open() {
             firmware_buf.clear();
+            header_buf.clear();
             expected_len = None;
             header_received = false;
             socket.listen(OTA_TCP_PORT).ok();
