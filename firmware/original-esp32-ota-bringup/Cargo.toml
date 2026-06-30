@@ -1,0 +1,50 @@
+[package]
+name = "original-esp32-ota-bringup"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+# OTA bringup firmware for original ESP32 (WROOM-32).
+#
+# WiFi credentials are injected at compile time via environment variables:
+#   OTA_WIFI_SSID=<ssid> OTA_WIFI_PSK=<password> cargo build --release
+#
+# Dependencies:
+#   esp-wifi  — bare-metal WiFi driver for esp-hal
+#   smoltcp   — TCP/IP stack consumed by esp-wifi
+#   esp-ota   — writes firmware to OTA partition and switches boot slot
+#
+# Version compatibility notes:
+#   These crates release in lockstep with esp-hal.  If the build fails due to
+#   version mismatches run `cargo update` and pin to the versions that resolve.
+
+[dependencies]
+esp-backtrace    = { version = "0.18.0", features = ["panic-handler", "println", "esp32"] }
+esp-bootloader-esp-idf = { version = "0.4.0", features = ["esp32"] }
+esp-hal          = { version = "1.0.0",  features = ["esp32"] }
+esp-println      = { version = "0.16.0", features = ["esp32"] }
+# WiFi stack — must match esp-hal minor series
+esp-wifi         = { version = "0.13.0", default-features = false,
+                     features = ["esp32", "wifi", "smoltcp", "async"] }
+smoltcp          = { version = "0.11",   default-features = false,
+                     features = [
+                         "medium-ethernet",
+                         "proto-ipv4",
+                         "proto-dhcpv4",
+                         "socket-tcp",
+                     ] }
+# OTA partition management
+esp-ota          = { version = "0.1" }
+heapless         = "0.8"
+
+[profile.release]
+debug            = true
+debug-assertions = false
+opt-level        = "s"
+lto              = "fat"
+codegen-units    = 1
+
+[patch.crates-io]
+esp-rom-sys = { path = "../../vendor/esp-rom-sys" }

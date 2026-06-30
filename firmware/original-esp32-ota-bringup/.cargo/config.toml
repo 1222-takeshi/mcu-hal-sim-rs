@@ -1,0 +1,17 @@
+[build]
+target = "xtensa-esp32-none-elf"
+
+[target.'cfg(target_arch = "xtensa")']
+# Default runner flashes over USB serial.
+# For OTA, use `scripts/flash-esp32.sh --ota <IP>` instead.
+runner = "espflash flash --monitor"
+rustflags = [
+  "-C", "link-arg=-Wl,-Tlinkall.x",
+  "-C", "link-arg=-nostartfiles",
+]
+
+[env]
+ESP_LOG = "info"
+
+[unstable]
+build-std = ["core", "alloc"]

@@ -148,30 +148,56 @@ cargo install espflash
 
 ---
 
-### `flash-esp32.sh` - ESP32 ワンコマンドフラッシュ
+### `flash-esp32.sh` - ESP32 ワンコマンドフラッシュ / OTA 更新
 
-ファームウェアディレクトリを指定して、ビルド → シリアルポート自動検出 → フラッシュ + モニタを一コマンドで実行します。
+ファームウェアディレクトリを指定して、ビルド → フラッシュを一コマンドで実行します。  
+USB シリアルと WiFi OTA の両モードに対応しています。
 
 **基本的な使用方法:**
 
 ```bash
+# USB シリアルでフラッシュ（従来通り）
 ./scripts/flash-esp32.sh <firmware-dir> [port]
+
+# WiFi OTA で書き込む
+./scripts/flash-esp32.sh <firmware-dir> --ota <IP[:PORT]>
 ```
 
 **例:**
 
 ```bash
-# シリアルポートを自動検出してフラッシュ
+# USB: シリアルポートを自動検出してフラッシュ
 ./scripts/flash-esp32.sh firmware/original-esp32-robot-base
 
-# ポートを明示指定
+# USB: ポートを明示指定
 ./scripts/flash-esp32.sh firmware/original-esp32-climate-display /dev/ttyUSB0
 
-# 環境変数でポート指定
+# USB: 環境変数でポート指定
 ESP32_PORT=/dev/cu.usbserial-0001 ./scripts/flash-esp32.sh firmware/original-esp32-robot-base
+
+# OTA: IP を指定して WiFi 経由で書き込む
+./scripts/flash-esp32.sh firmware/original-esp32-climate-display --ota 192.168.1.42
+
+# OTA: ポートを明示指定（デフォルトは 8080）
+./scripts/flash-esp32.sh firmware/original-esp32-climate-display --ota 192.168.1.42:8080
 ```
 
-**自動検出されるシリアルポート:**
+**OTA の前提条件:**
+
+ESP32 に `firmware/original-esp32-ota-bringup` が書き込まれていること。  
+初回のみ USB でフラッシュし、以後は WiFi OTA で更新できます。
+
+```bash
+# 1. OTA 受信ファームウェアを USB で初回フラッシュ
+OTA_WIFI_SSID="MyNet" OTA_WIFI_PSK="MyPass" \
+    ./scripts/flash-esp32.sh firmware/original-esp32-ota-bringup
+
+# 2. シリアルログで IP を確認 (例: 192.168.1.42)
+# 3. 以後は WiFi OTA で更新
+./scripts/flash-esp32.sh firmware/original-esp32-climate-display --ota 192.168.1.42
+```
+
+**自動検出されるシリアルポート（USB モード）:**
 
 | OS | 検索パターン |
 |----|-------------|
@@ -182,8 +208,11 @@ ESP32_PORT=/dev/cu.usbserial-0001 ./scripts/flash-esp32.sh firmware/original-esp
 **必要なツール:**
 
 ```bash
-# espflash のインストール
+# espflash のインストール（USB フラッシュ・OTA バイナリ生成共通）
 cargo install espflash
+
+# curl（OTA 転送用 — 通常 OS 同梱）
+which curl
 
 # xtensa ツールチェーンのインストール（ESP32 Xtensa 用）
 cargo install espup && espup install
