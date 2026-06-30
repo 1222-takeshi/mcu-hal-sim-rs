@@ -16,7 +16,7 @@ default = ["std"]
 std = ["hal-api/std"]
 
 [dependencies]
-embedded-hal = "1.0"
+embedded-hal = { workspace = true }
 hal-api = { version = "0.1.0", path = "../hal-api", default-features = false }
 
 [lib]

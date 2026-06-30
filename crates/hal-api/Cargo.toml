@@ -16,7 +16,7 @@ default = ["std"]
 std = []
 
 [dependencies]
-embedded-hal = "1.0"
+embedded-hal = { workspace = true }
 
 [lib]
 path = "lib.rs"
