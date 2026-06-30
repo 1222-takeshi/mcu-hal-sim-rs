@@ -13,7 +13,7 @@ rust-version = "1.66"
 publish = false
 
 [dependencies]
-embedded-hal = "1.0"
+embedded-hal = { workspace = true }
 hal-api = { version = "0.1.0", path = "../hal-api", default-features = false }
 reference-drivers = { version = "0.1.0", path = "../reference-drivers", default-features = false }
 

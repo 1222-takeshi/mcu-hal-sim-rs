@@ -17,7 +17,7 @@ std = ["hal-api/std"]
 
 [dependencies]
 hal-api = { version = "0.1.0", path = "../hal-api", default-features = false }
-heapless = "0.8"
+heapless = { workspace = true }
 
 [lib]
 path = "lib.rs"
