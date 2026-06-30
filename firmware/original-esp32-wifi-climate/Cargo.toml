@@ -1,0 +1,46 @@
+[package]
+name = "original-esp32-wifi-climate"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+# WiFi credentials and server config are injected at compile time:
+#   WIFI_SSID=<ssid> WIFI_PSK=<password> RASPI_IP=<ip> DEVICE_ID=<id> cargo build --release
+#
+# Or use scripts/flash-esp32.sh:
+#   WIFI_SSID=... WIFI_PSK=... RASPI_IP=192.168.1.220 DEVICE_ID=living-room \
+#       ./scripts/flash-esp32.sh firmware/original-esp32-wifi-climate
+
+[dependencies]
+# WiFi + runtime
+esp-backtrace    = { version = "0.18.1", features = ["panic-handler", "println", "esp32"] }
+esp-bootloader-esp-idf = { version = "0.4.0", features = ["esp32"] }
+esp-hal          = { version = "=1.0.0-beta.0", features = ["esp32", "unstable"] }
+esp-println      = { version = "0.16.1", features = ["esp32"] }
+esp-wifi         = { version = "=0.13.0", features = ["esp32", "wifi", "smoltcp"] }
+esp-alloc        = "0.7.0"
+smoltcp          = { version = "0.12", default-features = false, features = [
+    "medium-ethernet", "proto-ipv4", "socket-dhcpv4", "socket-tcp", "socket-raw",
+] }
+# OTA
+esp-ota-nostd    = "0.1.0"
+embassy-futures  = "0.1.2"
+embedded-io-async = "0.6.1"
+esp-storage      = { version = "0.7.0", default-features = false, features = ["esp32"] }
+# Sensor + Display (board-agnostic, no esp-hal dep)
+platform-esp32   = { path = "../../crates/platform-esp32" }
+core-app         = { path = "../../crates/core-app", default-features = false }
+hal-api          = { path = "../../crates/hal-api", default-features = false }
+embedded-hal     = "1.0"
+# Utilities
+heapless         = "0.8"
+xtensa-lx-rt     = { version = "0.18.0", features = ["esp32"] }
+
+[profile.release]
+debug            = true
+debug-assertions = false
+opt-level        = "s"
+lto              = false
+codegen-units    = 1
