@@ -316,6 +316,13 @@ git stash pop
   - `core-app` には board 非依存のアプリロジックだけを置く。
   - board 固有の bring-up や diagnostics は `firmware/*` に閉じ込める。
 
+### ESP32 OTA receiver with ESP-IDF (追記日: 2026-06-30)
+
+- **概要**: `firmware/original-esp32-ota-bringup` は OTA 受信ファームとして `esp-idf-svc` ベースの ESP-IDF std 構成を優先する。
+- **詳細**: target は `xtensa-esp32-espidf`、linker は `ldproxy`、`build-std = ["std", "panic_abort"]`、`build.rs` では `embuild::espidf::sysenv::output()` を使う。`espflash.toml` で `partitions.csv` を指定し、USB 初回書込み時にも OTA partition table を使う。
+- **適用条件**: original ESP32 で WiFi OTA 受信、NVS、OTA slot 切替を扱う firmware を作る場合。
+- **例**: `OTA_WIFI_SSID=dummy OTA_WIFI_PSK=dummy OTA_AUTH_TOKEN=dummy cargo build --release`
+
 ---
 
 ## 追加コンテキスト（ドメイン）

@@ -1,27 +1,10 @@
 # original-esp32-ota-bringup
 
-original ESP32 向けの WiFi OTA ファームウェアです。
-ESP32 が WiFi に接続してから TCP ポート 8080 で待機し、  
-`scripts/flash-esp32.sh --ota <IP>` で送られてきたバイナリを  
-OTA スロットに書き込んで自動再起動します。
-
-## なぜ OTA が必要か
-
-このファームウェアを一度 USB で焼いておけば、  
-以後は USB ケーブルなしで **WiFi 経由**でファームウェアを更新できます。
-
-```
-┌─────────────────────────────────────────────────────┐
-│  USB (初回のみ)                                      │
-│  ./scripts/flash-esp32.sh firmware/original-esp32-ota-bringup
-└────────────────────────────────────────────────────┘
-          ↓ 起動後は WiFi 待機
-┌─────────────────────────────────────────────────────┐
-│  WiFi OTA (2回目以降)                                │
-│  ./scripts/flash-esp32.sh firmware/original-esp32-climate-display \
-│      --ota 192.168.1.42                              │
-└─────────────────────────────────────────────────────┘
-```
+original ESP32 向けの WiFi OTA 受信ファームウェアです。
+ESP-IDF (`esp-idf-svc`) の WiFi / OTA API を使い、ESP32 が WiFi に接続してから TCP ポート 8080 で待機します。
+`scripts/flash-esp32.sh --ota <IP>` で送られてきたアプリバイナリを inactive OTA slot に書き込み、成功時に `200 OK` を返して再起動します。
+OTA 書き込みは `X-OTA-Token` ヘッダで共有トークンを照合します。
+この bring-up は trusted LAN 向けの最小構成で、通信は平文 HTTP です。
 
 ## 前提
 
@@ -29,154 +12,108 @@ OTA スロットに書き込んで自動再起動します。
 |------|------|
 | ボード | original ESP32 DevKitC / WROOM-32 |
 | フラッシュ | 4 MB |
-| toolchain | `esp` (Xtensa fork, `espup install` で導入) |
+| Rust toolchain | `esp` (`espup install` で導入) |
+| linker helper | `ldproxy` (`cargo install ldproxy`) |
 | ツール | `espflash`, `curl` |
 
-## 依存 crate のバージョン確認
+## 初回 USB フラッシュ
 
-このファームウェアは `esp-hal 1.0.0` に合わせた `esp-wifi` / `smoltcp` / `esp-ota` を使います。  
-ビルド前に互換バージョンを確認してください:
-
-```bash
-# esp-wifi の最新互換バージョンを確認
-cargo search esp-wifi | head -5
-
-# 必要に応じて Cargo.toml のバージョンを修正してから
-cargo update
-```
-
-| crate | 推奨バージョン帯 |
-|-------|----------------|
-| esp-wifi | 0.13.x |
-| smoltcp | 0.11.x |
-| esp-ota | 0.1.x |
-
-## 初回セットアップ — USB フラッシュ
-
-### 1. WiFi 認証情報を環境変数で渡してビルド
+WiFi 認証情報と OTA 共有トークンは必ず環境変数で渡してください。ソースコードやコミットには直書きしません。
 
 ```bash
-cd firmware/original-esp32-ota-bringup
-
-OTA_WIFI_SSID="MyNetwork" OTA_WIFI_PSK="MyPassword" \
-    cargo build --release
+OTA_WIFI_SSID="MyNetwork" OTA_WIFI_PSK="MyPassword" OTA_AUTH_TOKEN="change-me" \
+    ./scripts/flash-esp32.sh firmware/original-esp32-ota-bringup /dev/cu.usbserial-0001
 ```
 
-または `~/.cargo/config.toml` や shell profile に設定しておくと便利です:
+起動後、シリアルログに次の形式で IP が表示されます。
 
-```toml
-# ~/.cargo/config.toml
-[env]
-OTA_WIFI_SSID = "MyNetwork"
-OTA_WIFI_PSK  = "MyPassword"
-```
-
-### 2. USB で初回フラッシュ
-
-```bash
-# リポジトリルートから
-OTA_WIFI_SSID="MyNetwork" OTA_WIFI_PSK="MyPassword" \
-    ./scripts/flash-esp32.sh firmware/original-esp32-ota-bringup
-```
-
-### 3. シリアルログで IP を確認
-
-起動後にシリアルモニタに次のようなログが出ます:
-
-```
-[ota] WiFi started, connecting to "MyNetwork"…
+```text
+[ota] WiFi started, connecting to "MyNetwork"
 [ota] connected
 [ota] IP address: 192.168.1.42  OTA port: 8080
-[ota] ready — waiting for firmware upload
+[ota] ready - waiting for firmware upload
 [ota] upload with:  ./scripts/flash-esp32.sh <firmware> --ota 192.168.1.42
 ```
 
-## OTA アップデート手順
+## OTA アップデート
 
-IP が分かったら USB ケーブルを外して WiFi 経由で更新できます:
+表示された IP 宛に既存スクリプトで送信します。
 
 ```bash
-# climate-display を OTA で書き込む場合
+OTA_AUTH_TOKEN="change-me" \
 ./scripts/flash-esp32.sh firmware/original-esp32-climate-display \
     --ota 192.168.1.42
 ```
 
-成功すると ESP32 が自動的に再起動して新しいファームウェアが起動します。
+成功すると ESP32 は `OTA OK` を返し、自動的に再起動します。
 
-### IP アドレスを固定したい場合
+## ビルド確認
 
-ルーターの DHCP 設定で ESP32 の MAC アドレスに固定 IP を割り当てるか、  
-または初回起動時のシリアルログから IP を控えておきます。
+認証情報の値はビルド時に埋め込まれるため、ローカル確認でもダミー値が必要です。
+
+```bash
+cd firmware/original-esp32-ota-bringup
+OTA_WIFI_SSID=dummy OTA_WIFI_PSK=dummy OTA_AUTH_TOKEN=dummy cargo check --release
+OTA_WIFI_SSID=dummy OTA_WIFI_PSK=dummy OTA_AUTH_TOKEN=dummy cargo build --release
+```
 
 ## パーティション構成
 
-`partitions.csv` で OTA 用の二重バッファレイアウトを定義しています:
+`espflash.toml` で `partitions.csv` を指定しています。
+ESP-IDF の rollback は、OTA 先 firmware 側にも valid mark が必要になるため、この段階では無効のままにしています。
 
 | 名前 | 種別 | オフセット | サイズ |
 |------|------|-----------|--------|
 | nvs | data/nvs | 0x9000 | 20 KB |
 | otadata | data/ota | 0xE000 | 8 KB |
-| app0 (ota_0) | app | 0x10000 | 1.9 MB |
-| app1 (ota_1) | app | 0x1F0000 | 1.9 MB |
-| spiffs | data | 0x3E0000 | 128 KB |
-
-> **Note**: `espflash flash` を実行するときに `partitions.csv` を自動的に使うには  
-> `espflash.toml` または `.cargo/config.toml` の `[target]` セクションで指定してください。  
-> 現在は手動で `--partition-table partitions.csv` を付ける必要があります。
+| app0 (ota_0) | app | 0x10000 | 1.875 MB |
+| app1 (ota_1) | app | 0x1F0000 | 1.875 MB |
+| spiffs | data/spiffs | 0x3E0000 | 128 KB |
 
 ## OTA プロトコル仕様
 
-このファームウェアは HTTP/1.0 の最小サブセットを実装しています:
+```text
+POST /ota HTTP/1.0
+Content-Type: application/octet-stream
+X-OTA-Token: <token>
+Content-Length: <size>
 
-```
-POST /ota HTTP/1.0\r\n
-Content-Type: application/octet-stream\r\n
-Content-Length: <size>\r\n
-\r\n
 <firmware binary>
 ```
 
 レスポンス:
-- `200 OK` — 書き込み成功、ESP32 が再起動
-- `500 Internal Server Error` — 書き込み失敗
 
-curl でも直接送信できます:
-
-```bash
-curl -X POST http://192.168.1.42:8080/ota \
-    --header "Content-Type: application/octet-stream" \
-    --data-binary @target/xtensa-esp32-none-elf/release/my-firmware.bin
-```
+- `200 OK`: 書き込み成功、ESP32 が再起動
+- `400 Bad Request`: `POST /ota HTTP/1.x` ではない
+- `401 Unauthorized`: `X-OTA-Token` がない、または不一致
+- `431 Request Header Fields Too Large`: HTTP header が上限を超過
+- `411 Length Required`: `Content-Length` がない、または不正
+- `413 Payload Too Large`: OTA slot サイズを超過
+- `500 Internal Server Error`: OTA 書き込み失敗
 
 ## トラブルシューティング
 
-### `OTA_WIFI_SSID` が未設定でビルドエラー
+### `ldproxy` が見つからない
 
-```
-error: environment variable `OTA_WIFI_SSID` not defined
+```text
+error: linker `ldproxy` not found
 ```
 
-→ ビルド時に環境変数を渡してください:
+次を実行してください。
+
 ```bash
-OTA_WIFI_SSID="..." OTA_WIFI_PSK="..." cargo build --release
+cargo install ldproxy
 ```
 
 ### WiFi に接続できない
 
 - SSID / PSK が正しいか確認してください
-- 2.4 GHz 帯のみ対応です (5 GHz 非対応)
-- AP の MAC アドレスフィルタリングを確認してください
+- OTA 送信時の `OTA_AUTH_TOKEN` が、OTA 受信ファームをビルドしたときの値と一致するか確認してください
+- original ESP32 は 2.4 GHz WiFi のみ対応です
+- AP の MAC アドレスフィルタリングや隔離設定を確認してください
 
-### OTA 転送は成功するが起動しない
+### OTA 転送は成功するが次のファームが起動しない
 
-- `partitions.csv` の OTA パーティションレイアウトが正しいか確認してください
-- 書き込む firmware が `esp_app_desc!()` マクロを呼び出しているか確認してください
-
-### `esp-wifi` のビルドエラー
-
-esp-wifi は esp-hal と密に結合しています。バージョン不一致の場合:
-
-```bash
-cargo update esp-wifi
-# それでも失敗する場合は esp-hal のバージョンと揃える
-```
+- OTA 先の firmware が ESP32 用にビルドされているか確認してください
+- `partitions.csv` の OTA slot サイズを超えていないか確認してください
+- 必要に応じて USB で `original-esp32-climate-display` を再フラッシュして復旧してください
