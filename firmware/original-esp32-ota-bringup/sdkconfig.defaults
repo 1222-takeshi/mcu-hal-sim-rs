@@ -1,0 +1,4 @@
+# Rollback is intentionally disabled for bring-up because OTA target firmware
+# in this repository is not yet guaranteed to confirm ESP-IDF rollback state.
+# CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE is not set
+# CONFIG_APP_ROLLBACK_ENABLE is not set

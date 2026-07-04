@@ -1,17 +1,21 @@
 [build]
-target = "xtensa-esp32-none-elf"
+target = "xtensa-esp32-espidf"
 
-[target.'cfg(target_arch = "xtensa")']
+[target.'cfg(target_os = "espidf")']
 # Default runner flashes over USB serial.
 # For OTA, use `scripts/flash-esp32.sh --ota <IP>` instead.
 runner = "espflash flash --monitor"
+linker = "ldproxy"
 rustflags = [
-  "-C", "link-arg=-Wl,-Tlinkall.x",
-  "-C", "link-arg=-nostartfiles",
+  "--cfg",
+  "espidf_time64",
 ]
 
 [env]
 ESP_LOG = "info"
+MCU = "esp32"
+ESP_IDF_VERSION = "v5.3.3"
+CARGO_WORKSPACE_DIR = { value = "", relative = true }
 
 [unstable]
-build-std = ["core", "alloc"]
+build-std = ["std", "panic_abort"]

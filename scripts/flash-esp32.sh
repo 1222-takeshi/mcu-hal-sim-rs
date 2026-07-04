@@ -44,6 +44,56 @@ log_ok()    { echo -e "${GREEN}[OK]${NC}    $*"; }
 log_warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 
+package_name() {
+    sed -n 's/^name[[:space:]]*=[[:space:]]*"\(.*\)"/\1/p' Cargo.toml | head -1
+}
+
+release_elf_path() {
+    local package_name="$1"
+    local target_triple=""
+    local elf_path=""
+
+    if [[ -f ".cargo/config.toml" ]]; then
+        target_triple="$(sed -n 's/^[[:space:]]*target[[:space:]]*=[[:space:]]*"\([^"]*\)"/\1/p' .cargo/config.toml | head -1)"
+    fi
+
+    if [[ -n "${target_triple}" ]]; then
+        elf_path="target/${target_triple}/release/${package_name}"
+    else
+        elf_path="target/release/${package_name}"
+    fi
+
+    if [[ -f "${elf_path}" ]]; then
+        echo "${elf_path}"
+    fi
+}
+
+release_bootloader_path() {
+    local target_triple=""
+    local bootloader_path=""
+
+    if [[ -f ".cargo/config.toml" ]]; then
+        target_triple="$(sed -n 's/^[[:space:]]*target[[:space:]]*=[[:space:]]*"\([^"]*\)"/\1/p' .cargo/config.toml | head -1)"
+    fi
+
+    if [[ -n "${target_triple}" ]]; then
+        bootloader_path="target/${target_triple}/release/bootloader.bin"
+    else
+        bootloader_path="target/release/bootloader.bin"
+    fi
+
+    if [[ -f "${bootloader_path}" ]]; then
+        echo "${bootloader_path}"
+    fi
+}
+
+curl_config_escape() {
+    local value="$1"
+    value="${value//\\/\\\\}"
+    value="${value//\"/\\\"}"
+    echo "${value}"
+}
+
 # ── 引数チェック ───────────────────────────────────────────────────────────────
 if [[ $# -lt 1 ]]; then
     echo -e "${CYAN}使用方法:${NC} $0 <firmware-dir> [port]"
@@ -143,6 +193,15 @@ log_ok "ビルド完了"
 
 # ── OTA モード ──────────────────────────────────────────────────────────────────
 if [[ -n "${OTA_TARGET}" ]]; then
+    if [[ -z "${OTA_AUTH_TOKEN:-}" ]]; then
+        log_error "OTA_AUTH_TOKEN が未設定です。OTA 送信には共有トークンが必要です。"
+        exit 1
+    fi
+    if [[ "${OTA_AUTH_TOKEN}" == *$'\r'* || "${OTA_AUTH_TOKEN}" == *$'\n'* ]]; then
+        log_error "OTA_AUTH_TOKEN に改行を含めることはできません。"
+        exit 1
+    fi
+
     # OTA_TARGET が IP のみの場合はデフォルトポートを付加する。
     if [[ "${OTA_TARGET}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
         OTA_HOST="${OTA_TARGET}"
@@ -154,15 +213,20 @@ if [[ -n "${OTA_TARGET}" ]]; then
 
     # espflash でアプリバイナリを抽出する。
     BINARY_PATH="/tmp/ota_firmware_$$.bin"
+    CURL_CONFIG_PATH="/tmp/ota_curl_$$.conf"
+    OTA_RESPONSE_PATH="/tmp/ota_response_$$.txt"
+    trap 'rm -f "${BINARY_PATH:-}" "${CURL_CONFIG_PATH:-}" "${OTA_RESPONSE_PATH:-}"' EXIT
     log_info "OTA バイナリを抽出中…"
-    if ! espflash save-image --chip esp32 "${BINARY_PATH}" 2>/dev/null; then
-        # 古い espflash バージョン向けフォールバック
-        BIN_PATH="$(find target -name "*.bin" -path "*/release/*" | head -1)"
-        if [[ -z "${BIN_PATH}" ]]; then
-            log_error "OTA バイナリが見つかりません。先に cargo build --release を実行してください。"
-            exit 1
-        fi
-        cp "${BIN_PATH}" "${BINARY_PATH}"
+    PACKAGE_NAME="$(package_name)"
+    ELF_PATH="$(release_elf_path "${PACKAGE_NAME}")"
+    if [[ -z "${ELF_PATH}" ]]; then
+        log_error "release ELF が見つかりません: ${PACKAGE_NAME}"
+        exit 1
+    fi
+    if ! espflash save-image --chip esp32 "${ELF_PATH}" "${BINARY_PATH}" 2>/dev/null \
+        && ! espflash save-image --chip esp32 --ignore-app-descriptor "${ELF_PATH}" "${BINARY_PATH}" 2>/dev/null; then
+        log_error "OTA バイナリの抽出に失敗しました: ${ELF_PATH}"
+        exit 1
     fi
     log_ok "バイナリサイズ: $(du -h "${BINARY_PATH}" | cut -f1)"
 
@@ -171,19 +235,25 @@ if [[ -n "${OTA_TARGET}" ]]; then
     log_info "OTA 送信中: ${OTA_URL}"
     echo -e "${CYAN}------------------------------------------------------------------${NC}"
 
+    umask 077
+    {
+        echo 'header = "Content-Type: application/octet-stream"'
+        echo "header = \"X-OTA-Token: $(curl_config_escape "${OTA_AUTH_TOKEN}")\""
+    } > "${CURL_CONFIG_PATH}"
+
     HTTP_STATUS=$(curl \
         --silent \
         --show-error \
         --write-out "%{http_code}" \
-        --output /tmp/ota_response_$$.txt \
+        --output "${OTA_RESPONSE_PATH}" \
         --request POST \
-        --header "Content-Type: application/octet-stream" \
+        --config "${CURL_CONFIG_PATH}" \
         --data-binary "@${BINARY_PATH}" \
         --max-time 120 \
         "${OTA_URL}" || echo "000")
 
-    OTA_RESPONSE=$(cat /tmp/ota_response_$$.txt 2>/dev/null || echo "")
-    rm -f "${BINARY_PATH}" /tmp/ota_response_$$.txt
+    OTA_RESPONSE=$(cat "${OTA_RESPONSE_PATH}" 2>/dev/null || echo "")
+    rm -f "${BINARY_PATH}" "${CURL_CONFIG_PATH}" "${OTA_RESPONSE_PATH}"
 
     echo -e "${CYAN}------------------------------------------------------------------${NC}"
 
@@ -229,4 +299,15 @@ log_info "フラッシュ中: ${PORT}"
 echo -e "${CYAN}------------------------------------------------------------------${NC}"
 echo -e "${CYAN}  Ctrl+C でモニタを終了します${NC}"
 echo -e "${CYAN}------------------------------------------------------------------${NC}"
-espflash flash --port "${PORT}" --monitor --release
+PACKAGE_NAME="$(package_name)"
+ELF_PATH="$(release_elf_path "${PACKAGE_NAME}")"
+if [[ -z "${ELF_PATH}" ]]; then
+    log_error "release ELF が見つかりません: ${PACKAGE_NAME}"
+    exit 1
+fi
+BOOTLOADER_PATH="$(release_bootloader_path)"
+if [[ -n "${BOOTLOADER_PATH}" ]]; then
+    espflash flash --port "${PORT}" --monitor --bootloader "${BOOTLOADER_PATH}" "${ELF_PATH}"
+else
+    espflash flash --port "${PORT}" --monitor "${ELF_PATH}"
+fi
