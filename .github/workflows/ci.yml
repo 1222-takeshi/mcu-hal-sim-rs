@@ -158,41 +158,11 @@ jobs:
           key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-
 
-      - name: Check hal-api for no_std target
-        run: cargo check -p hal-api --lib --target $NO_STD_TARGET --no-default-features
+      - name: Check no_std crates for no_std target
+        run: cargo check -p hal-api -p core-app -p reference-drivers -p platform-esp32 -p platform-avr -p platform-rp2040 --lib --target $NO_STD_TARGET --no-default-features
 
-      - name: Check core-app for no_std target
-        run: cargo check -p core-app --lib --target $NO_STD_TARGET --no-default-features
-
-      - name: Check reference-drivers for no_std target
-        run: cargo check -p reference-drivers --lib --target $NO_STD_TARGET --no-default-features
-
-      - name: Check platform-esp32 for no_std target
-        run: cargo check -p platform-esp32 --lib --target $NO_STD_TARGET --no-default-features
-
-      - name: Check platform-avr for no_std target
-        run: cargo check -p platform-avr --lib --target $NO_STD_TARGET --no-default-features
-
-      - name: Check platform-rp2040 for no_std target
-        run: cargo check -p platform-rp2040 --lib --target $NO_STD_TARGET --no-default-features
-
-      - name: Clippy hal-api for no_std target
-        run: cargo clippy -p hal-api --lib --target $NO_STD_TARGET --no-default-features -- -D warnings
-
-      - name: Clippy core-app for no_std target
-        run: cargo clippy -p core-app --lib --target $NO_STD_TARGET --no-default-features -- -D warnings
-
-      - name: Clippy reference-drivers for no_std target
-        run: cargo clippy -p reference-drivers --lib --target $NO_STD_TARGET --no-default-features -- -D warnings
-
-      - name: Clippy platform-esp32 for no_std target
-        run: cargo clippy -p platform-esp32 --lib --target $NO_STD_TARGET --no-default-features -- -D warnings
-
-      - name: Clippy platform-avr for no_std target
-        run: cargo clippy -p platform-avr --lib --target $NO_STD_TARGET --no-default-features -- -D warnings
-
-      - name: Clippy platform-rp2040 for no_std target
-        run: cargo clippy -p platform-rp2040 --lib --target $NO_STD_TARGET --no-default-features -- -D warnings
+      - name: Clippy no_std crates for no_std target
+        run: cargo clippy -p hal-api -p core-app -p reference-drivers -p platform-esp32 -p platform-avr -p platform-rp2040 --lib --target $NO_STD_TARGET --no-default-features -- -D warnings
 
       - name: Check raspi-pico-climate-display firmware
         working-directory: firmware/raspi-pico-climate-display
@@ -262,29 +232,11 @@ jobs:
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-
 
-      - name: Check hal-api for ESP32-C3
-        run: cargo check -p hal-api --lib --target $ESP32C3_TARGET --no-default-features
+      - name: Check crates for ESP32-C3
+        run: cargo check -p hal-api -p core-app -p reference-drivers -p platform-esp32 --lib --target $ESP32C3_TARGET --no-default-features
 
-      - name: Check core-app for ESP32-C3
-        run: cargo check -p core-app --lib --target $ESP32C3_TARGET --no-default-features
-
-      - name: Check reference-drivers for ESP32-C3
-        run: cargo check -p reference-drivers --lib --target $ESP32C3_TARGET --no-default-features
-
-      - name: Check platform-esp32 for ESP32-C3
-        run: cargo check -p platform-esp32 --lib --target $ESP32C3_TARGET --no-default-features
-
-      - name: Clippy hal-api for ESP32-C3
-        run: cargo clippy -p hal-api --lib --target $ESP32C3_TARGET --no-default-features -- -D warnings
-
-      - name: Clippy core-app for ESP32-C3
-        run: cargo clippy -p core-app --lib --target $ESP32C3_TARGET --no-default-features -- -D warnings
-
-      - name: Clippy reference-drivers for ESP32-C3
-        run: cargo clippy -p reference-drivers --lib --target $ESP32C3_TARGET --no-default-features -- -D warnings
-
-      - name: Clippy platform-esp32 for ESP32-C3
-        run: cargo clippy -p platform-esp32 --lib --target $ESP32C3_TARGET --no-default-features -- -D warnings
+      - name: Clippy crates for ESP32-C3
+        run: cargo clippy -p hal-api -p core-app -p reference-drivers -p platform-esp32 --lib --target $ESP32C3_TARGET --no-default-features -- -D warnings
 
   e2e:
     name: Browser E2E
