@@ -91,42 +91,37 @@ impl SensorHistoryBuffer {
     }
 
     fn climate_json(&self) -> String {
-        let temp: Vec<String> = self
-            .climate
-            .iter()
-            .map(|(t, _, _)| format!("{:.2}", *t as f32 / 100.0))
-            .collect();
-        let hum: Vec<String> = self
-            .climate
-            .iter()
-            .map(|(_, h, _)| format!("{:.2}", *h as f32 / 100.0))
-            .collect();
-        let press: Vec<String> = self
-            .climate
-            .iter()
-            .map(|(_, _, p)| {
-                p.map(|v| v.to_string())
-                    .unwrap_or_else(|| "null".to_string())
-            })
-            .collect();
-        format!(
-            "{{\"temperature\":[{}],\"humidity\":[{}],\"pressure\":[{}]}}",
-            temp.join(","),
-            hum.join(","),
-            press.join(",")
-        )
+        #[derive(serde::Serialize)]
+        struct ClimateHistory {
+            temperature: Vec<f32>,
+            humidity: Vec<f32>,
+            pressure: Vec<Option<u32>>,
+        }
+        let history = ClimateHistory {
+            temperature: self
+                .climate
+                .iter()
+                .map(|(t, _, _)| *t as f32 / 100.0)
+                .collect(),
+            humidity: self
+                .climate
+                .iter()
+                .map(|(_, h, _)| *h as f32 / 100.0)
+                .collect(),
+            pressure: self.climate.iter().map(|(_, _, p)| *p).collect(),
+        };
+        serde_json::to_string(&history).unwrap_or_else(|_| "{}".to_string())
     }
 
     fn distance_json(&self) -> String {
-        let vals: Vec<String> = self
-            .distance
-            .iter()
-            .map(|d| {
-                d.map(|v| v.to_string())
-                    .unwrap_or_else(|| "null".to_string())
-            })
-            .collect();
-        format!("{{\"distance\":[{}]}}", vals.join(","))
+        #[derive(serde::Serialize)]
+        struct DistanceHistory {
+            distance: Vec<Option<u32>>,
+        }
+        let history = DistanceHistory {
+            distance: self.distance.iter().copied().collect(),
+        };
+        serde_json::to_string(&history).unwrap_or_else(|_| "{}".to_string())
     }
 }
 
@@ -1267,8 +1262,13 @@ mod tests {
         assert!(json.contains("\"temperature\""));
         assert!(json.contains("\"humidity\""));
         assert!(json.contains("\"pressure\""));
-        assert!(json.contains("25.00"));
+        assert!(json.contains("25.0"));
         assert!(json.contains("null"));
+        let parsed: serde_json::Value = serde_json::from_str(&json).expect("valid JSON");
+        assert_eq!(parsed["temperature"][0], 25.0);
+        assert_eq!(parsed["humidity"][0], 60.0);
+        assert_eq!(parsed["pressure"][0], 101325);
+        assert!(parsed["pressure"][1].is_null());
     }
 
     #[test]
@@ -1313,7 +1313,7 @@ mod tests {
             resp.contains("\"humidity\""),
             "body missing humidity: {resp}"
         );
-        assert!(resp.contains("25.00"), "body missing value: {resp}");
+        assert!(resp.contains("25.0"), "body missing value: {resp}");
         server.join().expect("server thread should exit");
     }
 
