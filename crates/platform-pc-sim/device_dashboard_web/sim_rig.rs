@@ -108,6 +108,9 @@ pub(super) struct DeviceSimulationRig {
     pub last_rtc_str: String,
     pub last_tof_mm: Option<u32>,
     pub last_oled_frame: Option<[String; 2]>,
+    /// Climate reading captured during the last `advance()` call — cached
+    /// so `snapshot()` never has to re-issue an I2C read (see #225).
+    pub last_climate: Option<hal_api::sensor::EnvReading>,
     /// Ring buffer of diagnostic events (capacity 20, most-recent-last).
     pub diag_ring: VecDeque<DiagEvent>,
     /// Cumulative diagnostic event counter.
@@ -206,6 +209,7 @@ impl DeviceSimulationRig {
             last_rtc_str: String::new(),
             last_tof_mm: None,
             last_oled_frame: None,
+            last_climate: None,
             diag_ring: VecDeque::new(),
             diag_event_count: 0,
             start_instant: std::time::Instant::now(),
@@ -277,7 +281,22 @@ impl DeviceSimulationRig {
         });
     }
 
+    /// Advance the simulation by one tick and build the full dashboard
+    /// snapshot. Equivalent to `advance()` followed by `snapshot()`. The
+    /// production main loop calls `advance()` / `snapshot()` separately
+    /// (see #225); this combined helper only remains for tests that don't
+    /// care about splitting the cheap and expensive phases.
+    #[cfg(test)]
     pub fn step(&mut self, wiring_state: &WiringState) -> DeviceDashboardState {
+        self.advance(wiring_state);
+        self.snapshot(wiring_state)
+    }
+
+    /// Cheap "advance simulation" phase: refresh sensor mocks, actuator
+    /// state, and internal counters. Safe (and expected) to call on every
+    /// tick, independent of whether the result will actually be snapshotted
+    /// and pushed to SSE clients (see #225).
+    pub fn advance(&mut self, wiring_state: &WiringState) {
         self.tick = self.tick.wrapping_add(1);
         let tick = self.tick;
         let selected_devices = normalize_supported_device_selection(
@@ -458,6 +477,49 @@ impl DeviceSimulationRig {
                 .expect("disabled motor driver should reset to coast");
         }
 
+        // Cache the current climate reading (cheap struct copy / at most one
+        // I2C read) for the SSD1306 render trigger below and for `snapshot()`
+        // — this avoids re-issuing an I2C read (and double-counting it in the
+        // recorded bus operations) if `snapshot()` runs later this tick.
+        self.last_climate = if bme280_enabled {
+            if lcd_enabled {
+                self.app.last_reading()
+            } else {
+                self.climate_sensor.read().ok()
+            }
+        } else {
+            None
+        };
+
+        // Render climate frame to SSD1306 display every 5 ticks when both are enabled
+        if is_enabled(DeviceKind::Ssd1306) && bme280_enabled && (tick == 1 || tick % 5 == 0) {
+            if let Some(reading) = self.last_climate {
+                if let Ok(frame) = frame_from_reading(reading) {
+                    let _ = hal_api::display::TextDisplay16x2::render(
+                        &mut self.ssd1306_display,
+                        &frame,
+                    );
+                    self.last_oled_frame = self.ssd1306_display.last_frame();
+                }
+            }
+        }
+    }
+
+    /// Expensive "snapshot" phase: format the wiring diagram, recent I2C
+    /// operation log, and display frames into a full `DeviceDashboardState`.
+    /// Only invoke this when the result will actually be used (e.g. pushed
+    /// to SSE clients) — see #225. Read-only: does not advance the
+    /// simulation, so it is safe to call zero or more times per tick.
+    pub fn snapshot(&self, wiring_state: &WiringState) -> DeviceDashboardState {
+        let tick = self.tick;
+        let selected_devices = normalize_supported_device_selection(
+            wiring_state.board,
+            &wiring_state.selected_devices,
+        );
+        let is_enabled = |kind: DeviceKind| selected_devices.contains(&kind);
+        let bme280_enabled = is_enabled(DeviceKind::Bme280);
+        let lcd_enabled = is_enabled(DeviceKind::Lcd1602);
+
         let wiring_config = dashboard_wiring_config(
             wiring_state.board,
             wiring_state.sensor_profile,
@@ -488,15 +550,7 @@ impl DeviceSimulationRig {
             .map(format_operation)
             .collect::<Vec<_>>();
         let physical_lcd_frame = frame_to_lines(self.lcd.frame());
-        let climate = if bme280_enabled {
-            if lcd_enabled {
-                self.app.last_reading()
-            } else {
-                self.climate_sensor.read().ok()
-            }
-        } else {
-            None
-        };
+        let climate = self.last_climate;
         let app_frame = if lcd_enabled {
             self.app
                 .last_frame()
@@ -516,19 +570,6 @@ impl DeviceSimulationRig {
         } else {
             blank_lines().map(|s| s.to_owned())
         };
-
-        // Render climate frame to SSD1306 display every 5 ticks when both are enabled
-        if is_enabled(DeviceKind::Ssd1306) && bme280_enabled && (tick == 1 || tick % 5 == 0) {
-            if let Some(reading) = climate {
-                if let Ok(frame) = frame_from_reading(reading) {
-                    let _ = hal_api::display::TextDisplay16x2::render(
-                        &mut self.ssd1306_display,
-                        &frame,
-                    );
-                    self.last_oled_frame = self.ssd1306_display.last_frame();
-                }
-            }
-        }
 
         DeviceDashboardState {
             board_name: self.board.name().to_string(),

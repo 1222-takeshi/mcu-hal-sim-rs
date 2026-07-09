@@ -127,8 +127,8 @@ impl SensorHistoryBuffer {
 
 /// Shared server state passed to every connection-handler thread.
 struct ServerContext {
-    latest_json: Mutex<String>,
-    sse_clients: Mutex<Vec<mpsc::SyncSender<String>>>,
+    latest_json: Mutex<Arc<str>>,
+    sse_clients: Mutex<Vec<mpsc::SyncSender<Arc<str>>>>,
     current_board: Mutex<BoardProfile>,
     /// Kept for future use; wiring API reads now go through `wiring_state`.
     #[allow(dead_code)]
@@ -146,7 +146,7 @@ struct ServerContext {
 impl ServerContext {
     fn new(board: BoardProfile) -> Arc<Self> {
         Arc::new(Self {
-            latest_json: Mutex::new("{}".into()),
+            latest_json: Mutex::new(Arc::from("{}")),
             sse_clients: Mutex::new(vec![]),
             current_board: Mutex::new(board),
             current_sensor_profile: Mutex::new(SensorProfile::Full),
@@ -166,12 +166,15 @@ impl ServerContext {
     }
 
     fn push_state(&self, json: String, diag_json: String) {
-        *self.latest_json.lock().unwrap() = json.clone();
+        // `Arc<str>` so fan-out to every SSE client bumps a refcount instead of
+        // allocating a fresh String copy per client (see #226).
+        let json: Arc<str> = Arc::from(json);
+        *self.latest_json.lock().unwrap() = Arc::clone(&json);
         *self.latest_diagnostics.lock().unwrap() = diag_json;
         self.sse_clients
             .lock()
             .unwrap()
-            .retain(|tx| tx.try_send(json.clone()).is_ok());
+            .retain(|tx| tx.try_send(Arc::clone(&json)).is_ok());
     }
 }
 
@@ -294,13 +297,18 @@ fn main() {
             println!("board changed to: {}", new_board.name());
         }
 
-        // Tick the simulation.
+        // Tick the simulation. `advance()` is the cheap phase (sensor mocks /
+        // internal counters only) and always runs; the expensive `snapshot()`
+        // formatting phase (wiring diagram, recent I2C ops, ...) only runs
+        // when the result will actually be pushed to SSE clients, since 9 of
+        // every 10 ticks previously built and discarded a full snapshot (#225).
         let wiring_state = ctx.wiring_state.lock().unwrap().clone();
-        let state = rig.step(&wiring_state);
+        rig.advance(&wiring_state);
         push_ticker = push_ticker.wrapping_add(1);
 
         // Push JSON to SSE clients every 10 ticks (~100 ms).
         if push_ticker % 10 == 0 {
+            let state = rig.snapshot(&wiring_state);
             let diag = &state.diagnostics;
             let diag_json = serde_json::to_string(diag).unwrap_or_default();
             // Append to history ring buffers when sensors are active.
@@ -368,6 +376,7 @@ fn handle_connection(
             handle_sse_events(&mut stream, ctx);
         }
         (_, "/api/state") => {
+            // `Arc<str>`; `.clone()` only bumps a refcount, not a full copy.
             let json = ctx.latest_json.lock().unwrap().clone();
             respond(
                 &mut stream,
@@ -594,7 +603,7 @@ fn handle_sse_events(stream: &mut TcpStream, ctx: Arc<ServerContext>) {
     }
 
     let initial = ctx.latest_json.lock().unwrap().clone();
-    let (tx, rx) = mpsc::sync_channel::<String>(32);
+    let (tx, rx) = mpsc::sync_channel::<Arc<str>>(32);
     ctx.sse_clients.lock().unwrap().push(tx);
 
     if stream
@@ -769,7 +778,7 @@ mod tests {
             .local_addr()
             .expect("listener should have local addr");
         let ctx = ServerContext::new(BoardProfile::OriginalEsp32);
-        *ctx.latest_json.lock().unwrap() = r#"{"tick":1}"#.to_string();
+        *ctx.latest_json.lock().unwrap() = Arc::from(r#"{"tick":1}"#);
 
         let (board_tx, board_rx) = mpsc::channel::<BoardProfile>();
         drop(board_rx);
@@ -799,6 +808,34 @@ mod tests {
         ctx.sse_clients.lock().unwrap().clear();
 
         server.join().expect("server thread should exit");
+    }
+
+    #[test]
+    fn push_state_shares_json_allocation_across_sse_clients() {
+        // Regression test for #226: push_state() must fan out the same
+        // `Arc<str>` allocation to every subscribed SSE client (refcount
+        // bump only) instead of cloning a fresh `String` per client.
+        let ctx = ServerContext::new(BoardProfile::OriginalEsp32);
+        let (tx1, rx1) = mpsc::sync_channel::<Arc<str>>(4);
+        let (tx2, rx2) = mpsc::sync_channel::<Arc<str>>(4);
+        ctx.sse_clients.lock().unwrap().push(tx1);
+        ctx.sse_clients.lock().unwrap().push(tx2);
+
+        ctx.push_state(r#"{"tick":1}"#.to_string(), "[]".to_string());
+
+        let received1 = rx1.try_recv().expect("client 1 should receive state");
+        let received2 = rx2.try_recv().expect("client 2 should receive state");
+        assert!(
+            Arc::ptr_eq(&received1, &received2),
+            "SSE clients should share one Arc<str> allocation, not separate String copies"
+        );
+        assert_eq!(&*received1, r#"{"tick":1}"#);
+
+        let stored = ctx.latest_json.lock().unwrap().clone();
+        assert!(
+            Arc::ptr_eq(&received1, &stored),
+            "latest_json snapshot should also share the same allocation"
+        );
     }
 
     #[test]
@@ -913,6 +950,70 @@ mod tests {
         assert_eq!(state.gas.co2_ppm, None);
         assert_eq!(state.rtc.datetime_str, "");
         assert_eq!(state.tof.distance_mm, None);
+    }
+
+    #[test]
+    fn device_simulation_rig_snapshot_is_read_only_and_repeatable() {
+        // Regression test for #225: advance() (cheap) and snapshot()
+        // (expensive formatting) must be safely separable — snapshot() is a
+        // pure read that can be skipped or called multiple times per tick
+        // without re-triggering I2C reads or double-counting recorded bus
+        // operations.
+        let mut rig = DeviceSimulationRig::new(BoardProfile::OriginalEsp32);
+        let wiring_state = WiringState {
+            board: BoardProfile::OriginalEsp32,
+            sensor_profile: SensorProfile::Minimal,
+            selected_devices: vec![DeviceKind::Bme280, DeviceKind::Lcd1602],
+            show_bus_labels: false,
+        };
+
+        rig.advance(&wiring_state);
+        let ops_after_advance = rig.bus.operation_count();
+        assert!(ops_after_advance > 0);
+
+        let snap1 = rig.snapshot(&wiring_state);
+        let snap2 = rig.snapshot(&wiring_state);
+
+        assert_eq!(snap1.tick, rig.tick);
+        assert_eq!(snap2.tick, rig.tick);
+        assert_eq!(
+            rig.bus.operation_count(),
+            ops_after_advance,
+            "snapshot() must not perform additional I2C operations"
+        );
+        assert_eq!(snap1.climate.temperature_c, snap2.climate.temperature_c);
+        assert_eq!(snap1.i2c.recent_operations, snap2.i2c.recent_operations);
+    }
+
+    #[test]
+    fn device_simulation_rig_step_matches_advance_then_snapshot() {
+        // step() must remain equivalent to advance() followed by snapshot()
+        // so existing direct callers of step() keep working unchanged (#225).
+        let wiring_state = WiringState {
+            board: BoardProfile::OriginalEsp32,
+            sensor_profile: SensorProfile::Minimal,
+            selected_devices: vec![DeviceKind::Bme280, DeviceKind::Lcd1602],
+            show_bus_labels: false,
+        };
+
+        let mut rig_a = DeviceSimulationRig::new(BoardProfile::OriginalEsp32);
+        let state_a = rig_a.step(&wiring_state);
+
+        let mut rig_b = DeviceSimulationRig::new(BoardProfile::OriginalEsp32);
+        rig_b.advance(&wiring_state);
+        let state_b = rig_b.snapshot(&wiring_state);
+
+        assert_eq!(state_a.tick, state_b.tick);
+        assert_eq!(state_a.climate.temperature_c, state_b.climate.temperature_c);
+        assert_eq!(
+            state_a.climate.humidity_percent,
+            state_b.climate.humidity_percent
+        );
+        assert_eq!(
+            state_a.wiring.attached_devices,
+            state_b.wiring.attached_devices
+        );
+        assert_eq!(state_a.i2c.recent_operations, state_b.i2c.recent_operations);
     }
 
     #[test]
