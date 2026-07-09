@@ -297,13 +297,18 @@ fn main() {
             println!("board changed to: {}", new_board.name());
         }
 
-        // Tick the simulation.
+        // Tick the simulation. `advance()` is the cheap phase (sensor mocks /
+        // internal counters only) and always runs; the expensive `snapshot()`
+        // formatting phase (wiring diagram, recent I2C ops, ...) only runs
+        // when the result will actually be pushed to SSE clients, since 9 of
+        // every 10 ticks previously built and discarded a full snapshot (#225).
         let wiring_state = ctx.wiring_state.lock().unwrap().clone();
-        let state = rig.step(&wiring_state);
+        rig.advance(&wiring_state);
         push_ticker = push_ticker.wrapping_add(1);
 
         // Push JSON to SSE clients every 10 ticks (~100 ms).
         if push_ticker % 10 == 0 {
+            let state = rig.snapshot(&wiring_state);
             let diag = &state.diagnostics;
             let diag_json = serde_json::to_string(diag).unwrap_or_default();
             // Append to history ring buffers when sensors are active.
@@ -945,6 +950,70 @@ mod tests {
         assert_eq!(state.gas.co2_ppm, None);
         assert_eq!(state.rtc.datetime_str, "");
         assert_eq!(state.tof.distance_mm, None);
+    }
+
+    #[test]
+    fn device_simulation_rig_snapshot_is_read_only_and_repeatable() {
+        // Regression test for #225: advance() (cheap) and snapshot()
+        // (expensive formatting) must be safely separable — snapshot() is a
+        // pure read that can be skipped or called multiple times per tick
+        // without re-triggering I2C reads or double-counting recorded bus
+        // operations.
+        let mut rig = DeviceSimulationRig::new(BoardProfile::OriginalEsp32);
+        let wiring_state = WiringState {
+            board: BoardProfile::OriginalEsp32,
+            sensor_profile: SensorProfile::Minimal,
+            selected_devices: vec![DeviceKind::Bme280, DeviceKind::Lcd1602],
+            show_bus_labels: false,
+        };
+
+        rig.advance(&wiring_state);
+        let ops_after_advance = rig.bus.operation_count();
+        assert!(ops_after_advance > 0);
+
+        let snap1 = rig.snapshot(&wiring_state);
+        let snap2 = rig.snapshot(&wiring_state);
+
+        assert_eq!(snap1.tick, rig.tick);
+        assert_eq!(snap2.tick, rig.tick);
+        assert_eq!(
+            rig.bus.operation_count(),
+            ops_after_advance,
+            "snapshot() must not perform additional I2C operations"
+        );
+        assert_eq!(snap1.climate.temperature_c, snap2.climate.temperature_c);
+        assert_eq!(snap1.i2c.recent_operations, snap2.i2c.recent_operations);
+    }
+
+    #[test]
+    fn device_simulation_rig_step_matches_advance_then_snapshot() {
+        // step() must remain equivalent to advance() followed by snapshot()
+        // so existing direct callers of step() keep working unchanged (#225).
+        let wiring_state = WiringState {
+            board: BoardProfile::OriginalEsp32,
+            sensor_profile: SensorProfile::Minimal,
+            selected_devices: vec![DeviceKind::Bme280, DeviceKind::Lcd1602],
+            show_bus_labels: false,
+        };
+
+        let mut rig_a = DeviceSimulationRig::new(BoardProfile::OriginalEsp32);
+        let state_a = rig_a.step(&wiring_state);
+
+        let mut rig_b = DeviceSimulationRig::new(BoardProfile::OriginalEsp32);
+        rig_b.advance(&wiring_state);
+        let state_b = rig_b.snapshot(&wiring_state);
+
+        assert_eq!(state_a.tick, state_b.tick);
+        assert_eq!(state_a.climate.temperature_c, state_b.climate.temperature_c);
+        assert_eq!(
+            state_a.climate.humidity_percent,
+            state_b.climate.humidity_percent
+        );
+        assert_eq!(
+            state_a.wiring.attached_devices,
+            state_b.wiring.attached_devices
+        );
+        assert_eq!(state_a.i2c.recent_operations, state_b.i2c.recent_operations);
     }
 
     #[test]
