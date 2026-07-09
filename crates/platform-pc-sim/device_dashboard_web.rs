@@ -127,8 +127,8 @@ impl SensorHistoryBuffer {
 
 /// Shared server state passed to every connection-handler thread.
 struct ServerContext {
-    latest_json: Mutex<String>,
-    sse_clients: Mutex<Vec<mpsc::SyncSender<String>>>,
+    latest_json: Mutex<Arc<str>>,
+    sse_clients: Mutex<Vec<mpsc::SyncSender<Arc<str>>>>,
     current_board: Mutex<BoardProfile>,
     /// Kept for future use; wiring API reads now go through `wiring_state`.
     #[allow(dead_code)]
@@ -146,7 +146,7 @@ struct ServerContext {
 impl ServerContext {
     fn new(board: BoardProfile) -> Arc<Self> {
         Arc::new(Self {
-            latest_json: Mutex::new("{}".into()),
+            latest_json: Mutex::new(Arc::from("{}")),
             sse_clients: Mutex::new(vec![]),
             current_board: Mutex::new(board),
             current_sensor_profile: Mutex::new(SensorProfile::Full),
@@ -166,12 +166,15 @@ impl ServerContext {
     }
 
     fn push_state(&self, json: String, diag_json: String) {
-        *self.latest_json.lock().unwrap() = json.clone();
+        // `Arc<str>` so fan-out to every SSE client bumps a refcount instead of
+        // allocating a fresh String copy per client (see #226).
+        let json: Arc<str> = Arc::from(json);
+        *self.latest_json.lock().unwrap() = Arc::clone(&json);
         *self.latest_diagnostics.lock().unwrap() = diag_json;
         self.sse_clients
             .lock()
             .unwrap()
-            .retain(|tx| tx.try_send(json.clone()).is_ok());
+            .retain(|tx| tx.try_send(Arc::clone(&json)).is_ok());
     }
 }
 
@@ -368,6 +371,7 @@ fn handle_connection(
             handle_sse_events(&mut stream, ctx);
         }
         (_, "/api/state") => {
+            // `Arc<str>`; `.clone()` only bumps a refcount, not a full copy.
             let json = ctx.latest_json.lock().unwrap().clone();
             respond(
                 &mut stream,
@@ -594,7 +598,7 @@ fn handle_sse_events(stream: &mut TcpStream, ctx: Arc<ServerContext>) {
     }
 
     let initial = ctx.latest_json.lock().unwrap().clone();
-    let (tx, rx) = mpsc::sync_channel::<String>(32);
+    let (tx, rx) = mpsc::sync_channel::<Arc<str>>(32);
     ctx.sse_clients.lock().unwrap().push(tx);
 
     if stream
@@ -769,7 +773,7 @@ mod tests {
             .local_addr()
             .expect("listener should have local addr");
         let ctx = ServerContext::new(BoardProfile::OriginalEsp32);
-        *ctx.latest_json.lock().unwrap() = r#"{"tick":1}"#.to_string();
+        *ctx.latest_json.lock().unwrap() = Arc::from(r#"{"tick":1}"#);
 
         let (board_tx, board_rx) = mpsc::channel::<BoardProfile>();
         drop(board_rx);
@@ -799,6 +803,34 @@ mod tests {
         ctx.sse_clients.lock().unwrap().clear();
 
         server.join().expect("server thread should exit");
+    }
+
+    #[test]
+    fn push_state_shares_json_allocation_across_sse_clients() {
+        // Regression test for #226: push_state() must fan out the same
+        // `Arc<str>` allocation to every subscribed SSE client (refcount
+        // bump only) instead of cloning a fresh `String` per client.
+        let ctx = ServerContext::new(BoardProfile::OriginalEsp32);
+        let (tx1, rx1) = mpsc::sync_channel::<Arc<str>>(4);
+        let (tx2, rx2) = mpsc::sync_channel::<Arc<str>>(4);
+        ctx.sse_clients.lock().unwrap().push(tx1);
+        ctx.sse_clients.lock().unwrap().push(tx2);
+
+        ctx.push_state(r#"{"tick":1}"#.to_string(), "[]".to_string());
+
+        let received1 = rx1.try_recv().expect("client 1 should receive state");
+        let received2 = rx2.try_recv().expect("client 2 should receive state");
+        assert!(
+            Arc::ptr_eq(&received1, &received2),
+            "SSE clients should share one Arc<str> allocation, not separate String copies"
+        );
+        assert_eq!(&*received1, r#"{"tick":1}"#);
+
+        let stored = ctx.latest_json.lock().unwrap().clone();
+        assert!(
+            Arc::ptr_eq(&received1, &stored),
+            "latest_json snapshot should also share the same allocation"
+        );
     }
 
     #[test]
