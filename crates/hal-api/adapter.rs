@@ -1,12 +1,14 @@
 //! Generic `embedded-hal` v1.0 → HAL-API adapter types.
 //!
-//! `GenericOutputPin`, `GenericInputPin`, and `GenericI2c` are thin wrappers
-//! around any `embedded-hal` v1.0 compatible peripheral.  Each platform crate
-//! re-exports them under a platform-specific name (e.g. `Esp32OutputPin`,
-//! `Rp2040OutputPin`, `AvrOutputPin`) to keep its own API surface stable.
+//! `GenericOutputPin`, `GenericInputPin`, `GenericI2c`, `GenericDelay`, and
+//! `GenericPwmOutput` are thin wrappers around any `embedded-hal` v1.0
+//! compatible peripheral.  Each platform crate re-exports them under a
+//! platform-specific name (e.g. `Esp32OutputPin`, `Rp2040OutputPin`,
+//! `AvrOutputPin`) to keep its own API surface stable.
 
 use core::cell::{Ref, RefCell, RefMut};
 
+use embedded_hal::delay::DelayNs;
 use embedded_hal::digital::{
     Error as EmbeddedDigitalError, InputPin as EmbeddedInputPin, OutputPin as EmbeddedOutputPin,
 };
@@ -14,10 +16,14 @@ use embedded_hal::i2c::{
     Error as EmbeddedI2cError, ErrorKind as EmbeddedI2cErrorKind, I2c as EmbeddedI2c,
     NoAcknowledgeSource, SevenBitAddress,
 };
+use embedded_hal::pwm::{
+    Error as EmbeddedPwmError, ErrorKind as EmbeddedPwmErrorKind, SetDutyCycle,
+};
 
-use crate::error::{GpioError, I2cError};
+use crate::error::{ActuatorError, GpioError, I2cError};
 use crate::gpio::{InputPin, OutputPin};
 use crate::i2c::I2cBus;
+use crate::pwm::PwmOutput;
 
 // ── Error mappers ──────────────────────────────────────────────────────────────
 
@@ -40,6 +46,13 @@ fn map_i2c_error(error: impl EmbeddedI2cError) -> I2cError {
         | EmbeddedI2cErrorKind::Other => I2cError::BusError,
         // #[non_exhaustive] forward-compat: future variants default to BusError.
         _ => I2cError::BusError,
+    }
+}
+
+fn map_pwm_error(error: impl EmbeddedPwmError) -> ActuatorError {
+    match error.kind() {
+        EmbeddedPwmErrorKind::Other => ActuatorError::HardwareError,
+        _ => ActuatorError::HardwareError,
     }
 }
 
@@ -171,6 +184,82 @@ where
         self.inner
             .write_read(addr, bytes, buffer)
             .map_err(map_i2c_error)
+    }
+}
+
+// ── GenericDelay ───────────────────────────────────────────────────────────────
+
+/// Generic delay adapter for any `embedded-hal` v1.0 `DelayNs`.
+pub struct GenericDelay<D> {
+    inner: D,
+}
+
+impl<D: DelayNs> GenericDelay<D> {
+    pub fn new(inner: D) -> Self {
+        Self { inner }
+    }
+
+    pub fn into_inner(self) -> D {
+        self.inner
+    }
+}
+
+impl<D: DelayNs> DelayNs for GenericDelay<D> {
+    fn delay_ns(&mut self, ns: u32) {
+        self.inner.delay_ns(ns);
+    }
+}
+
+// ── GenericPwmOutput ───────────────────────────────────────────────────────────
+
+/// Generic PWM output adapter for any `embedded-hal` v1.0 `SetDutyCycle`.
+///
+/// Duty is expressed as a 0–100 percentage, matching [`PwmOutput`].
+pub struct GenericPwmOutput<P> {
+    inner: P,
+    current_duty: u8,
+}
+
+impl<P> GenericPwmOutput<P> {
+    pub fn new(inner: P) -> Self {
+        Self {
+            inner,
+            current_duty: 0,
+        }
+    }
+
+    pub fn inner(&self) -> &P {
+        &self.inner
+    }
+
+    pub fn inner_mut(&mut self) -> &mut P {
+        &mut self.inner
+    }
+
+    pub fn into_inner(self) -> P {
+        self.inner
+    }
+}
+
+impl<P> PwmOutput for GenericPwmOutput<P>
+where
+    P: SetDutyCycle,
+{
+    type Error = ActuatorError;
+
+    fn set_duty_percent(&mut self, duty: u8) -> Result<(), Self::Error> {
+        if duty > 100 {
+            return Err(ActuatorError::InvalidCommand);
+        }
+        self.inner
+            .set_duty_cycle_percent(duty)
+            .map_err(map_pwm_error)?;
+        self.current_duty = duty;
+        Ok(())
+    }
+
+    fn duty_percent(&self) -> u8 {
+        self.current_duty
     }
 }
 
@@ -515,5 +604,136 @@ mod tests {
             i2c.write_read(0x48, &[0x01], &mut buffer),
             Err(I2cError::BusError)
         );
+    }
+
+    // ── Delay helpers ───────────────────────────────────────────────────────────
+
+    struct CountingDelay {
+        ns_total: u64,
+    }
+
+    impl DelayNs for CountingDelay {
+        fn delay_ns(&mut self, ns: u32) {
+            self.ns_total += u64::from(ns);
+        }
+    }
+
+    // ── Delay tests ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn delay_forwards_ns() {
+        let inner = CountingDelay { ns_total: 0 };
+        let mut delay = GenericDelay::new(inner);
+
+        delay.delay_ns(1_000);
+        delay.delay_ns(2_000);
+
+        assert_eq!(delay.into_inner().ns_total, 3_000);
+    }
+
+    #[test]
+    fn delay_exposes_inner() {
+        let inner = CountingDelay { ns_total: 42 };
+        let delay = GenericDelay::new(inner);
+
+        assert_eq!(delay.into_inner().ns_total, 42);
+    }
+
+    // ── Pwm helpers ─────────────────────────────────────────────────────────────
+
+    struct DummyPwm {
+        duty: u16,
+        max: u16,
+    }
+
+    impl DummyPwm {
+        fn new(max: u16) -> Self {
+            Self { duty: 0, max }
+        }
+    }
+
+    impl embedded_hal::pwm::ErrorType for DummyPwm {
+        type Error = Infallible;
+    }
+
+    impl SetDutyCycle for DummyPwm {
+        fn max_duty_cycle(&self) -> u16 {
+            self.max
+        }
+
+        fn set_duty_cycle(&mut self, duty: u16) -> Result<(), Self::Error> {
+            self.duty = duty;
+            Ok(())
+        }
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    struct DummyPwmError;
+
+    impl embedded_hal::pwm::Error for DummyPwmError {
+        fn kind(&self) -> EmbeddedPwmErrorKind {
+            EmbeddedPwmErrorKind::Other
+        }
+    }
+
+    struct FailingPwm;
+
+    impl embedded_hal::pwm::ErrorType for FailingPwm {
+        type Error = DummyPwmError;
+    }
+
+    impl SetDutyCycle for FailingPwm {
+        fn max_duty_cycle(&self) -> u16 {
+            1000
+        }
+
+        fn set_duty_cycle(&mut self, _duty: u16) -> Result<(), Self::Error> {
+            Err(DummyPwmError)
+        }
+    }
+
+    // ── Pwm tests ───────────────────────────────────────────────────────────────
+
+    #[test]
+    fn pwm_output_delegates_to_inner_channel() {
+        let inner = DummyPwm::new(1000);
+        let mut pwm = GenericPwmOutput::new(inner);
+
+        pwm.set_duty_percent(50).unwrap();
+
+        assert_eq!(pwm.duty_percent(), 50);
+        // max=1000, percent=50 → duty_cycle_fraction(50,100) → 1000*50/100 = 500
+        assert_eq!(pwm.inner().duty, 500);
+    }
+
+    #[test]
+    fn pwm_output_rejects_duty_over_100() {
+        let inner = DummyPwm::new(1000);
+        let mut pwm = GenericPwmOutput::new(inner);
+
+        assert_eq!(
+            pwm.set_duty_percent(101),
+            Err(ActuatorError::InvalidCommand)
+        );
+    }
+
+    #[test]
+    fn pwm_output_maps_hardware_errors() {
+        let mut pwm = GenericPwmOutput::new(FailingPwm);
+
+        assert_eq!(pwm.set_duty_percent(50), Err(ActuatorError::HardwareError));
+    }
+
+    #[test]
+    fn pwm_output_into_inner_returns_wrapped_channel() {
+        let inner = DummyPwm::new(255);
+        let pwm = GenericPwmOutput::new(inner);
+        assert_eq!(pwm.into_inner().max, 255);
+    }
+
+    #[test]
+    fn pwm_initial_duty_is_zero() {
+        let pwm = GenericPwmOutput::new(DummyPwm::new(1000));
+        assert_eq!(pwm.duty_percent(), 0);
     }
 }
