@@ -280,4 +280,67 @@ mod tests {
         );
         assert_eq!(driver.channel_b().current_command().duty_percent, 20);
     }
+
+    struct FailingPin;
+
+    impl OutputPin for FailingPin {
+        type Error = ActuatorError;
+
+        fn set_high(&mut self) -> Result<(), Self::Error> {
+            Err(ActuatorError::HardwareError)
+        }
+
+        fn set_low(&mut self) -> Result<(), Self::Error> {
+            Err(ActuatorError::HardwareError)
+        }
+    }
+
+    #[test]
+    fn l298n_channel_propagates_direction_pin_hardware_errors() {
+        let mut ch = L298nChannel::new(FailingPin, RecordingPin::new(), RecordingPwm::new());
+        assert_eq!(
+            ch.apply(MotorCommand::new(MotorDirection::Forward, 50)),
+            Err(ActuatorError::HardwareError)
+        );
+    }
+
+    #[test]
+    fn l298n_channel_propagates_enable_pwm_hardware_errors() {
+        struct FailingPwm;
+        impl PwmOutput for FailingPwm {
+            type Error = ActuatorError;
+            fn set_duty_percent(&mut self, _duty: u8) -> Result<(), Self::Error> {
+                Err(ActuatorError::HardwareError)
+            }
+            fn duty_percent(&self) -> u8 {
+                0
+            }
+        }
+
+        let mut ch = L298nChannel::new(RecordingPin::new(), RecordingPin::new(), FailingPwm);
+        assert_eq!(
+            ch.apply(MotorCommand::new(MotorDirection::Forward, 50)),
+            Err(ActuatorError::HardwareError)
+        );
+    }
+
+    #[test]
+    fn l298n_dual_driver_short_circuits_when_channel_a_fails() {
+        let failing_a = L298nChannel::new(FailingPin, RecordingPin::new(), RecordingPwm::new());
+        let mut driver = L298nDualDriver::new(failing_a, make_channel());
+        let left = MotorCommand::new(MotorDirection::Forward, 35);
+        let right = MotorCommand::new(MotorDirection::Reverse, 20);
+
+        assert_eq!(
+            driver.apply_channels(left, right),
+            Err(ActuatorError::HardwareError)
+        );
+        // channel B must be left untouched (still default Coast/0) since
+        // apply_channels short-circuits via `?` on channel A's error
+        assert_eq!(
+            driver.channel_b().current_command().direction,
+            MotorDirection::Coast
+        );
+        assert_eq!(driver.channel_b().current_command().duty_percent, 0);
+    }
 }

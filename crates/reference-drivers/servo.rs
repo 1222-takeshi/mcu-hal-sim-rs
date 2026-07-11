@@ -126,4 +126,29 @@ mod tests {
         let driver = ServoDriver::new(SpyPwm::new());
         assert_eq!(driver.current_angle(), 90);
     }
+
+    struct FailingPwm;
+
+    impl PwmOutput for FailingPwm {
+        type Error = ActuatorError;
+
+        fn set_duty_percent(&mut self, _duty: u8) -> Result<(), Self::Error> {
+            Err(ActuatorError::HardwareError)
+        }
+
+        fn duty_percent(&self) -> u8 {
+            0
+        }
+    }
+
+    #[test]
+    fn servo_driver_propagates_pwm_hardware_errors_and_keeps_last_angle() {
+        let mut driver = ServoDriver::new(FailingPwm);
+        assert_eq!(
+            driver.set_angle_degrees(45),
+            Err(ActuatorError::HardwareError)
+        );
+        // failed write must not update the tracked angle
+        assert_eq!(driver.current_angle(), 90);
+    }
 }
