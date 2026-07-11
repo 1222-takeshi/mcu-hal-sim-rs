@@ -5,7 +5,7 @@
 //! on success the device replies with `200 OK` and reboots into the new image.
 
 use std::fmt;
-use std::io::{self, BufRead, BufReader, Read, Write};
+use std::io::{self, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::thread;
 use std::time::Duration;
@@ -18,16 +18,14 @@ use esp_idf_svc::nvs::EspDefaultNvsPartition;
 use esp_idf_svc::ota::EspOta;
 use esp_idf_svc::sys::{self, EspError};
 use esp_idf_svc::wifi::{AuthMethod, BlockingWifi, ClientConfiguration, Configuration, EspWifi};
+use ota_http::{read_ota_request, OtaRequestError, RequestLimits};
 
 const WIFI_SSID: &str = env!("OTA_WIFI_SSID");
 const WIFI_PSK: &str = env!("OTA_WIFI_PSK");
 const OTA_AUTH_TOKEN: &str = env!("OTA_AUTH_TOKEN");
 
 const OTA_TCP_PORT: u16 = 8080;
-const MAX_OTA_SIZE: usize = 0x1E0000;
 const OTA_CHUNK_SIZE: usize = 512;
-const MAX_HEADER_LINE_LEN: usize = 512;
-const MAX_HEADER_BYTES: usize = 2048;
 const READ_TIMEOUT: Duration = Duration::from_secs(120);
 const REBOOT_DELAY: Duration = Duration::from_millis(500);
 
@@ -59,35 +57,6 @@ impl From<EspError> for AppError {
 impl From<io::Error> for AppError {
     fn from(value: io::Error) -> Self {
         Self::Io(value)
-    }
-}
-
-#[derive(Debug)]
-enum OtaRequestError {
-    BadRequest,
-    Unauthorized,
-    HeaderTooLarge,
-    LengthRequired,
-    PayloadTooLarge(usize),
-    Io(io::Error),
-}
-
-impl From<io::Error> for OtaRequestError {
-    fn from(value: io::Error) -> Self {
-        Self::Io(value)
-    }
-}
-
-impl fmt::Display for OtaRequestError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::BadRequest => write!(f, "bad request"),
-            Self::Unauthorized => write!(f, "missing or invalid OTA token"),
-            Self::HeaderTooLarge => write!(f, "request header too large"),
-            Self::LengthRequired => write!(f, "missing or invalid Content-Length"),
-            Self::PayloadTooLarge(len) => write!(f, "payload too large: {len} bytes"),
-            Self::Io(err) => write!(f, "I/O error while reading request: {err}"),
-        }
     }
 }
 
@@ -202,7 +171,8 @@ fn handle_client(stream: TcpStream, ota: &mut EspOta) -> bool {
     }
 
     let mut reader = BufReader::new(stream);
-    let content_len = match read_ota_request(&mut reader) {
+    let content_len = match read_ota_request(&mut reader, OTA_AUTH_TOKEN, RequestLimits::default())
+    {
         Ok(len) => len,
         Err(err) => {
             println!("[ota] request rejected: {err}");
@@ -230,85 +200,6 @@ fn handle_client(stream: TcpStream, ota: &mut EspOta) -> bool {
             false
         }
     }
-}
-
-fn read_ota_request<R: BufRead>(reader: &mut R) -> Result<usize, OtaRequestError> {
-    let request_line = read_header_line(reader)?;
-    if request_line.is_empty() {
-        return Err(OtaRequestError::BadRequest);
-    }
-    let mut header_bytes = request_line.len();
-
-    let mut parts = request_line.split_whitespace();
-    let method = parts.next().unwrap_or_default();
-    let path = parts.next().unwrap_or_default();
-    let version = parts.next().unwrap_or_default();
-    if method != "POST" || path != "/ota" || !version.starts_with("HTTP/1.") {
-        return Err(OtaRequestError::BadRequest);
-    }
-
-    let mut content_length = None;
-    let mut ota_token_ok = false;
-    loop {
-        let line = read_header_line(reader)?;
-        if line.is_empty() {
-            return Err(OtaRequestError::BadRequest);
-        }
-        header_bytes += line.len();
-        if header_bytes > MAX_HEADER_BYTES {
-            return Err(OtaRequestError::HeaderTooLarge);
-        }
-
-        let trimmed = line.trim_end_matches(['\r', '\n']);
-        if trimmed.is_empty() {
-            break;
-        }
-
-        if let Some((name, value)) = trimmed.split_once(':') {
-            if name.eq_ignore_ascii_case("content-length") {
-                content_length = value.trim().parse::<usize>().ok();
-            } else if name.eq_ignore_ascii_case("x-ota-token") {
-                ota_token_ok = value.trim() == OTA_AUTH_TOKEN;
-            }
-        }
-    }
-
-    if !ota_token_ok {
-        return Err(OtaRequestError::Unauthorized);
-    }
-
-    let len = content_length.ok_or(OtaRequestError::LengthRequired)?;
-    if len == 0 || len > MAX_OTA_SIZE {
-        return Err(OtaRequestError::PayloadTooLarge(len));
-    }
-
-    Ok(len)
-}
-
-fn read_header_line<R: BufRead>(reader: &mut R) -> Result<String, OtaRequestError> {
-    let mut line = Vec::new();
-
-    loop {
-        let available = reader.fill_buf()?;
-        if available.is_empty() {
-            break;
-        }
-
-        let newline = available.iter().position(|byte| *byte == b'\n');
-        let take_len = newline.map_or(available.len(), |pos| pos + 1);
-        if line.len() + take_len > MAX_HEADER_LINE_LEN {
-            return Err(OtaRequestError::HeaderTooLarge);
-        }
-
-        line.extend_from_slice(&available[..take_len]);
-        reader.consume(take_len);
-
-        if newline.is_some() {
-            break;
-        }
-    }
-
-    String::from_utf8(line).map_err(|_| OtaRequestError::BadRequest)
 }
 
 fn write_ota_image<R: Read>(

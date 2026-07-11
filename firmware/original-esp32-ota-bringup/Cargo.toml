@@ -5,6 +5,7 @@ edition = "2021"
 publish = false
 
 [workspace]
+exclude = ["ota-http"]
 
 # OTA bringup firmware for original ESP32 (WROOM-32).
 #
@@ -16,6 +17,7 @@ publish = false
 
 [dependencies]
 esp-idf-svc = "0.52.1"
+ota-http = { path = "ota-http" }
 
 [build-dependencies]
 embuild = "0.33.1"

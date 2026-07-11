@@ -46,6 +46,9 @@ jobs:
       - name: Run tests
         run: cargo test --all --verbose
 
+      - name: Run ESP32 OTA parser tests
+        run: cargo test --manifest-path firmware/original-esp32-ota-bringup/ota-http/Cargo.toml --verbose
+
   build:
     name: Build
     runs-on: ubuntu-latest
@@ -95,6 +98,9 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+      - name: Check ESP32 OTA parser formatting
+        run: cargo fmt --manifest-path firmware/original-esp32-ota-bringup/ota-http/Cargo.toml -- --check
+
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
@@ -130,6 +136,9 @@ jobs:
 
       - name: Run clippy
         run: cargo clippy --all --all-targets -- -D warnings
+
+      - name: Run clippy for ESP32 OTA parser
+        run: cargo clippy --manifest-path firmware/original-esp32-ota-bringup/ota-http/Cargo.toml --all-targets -- -D warnings
 
   no-std:
     name: no_std Check
@@ -327,6 +336,9 @@ jobs:
 
       - name: Measure coverage
         run: cargo llvm-cov --workspace --all-targets --summary-only --fail-under-lines 80
+
+      - name: Measure ESP32 OTA parser coverage
+        run: cargo llvm-cov --manifest-path firmware/original-esp32-ota-bringup/ota-http/Cargo.toml --all-targets --summary-only --fail-under-lines 80
 
   boundary:
     name: Workspace Boundary Check
