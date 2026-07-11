@@ -30,3 +30,12 @@
   指定し、USB 初回書込み時にも OTA partition table を使う。
 - **適用条件**: original ESP32 で WiFi OTA 受信、NVS、OTA slot 切替を扱う firmware を作る場合。
 - **例**: `OTA_WIFI_SSID=dummy OTA_WIFI_PSK=dummy OTA_AUTH_TOKEN=dummy cargo build --release`
+
+## ESP32 OTA parser のホストテスト（追記日: 2026-07-11）
+
+- **概要**: ESP-IDF に依存しない OTA HTTP 入力検証は `original-esp32-ota-bringup/ota-http` の独立
+  workspace に分離し、実機や ESP toolchain なしでテストする。
+- **詳細**: firmware 側は path dependency として同じ parser を使用する。親 workspace では
+  `exclude = ["ota-http"]` を指定し、nested workspace の競合と ESP-IDF 依存の host 解決を避ける。
+- **適用条件**: ESP-IDF firmware の純粋な入力検証を、root workspace と独立して CI 実行する場合。
+- **例**: `cargo test --manifest-path firmware/original-esp32-ota-bringup/ota-http/Cargo.toml`
