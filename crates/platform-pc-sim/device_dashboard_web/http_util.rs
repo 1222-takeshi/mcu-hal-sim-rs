@@ -3,12 +3,16 @@ use std::net::TcpStream;
 
 /// Send an HTTP response with the given status, content-type, and body.
 pub(super) fn respond(stream: &mut TcpStream, status: &str, content_type: &str, body: &str) {
-    let response = format!(
-        "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-        body.len(),
-        body
+    let header = format!(
+        "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
     );
-    let _ = stream.write_all(response.as_bytes());
+    // Write header and body separately so the (potentially large) body is
+    // never copied into a fresh allocation just to prepend a header line.
+    if stream.write_all(header.as_bytes()).is_err() {
+        return;
+    }
+    let _ = stream.write_all(body.as_bytes());
 }
 
 /// Extract a string field value from a minimal JSON body.
