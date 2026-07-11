@@ -606,21 +606,24 @@ fn handle_sse_events(stream: &mut TcpStream, ctx: Arc<ServerContext>) {
     let (tx, rx) = mpsc::sync_channel::<Arc<str>>(32);
     ctx.sse_clients.lock().unwrap().push(tx);
 
-    if stream
-        .write_all(format!("data: {initial}\n\n").as_bytes())
-        .is_err()
-    {
+    if write_sse_frame(stream, &initial).is_err() {
         return;
     }
 
     for json in rx {
-        if stream
-            .write_all(format!("data: {json}\n\n").as_bytes())
-            .is_err()
-        {
+        if write_sse_frame(stream, &json).is_err() {
             break;
         }
     }
+}
+
+/// Write one SSE `data:` frame as separate byte slices instead of
+/// `format!`-ing a new `String`, so each client's per-tick send doesn't
+/// copy the whole JSON payload (defeats the point of the `Arc<str>` fan-out).
+fn write_sse_frame(stream: &mut TcpStream, json: &str) -> std::io::Result<()> {
+    stream.write_all(b"data: ")?;
+    stream.write_all(json.as_bytes())?;
+    stream.write_all(b"\n\n")
 }
 
 #[cfg(test)]
