@@ -119,6 +119,10 @@ pub(super) struct DeviceSimulationRig {
     pub start_instant: std::time::Instant,
     /// Device selection from the previous tick — used to detect toggle events.
     pub last_selected_devices: Vec<DeviceKind>,
+    /// Cached wiring diagram lines keyed by the `WiringConfig` that produced
+    /// them, so `snapshot()` only re-renders the diagram when the wiring
+    /// actually changes instead of on every SSE push tick.
+    wiring_diagram_cache: Option<(WiringConfig, Vec<String>)>,
 }
 
 impl DeviceSimulationRig {
@@ -214,6 +218,7 @@ impl DeviceSimulationRig {
             diag_event_count: 0,
             start_instant: std::time::Instant::now(),
             last_selected_devices: vec![],
+            wiring_diagram_cache: None,
         }
     }
 
@@ -505,12 +510,27 @@ impl DeviceSimulationRig {
         }
     }
 
+    /// Returns the formatted wiring diagram for `config`, reusing the cached
+    /// result when the wiring hasn't changed since the last snapshot instead
+    /// of re-running `build_wiring_diagram()`'s string formatting on every
+    /// SSE push tick.
+    fn cached_wiring_diagram(&mut self, config: &WiringConfig) -> Vec<String> {
+        if let Some((cached_config, cached_lines)) = &self.wiring_diagram_cache {
+            if cached_config == config {
+                return cached_lines.clone();
+            }
+        }
+        let lines = build_wiring_diagram(config);
+        self.wiring_diagram_cache = Some((config.clone(), lines.clone()));
+        lines
+    }
+
     /// Expensive "snapshot" phase: format the wiring diagram, recent I2C
     /// operation log, and display frames into a full `DeviceDashboardState`.
     /// Only invoke this when the result will actually be used (e.g. pushed
     /// to SSE clients) — see #225. Read-only: does not advance the
     /// simulation, so it is safe to call zero or more times per tick.
-    pub fn snapshot(&self, wiring_state: &WiringState) -> DeviceDashboardState {
+    pub fn snapshot(&mut self, wiring_state: &WiringState) -> DeviceDashboardState {
         let tick = self.tick;
         let selected_devices = normalize_supported_device_selection(
             wiring_state.board,
@@ -650,7 +670,7 @@ impl DeviceSimulationRig {
                 scl_pin: wiring_config.scl_pin.clone(),
                 power_pin: wiring_config.power_pin.clone(),
                 ground_pin: wiring_config.ground_pin.clone(),
-                diagram_lines: build_wiring_diagram(&wiring_config),
+                diagram_lines: self.cached_wiring_diagram(&wiring_config),
                 attached_devices,
                 selected_devices: selected_devices
                     .iter()

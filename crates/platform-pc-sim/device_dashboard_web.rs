@@ -989,6 +989,47 @@ mod tests {
     }
 
     #[test]
+    fn device_simulation_rig_wiring_diagram_cache_tracks_config_changes() {
+        // Regression test: snapshot() caches the formatted wiring diagram
+        // keyed by WiringConfig so unchanged wiring reuses the cached lines,
+        // but a real wiring change (device selection here) must still
+        // produce updated diagram content rather than stale cached lines.
+        let mut rig = DeviceSimulationRig::new(BoardProfile::OriginalEsp32);
+
+        let minimal_state = WiringState {
+            board: BoardProfile::OriginalEsp32,
+            sensor_profile: SensorProfile::Minimal,
+            selected_devices: vec![DeviceKind::Bme280, DeviceKind::Lcd1602],
+            show_bus_labels: false,
+        };
+        rig.advance(&minimal_state);
+        let snap1 = rig.snapshot(&minimal_state);
+        let snap2 = rig.snapshot(&minimal_state);
+        assert_eq!(
+            snap1.wiring.diagram_lines, snap2.wiring.diagram_lines,
+            "unchanged wiring config must yield identical cached diagram lines"
+        );
+
+        let full_state = WiringState {
+            board: BoardProfile::OriginalEsp32,
+            sensor_profile: SensorProfile::Full,
+            selected_devices: vec![
+                DeviceKind::Bme280,
+                DeviceKind::Lcd1602,
+                DeviceKind::HcSr04,
+                DeviceKind::Servo,
+            ],
+            show_bus_labels: false,
+        };
+        rig.advance(&full_state);
+        let snap3 = rig.snapshot(&full_state);
+        assert_ne!(
+            snap1.wiring.diagram_lines, snap3.wiring.diagram_lines,
+            "changed wiring config must invalidate the cache and reflect new devices"
+        );
+    }
+
+    #[test]
     fn device_simulation_rig_step_matches_advance_then_snapshot() {
         // step() must remain equivalent to advance() followed by snapshot()
         // so existing direct callers of step() keep working unchanged (#225).

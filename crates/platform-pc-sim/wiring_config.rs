@@ -276,7 +276,7 @@ pub enum ConnectionType {
 }
 
 /// Specification of a single device in the wiring config.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DeviceSpec {
     pub kind: DeviceKind,
     /// I2C address (None for GPIO devices).
@@ -313,7 +313,7 @@ impl DeviceSpec {
 }
 
 /// Full wiring description for the board + all attached devices.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct WiringConfig {
     pub board: BoardProfile,
     pub sensor_profile: SensorProfile,
