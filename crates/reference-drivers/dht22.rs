@@ -112,4 +112,23 @@ mod tests {
         let mut sensor = Dht22Sensor::new(stub);
         assert!(matches!(sensor.read(), Err(SensorError::InvalidReading)));
     }
+
+    struct FailingDht22 {
+        error: SensorError,
+    }
+
+    impl Dht22RawDevice for FailingDht22 {
+        type Error = SensorError;
+        fn read_raw_bytes(&mut self) -> Result<[u8; 5], SensorError> {
+            Err(self.error.clone())
+        }
+    }
+
+    #[test]
+    fn dht22_propagates_raw_device_errors() {
+        let mut sensor = Dht22Sensor::new(FailingDht22 {
+            error: SensorError::BusError,
+        });
+        assert_eq!(sensor.read(), Err(SensorError::BusError));
+    }
 }
