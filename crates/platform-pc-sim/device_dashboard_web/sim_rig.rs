@@ -592,8 +592,8 @@ impl DeviceSimulationRig {
         };
 
         DeviceDashboardState {
-            board_name: self.board.name().to_string(),
-            mcu_name: self.board.mcu().to_string(),
+            board_name: self.board.name(),
+            mcu_name: self.board.mcu(),
             tick,
             climate: ClimatePanelState {
                 temperature_c: if bme280_enabled {
@@ -624,10 +624,10 @@ impl DeviceSimulationRig {
                 } else {
                     None
                 },
-                sensor_name: "HC-SR04".to_string(),
+                sensor_name: "HC-SR04",
             },
             imu: ImuPanelState {
-                sensor_name: "MPU6050".to_string(),
+                sensor_name: "MPU6050",
                 accel_mg: if is_enabled(DeviceKind::Mpu6050) {
                     imu.accel_mg
                 } else {
@@ -653,7 +653,7 @@ impl DeviceSimulationRig {
                 },
             },
             motor_driver: MotorDriverPanelState {
-                driver_name: "L298N dual H-bridge".to_string(),
+                driver_name: "L298N dual H-bridge",
                 left: if is_enabled(DeviceKind::L298n) {
                     channel_state(self.motor_driver.channel_a().current_command())
                 } else {
@@ -684,33 +684,33 @@ impl DeviceSimulationRig {
             },
             light: LightPanelState {
                 lux_x100: self.last_lux_x100,
-                sensor_name: "BH1750".to_string(),
+                sensor_name: "BH1750",
             },
             camera: CameraPanelState {
                 width: self.camera.resolution().0,
                 height: self.camera.resolution().1,
                 sequence: self.last_camera_sequence,
-                sensor_name: "ESP32-CAM".to_string(),
+                sensor_name: "ESP32-CAM",
             },
             gas: GasPanelState {
                 co2_ppm: self.last_gas.map(|g| g.co2_ppm),
                 voc_ppb: self.last_gas.map(|g| g.voc_ppb),
-                sensor_name: "SGP30".to_string(),
+                sensor_name: "SGP30",
             },
             rtc: RtcPanelState {
                 datetime_str: self.last_rtc_str.clone(),
-                sensor_name: "DS3231".to_string(),
+                sensor_name: "DS3231",
             },
             tof: TofPanelState {
                 distance_mm: self.last_tof_mm,
-                sensor_name: "VL53L0X".to_string(),
+                sensor_name: "VL53L0X",
             },
             oled: OledPanelState {
                 frame: self
                     .last_oled_frame
                     .clone()
                     .unwrap_or_else(|| ["".to_string(), "".to_string()]),
-                sensor_name: "SSD1306".to_string(),
+                sensor_name: "SSD1306",
             },
             diagnostics: DiagnosticsPanelState {
                 recent_events: self.diag_ring.iter().rev().cloned().collect(),
