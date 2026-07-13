@@ -4,8 +4,10 @@ use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct DeviceDashboardState {
-    pub board_name: String,
-    pub mcu_name: String,
+    /// Board / MCU names are always fixed labels picked from `BoardProfile`,
+    /// so `&'static str` avoids a per-tick allocation vs. `String`.
+    pub board_name: &'static str,
+    pub mcu_name: &'static str,
     pub tick: u32,
     pub climate: ClimatePanelState,
     pub distance: DistancePanelState,
@@ -35,12 +37,12 @@ pub struct ClimatePanelState {
 #[derive(Debug, Clone, Serialize)]
 pub struct DistancePanelState {
     pub distance_mm: Option<u32>,
-    pub sensor_name: String,
+    pub sensor_name: &'static str,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ImuPanelState {
-    pub sensor_name: String,
+    pub sensor_name: &'static str,
     pub accel_mg: [i16; 3],
     pub gyro_mdps: [i32; 3],
     pub temperature_c: Option<f32>,
@@ -59,7 +61,7 @@ pub struct MotorChannelState {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct MotorDriverPanelState {
-    pub driver_name: String,
+    pub driver_name: &'static str,
     pub left: MotorChannelState,
     pub right: MotorChannelState,
 }
@@ -85,7 +87,7 @@ pub struct I2cPanelState {
 #[derive(Debug, Clone, Serialize)]
 pub struct LightPanelState {
     pub lux_x100: u32,
-    pub sensor_name: String,
+    pub sensor_name: &'static str,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -93,32 +95,32 @@ pub struct CameraPanelState {
     pub width: u32,
     pub height: u32,
     pub sequence: u32,
-    pub sensor_name: String,
+    pub sensor_name: &'static str,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct GasPanelState {
     pub co2_ppm: Option<u16>,
     pub voc_ppb: Option<u16>,
-    pub sensor_name: String,
+    pub sensor_name: &'static str,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct RtcPanelState {
     pub datetime_str: String,
-    pub sensor_name: String,
+    pub sensor_name: &'static str,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TofPanelState {
     pub distance_mm: Option<u32>,
-    pub sensor_name: String,
+    pub sensor_name: &'static str,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct OledPanelState {
     pub frame: [String; 2],
-    pub sensor_name: String,
+    pub sensor_name: &'static str,
 }
 
 /// Diagnostics ring buffer state surfaced per tick.

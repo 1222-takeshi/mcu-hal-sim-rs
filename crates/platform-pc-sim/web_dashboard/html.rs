@@ -1919,8 +1919,8 @@ mod tests {
     #[test]
     fn state_serializes_to_json() {
         let json = state_to_json(&DeviceDashboardState {
-            board_name: "Arduino Nano".to_string(),
-            mcu_name: "ATmega328P".to_string(),
+            board_name: "Arduino Nano",
+            mcu_name: "ATmega328P",
             tick: 3,
             climate: ClimatePanelState {
                 temperature_c: Some(24.8),
@@ -1937,17 +1937,17 @@ mod tests {
             },
             distance: DistancePanelState {
                 distance_mm: Some(180),
-                sensor_name: "HC-SR04".to_string(),
+                sensor_name: "HC-SR04",
             },
             imu: ImuPanelState {
-                sensor_name: "MPU6050".to_string(),
+                sensor_name: "MPU6050",
                 accel_mg: [0, 0, 1000],
                 gyro_mdps: [0, 0, 0],
                 temperature_c: Some(24.5),
             },
             servo: ServoPanelState { angle_degrees: 45 },
             motor_driver: MotorDriverPanelState {
-                driver_name: "L298N".to_string(),
+                driver_name: "L298N",
                 left: MotorChannelState {
                     direction: "forward".to_string(),
                     duty_percent: 40,
@@ -1973,33 +1973,33 @@ mod tests {
             },
             light: LightPanelState {
                 lux_x100: 5000,
-                sensor_name: "BH1750".to_string(),
+                sensor_name: "BH1750",
             },
             camera: CameraPanelState {
                 width: 320,
                 height: 240,
                 sequence: 1,
-                sensor_name: "ESP32-CAM".to_string(),
+                sensor_name: "ESP32-CAM",
             },
             gas: GasPanelState {
                 co2_ppm: Some(450),
                 voc_ppb: Some(25),
-                sensor_name: "SGP30".to_string(),
+                sensor_name: "SGP30",
             },
             rtc: RtcPanelState {
                 datetime_str: "2025-05-04 12:00:00".to_string(),
-                sensor_name: "DS3231".to_string(),
+                sensor_name: "DS3231",
             },
             tof: TofPanelState {
                 distance_mm: Some(500),
-                sensor_name: "VL53L0X".to_string(),
+                sensor_name: "VL53L0X",
             },
             oled: OledPanelState {
                 frame: [
                     "Hello World!    ".to_string(),
                     "SSD1306 Mock    ".to_string(),
                 ],
-                sensor_name: "SSD1306".to_string(),
+                sensor_name: "SSD1306",
             },
             diagnostics: DiagnosticsPanelState {
                 event_count: 3,
