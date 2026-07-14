@@ -9,7 +9,7 @@ documentation = "https://docs.rs/core-app"
 readme = "README.md"
 keywords = ["embedded", "application", "simulator", "no-std", "iot"]
 categories = ["embedded", "no-std"]
-rust-version = "1.66"
+rust-version = "1.70"
 
 [features]
 default = ["std"]

@@ -9,7 +9,7 @@ documentation = "https://docs.rs/platform-pc-sim"
 readme = "README.md"
 keywords = ["embedded", "simulator", "mock", "hal", "testing"]
 categories = ["embedded", "development-tools::testing"]
-rust-version = "1.66"
+rust-version = "1.70"
 
 [dependencies]
 hal-api = { version = "0.1.0", path = "../hal-api" }
