@@ -220,6 +220,27 @@ mod tests {
     }
 
     #[test]
+    fn ds3231_set_datetime_propagates_bus_error() {
+        use hal_api::rtc::RtcSensor;
+        struct FailI2c;
+        impl I2cBus for FailI2c {
+            type Error = I2cError;
+            fn write(&mut self, _: u8, _: &[u8]) -> Result<(), I2cError> {
+                Err(I2cError::BusError)
+            }
+            fn read(&mut self, _: u8, _: &mut [u8]) -> Result<(), I2cError> {
+                Ok(())
+            }
+            fn write_read(&mut self, _: u8, _: &[u8], _: &mut [u8]) -> Result<(), I2cError> {
+                Ok(())
+            }
+        }
+        let mut sensor = Ds3231Sensor::new(FailI2c, DS3231_ADDRESS);
+        let dt = hal_api::rtc::RtcDateTime::new(25, 5, 4, 12, 30, 45);
+        assert_eq!(sensor.set_datetime(&dt), Err(SensorError::BusError));
+    }
+
+    #[test]
     fn decode_hour_24h_mode() {
         assert_eq!(decode_hour(0x00), 0); // 00:xx
         assert_eq!(decode_hour(0x23), 23); // 23:xx (BCD 0x23 = 23)

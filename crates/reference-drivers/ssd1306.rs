@@ -351,6 +351,42 @@ mod tests {
     }
 
     #[test]
+    fn ssd1306_render_propagates_mid_sequence_bus_error() {
+        // clear()/draw_char() issue many writes after a successful init(); a
+        // transient bus failure partway through the sequence (not just at
+        // init time) must still surface as DisplayError::BusError. Rather
+        // than hardcoding how many command writes init() performs, fail on
+        // the first *data* write (CTRL_DATA-prefixed), which only occurs
+        // once render() starts clearing the screen.
+        struct FailOnFirstDataWriteI2c;
+        impl I2cBus for FailOnFirstDataWriteI2c {
+            type Error = I2cError;
+            fn write(&mut self, _addr: u8, data: &[u8]) -> Result<(), I2cError> {
+                if data.first() == Some(&CTRL_DATA) {
+                    Err(I2cError::BusError)
+                } else {
+                    Ok(())
+                }
+            }
+            fn read(&mut self, _addr: u8, _buf: &mut [u8]) -> Result<(), I2cError> {
+                Ok(())
+            }
+            fn write_read(
+                &mut self,
+                _addr: u8,
+                _write: &[u8],
+                _buf: &mut [u8],
+            ) -> Result<(), I2cError> {
+                Ok(())
+            }
+        }
+        let i2c = FailOnFirstDataWriteI2c;
+        let mut display = Ssd1306Display::new(i2c, SSD1306_ADDRESS_DEFAULT).unwrap();
+        let frame = TextFrame16x2::from_lines("Hello, World!   ", "SSD1306 OLED    ");
+        assert_eq!(display.render(&frame), Err(DisplayError::BusError));
+    }
+
+    #[test]
     fn ssd1306_font_digit_is_nonzero() {
         let table = include_font();
         // Digits '0'-'9' are at index 16-25

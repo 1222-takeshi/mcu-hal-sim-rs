@@ -9,7 +9,7 @@ documentation = "https://docs.rs/platform-rp2040"
 readme = "README.md"
 keywords = ["embedded", "rp2040", "raspberry-pi-pico", "hal", "no-std"]
 categories = ["embedded", "no-std", "hardware-support"]
-rust-version = "1.66"
+rust-version = "1.70"
 publish = false
 
 [dependencies]
