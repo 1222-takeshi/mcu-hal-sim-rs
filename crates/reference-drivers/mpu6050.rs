@@ -140,16 +140,19 @@ where
         let gyro_y = i16::from_be_bytes([raw[10], raw[11]]);
         let gyro_z = i16::from_be_bytes([raw[12], raw[13]]);
 
+        let accel_sens = accel_sensitivity(self.config.accel_config);
+        let gyro_sens = gyro_sensitivity(self.config.gyro_config);
+
         Ok(ImuReading::new(
             [
-                accel_to_mg(accel_x, self.config.accel_config),
-                accel_to_mg(accel_y, self.config.accel_config),
-                accel_to_mg(accel_z, self.config.accel_config),
+                accel_to_mg(accel_x, accel_sens),
+                accel_to_mg(accel_y, accel_sens),
+                accel_to_mg(accel_z, accel_sens),
             ],
             [
-                gyro_to_mdps(gyro_x, self.config.gyro_config),
-                gyro_to_mdps(gyro_y, self.config.gyro_config),
-                gyro_to_mdps(gyro_z, self.config.gyro_config),
+                gyro_to_mdps(gyro_x, gyro_sens),
+                gyro_to_mdps(gyro_y, gyro_sens),
+                gyro_to_mdps(gyro_z, gyro_sens),
             ],
             Some(temperature_to_centi_celsius(temperature)),
         ))
@@ -174,12 +177,12 @@ fn gyro_sensitivity(gyro_config: u8) -> i32 {
     }
 }
 
-fn accel_to_mg(raw: i16, accel_config: u8) -> i16 {
-    ((i32::from(raw) * 1000) / accel_sensitivity(accel_config)) as i16
+fn accel_to_mg(raw: i16, accel_sensitivity: i32) -> i16 {
+    ((i32::from(raw) * 1000) / accel_sensitivity) as i16
 }
 
-fn gyro_to_mdps(raw: i16, gyro_config: u8) -> i32 {
-    (i32::from(raw) * 1000) / gyro_sensitivity(gyro_config)
+fn gyro_to_mdps(raw: i16, gyro_sensitivity: i32) -> i32 {
+    (i32::from(raw) * 1000) / gyro_sensitivity
 }
 
 fn temperature_to_centi_celsius(raw: i16) -> i16 {
