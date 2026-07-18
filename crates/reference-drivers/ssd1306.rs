@@ -178,6 +178,22 @@ impl<I2C: I2cBus<Error = I2cError>> Ssd1306Display<I2C> {
             .map_err(|_| DisplayError::BusError)
     }
 
+    /// 複数のコマンドバイトを単一の I2C write（1 START/STOP）にまとめて送信します。
+    ///
+    /// SSD1306 のコマンドプロトコルは、単一の control byte (`CTRL_CMD`) の後ろに
+    /// 複数のコマンドバイトを連続して送れます。カーソル位置設定など複数コマンドを
+    /// 連続発行する箇所をこちらにまとめることで、コマンドごとに個別 transaction
+    /// （アドレス+ACK オーバーヘッド込み）を発行するコストを避けられます。
+    fn send_cmds(&mut self, cmds: &[u8]) -> Result<(), DisplayError> {
+        debug_assert!(cmds.len() < 8, "send_cmds buffer too small");
+        let mut buf = [0u8; 8];
+        buf[0] = CTRL_CMD;
+        buf[1..1 + cmds.len()].copy_from_slice(cmds);
+        self.i2c
+            .write(self.address, &buf[..1 + cmds.len()])
+            .map_err(|_| DisplayError::BusError)
+    }
+
     fn init(&mut self) -> Result<(), DisplayError> {
         // Minimal SSD1306 128×64 init sequence
         for &cmd in &[
@@ -205,13 +221,8 @@ impl<I2C: I2cBus<Error = I2cError>> Ssd1306Display<I2C> {
 
     /// ディスプレイ全体をクリアします。
     fn clear(&mut self) -> Result<(), DisplayError> {
-        // Set column address 0..127, page address 0..7
-        self.send_cmd(0x21)?; // Set Column Address
-        self.send_cmd(0)?;
-        self.send_cmd(127)?;
-        self.send_cmd(0x22)?; // Set Page Address
-        self.send_cmd(0)?;
-        self.send_cmd(7)?;
+        // Set column address 0..127, page address 0..7 (single transaction)
+        self.send_cmds(&[0x21, 0, 127, 0x22, 0, 7])?;
         // Fill with zeros (16 bytes per write to stay within I2C buffer)
         let zeros = [0u8; 17]; // 1 control + 16 data bytes
         let mut buf = zeros;
@@ -226,13 +237,8 @@ impl<I2C: I2cBus<Error = I2cError>> Ssd1306Display<I2C> {
 
     /// 1 文字を指定ページ・列に描画します（5×8 フォント）。
     fn draw_char(&mut self, page: u8, col: u8, ch: u8) -> Result<(), DisplayError> {
-        // Position cursor
-        self.send_cmd(0x21)?;
-        self.send_cmd(col)?;
-        self.send_cmd(col + 4)?;
-        self.send_cmd(0x22)?;
-        self.send_cmd(page)?;
-        self.send_cmd(page)?;
+        // Position cursor (single transaction instead of 6 individual writes)
+        self.send_cmds(&[0x21, col, col + 4, 0x22, page, page])?;
 
         let idx = if (0x20u8..=0x7E).contains(&ch) {
             (ch - 0x20) as usize
@@ -419,5 +425,30 @@ mod tests {
                 i + 33
             );
         }
+    }
+
+    #[test]
+    fn ssd1306_draw_char_batches_cursor_setup_into_single_write() {
+        // Cursor positioning used to be 6 individual I2C writes per glyph
+        // (0x21, col, col+4, 0x22, page, page) plus 1 data write. Batched,
+        // draw_char should now cost exactly 2 writes: one for the cursor
+        // command batch, one for the glyph data.
+        let i2c = StubI2c::default();
+        let mut display = Ssd1306Display::new(i2c, SSD1306_ADDRESS_DEFAULT).unwrap();
+        let writes_before_char = display.i2c.write_count;
+        display.draw_char(0, 0, b'A').unwrap();
+        assert_eq!(display.i2c.write_count - writes_before_char, 2);
+    }
+
+    #[test]
+    fn ssd1306_clear_batches_cursor_setup_into_single_write() {
+        // clear()'s column/page address setup used to be 6 individual writes;
+        // batched it should be 1, followed by the 64 zero-fill data writes
+        // (128*8/16), for 65 total.
+        let i2c = StubI2c::default();
+        let mut display = Ssd1306Display::new(i2c, SSD1306_ADDRESS_DEFAULT).unwrap();
+        let writes_before_clear = display.i2c.write_count;
+        display.clear().unwrap();
+        assert_eq!(display.i2c.write_count - writes_before_clear, 65);
     }
 }
