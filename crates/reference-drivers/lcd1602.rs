@@ -84,6 +84,7 @@ pub struct Lcd1602Display<B, D> {
     delay: D,
     config: Lcd1602Config,
     initialized: bool,
+    last_frame: Option<TextFrame16x2>,
 }
 
 impl<B, D> Lcd1602Display<B, D> {
@@ -120,6 +121,7 @@ impl<B, D> Lcd1602Display<B, D> {
             delay,
             config,
             initialized: false,
+            last_frame: None,
         }
     }
 
@@ -246,6 +248,10 @@ where
     fn render(&mut self, frame: &TextFrame16x2) -> Result<(), Self::Error> {
         self.initialize()?;
 
+        if self.last_frame == Some(*frame) {
+            return Ok(());
+        }
+
         for row in 0..2 {
             self.set_cursor(row)?;
             for byte in frame.line(row) {
@@ -253,6 +259,7 @@ where
             }
         }
 
+        self.last_frame = Some(*frame);
         Ok(())
     }
 }
@@ -340,15 +347,35 @@ mod tests {
         let delay = DummyDelay::default();
         let mut display = Lcd1602Display::new(bus, delay);
         let frame = TextFrame16x2::from_lines("Temp 24.8C", "Hum  43.2%");
+        let other_frame = TextFrame16x2::from_lines("Temp 25.1C", "Hum  44.0%");
 
         display.render(&frame).unwrap();
         let writes_after_first_render = writes.borrow().len();
-        display.render(&frame).unwrap();
+        display.render(&other_frame).unwrap();
         let writes_after_second_render = writes.borrow().len() - writes_after_first_render;
 
         assert!(display.is_initialized());
         assert!(writes_after_first_render > writes_after_second_render);
         assert!(writes_after_second_render > 0);
+    }
+
+    #[test]
+    fn lcd1602_display_skips_i2c_write_when_frame_is_unchanged() {
+        let bus = RecordingI2c::default();
+        let writes = bus.writes.clone();
+        let delay = DummyDelay::default();
+        let mut display = Lcd1602Display::new(bus, delay);
+        let frame = TextFrame16x2::from_lines("Temp 24.8C", "Hum  43.2%");
+
+        display.render(&frame).unwrap();
+        let writes_after_first_render = writes.borrow().len();
+
+        display.render(&frame).unwrap();
+        assert_eq!(writes.borrow().len(), writes_after_first_render);
+
+        let other_frame = TextFrame16x2::from_lines("Temp 25.1C", "Hum  44.0%");
+        display.render(&other_frame).unwrap();
+        assert!(writes.borrow().len() > writes_after_first_render);
     }
 
     #[test]
@@ -394,7 +421,10 @@ mod tests {
         assert!(display.is_initialized());
         *fail_after_writes.borrow_mut() = Some(0);
 
-        assert_eq!(display.render(&frame), Err(DisplayError::BusError));
+        // A different frame is used here so the write is actually attempted
+        // rather than skipped by the unchanged-frame guard.
+        let next_frame = TextFrame16x2::from_lines("Line 3", "Line 4");
+        assert_eq!(display.render(&next_frame), Err(DisplayError::BusError));
         assert!(display.is_initialized());
     }
 
