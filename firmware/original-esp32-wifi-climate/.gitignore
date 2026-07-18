@@ -1,0 +1,6 @@
+# Real secrets — never commit
+.env
+
+# Build artifacts
+/target
+Cargo.lock
