@@ -39,10 +39,20 @@ pub enum VirtualI2cOperation {
 
 type SharedVirtualDevice = Rc<RefCell<Box<dyn VirtualI2cDevice>>>;
 
-#[derive(Default)]
 struct VirtualI2cBusState {
     devices: Vec<(u8, SharedVirtualDevice)>,
     operations: VecDeque<VirtualI2cOperation>,
+    recording_enabled: bool,
+}
+
+impl Default for VirtualI2cBusState {
+    fn default() -> Self {
+        Self {
+            devices: Vec::new(),
+            operations: VecDeque::new(),
+            recording_enabled: true,
+        }
+    }
 }
 
 #[derive(Clone, Default)]
@@ -85,6 +95,19 @@ impl VirtualI2cBus {
         self.state.borrow_mut().operations.clear();
     }
 
+    /// Enables or disables operation recording (on by default).
+    ///
+    /// Recording clones every write payload into the operation log, which
+    /// costs a heap allocation per I2C transaction. Callers that never
+    /// inspect `operations()` can disable it to skip that allocation.
+    pub fn set_operation_recording(&self, enabled: bool) {
+        self.state.borrow_mut().recording_enabled = enabled;
+    }
+
+    pub fn is_operation_recording_enabled(&self) -> bool {
+        self.state.borrow().recording_enabled
+    }
+
     pub fn attached_addresses(&self) -> Vec<u8> {
         let mut addresses = self
             .state
@@ -115,49 +138,47 @@ impl VirtualI2cBus {
     }
 }
 
-fn push_operation(state: &mut VirtualI2cBusState, operation: VirtualI2cOperation) {
+fn push_operation(state: &mut VirtualI2cBusState, build: impl FnOnce() -> VirtualI2cOperation) {
     const MAX_RECORDED_OPERATIONS: usize = 256;
 
+    if !state.recording_enabled {
+        return;
+    }
     if state.operations.len() >= MAX_RECORDED_OPERATIONS {
         state.operations.pop_front();
     }
-    state.operations.push_back(operation);
+    state.operations.push_back(build());
 }
 
 impl I2cBus for VirtualI2cBus {
     type Error = I2cError;
 
     fn write(&mut self, addr: u8, bytes: &[u8]) -> Result<(), Self::Error> {
-        push_operation(
-            &mut self.state.borrow_mut(),
+        push_operation(&mut self.state.borrow_mut(), || {
             VirtualI2cOperation::Write {
                 addr,
                 bytes: bytes.to_vec(),
-            },
-        );
+            }
+        });
         self.with_device(addr, |device| device.write(bytes))
     }
 
     fn read(&mut self, addr: u8, buffer: &mut [u8]) -> Result<(), Self::Error> {
-        push_operation(
-            &mut self.state.borrow_mut(),
-            VirtualI2cOperation::Read {
-                addr,
-                len: buffer.len(),
-            },
-        );
+        push_operation(&mut self.state.borrow_mut(), || VirtualI2cOperation::Read {
+            addr,
+            len: buffer.len(),
+        });
         self.with_device(addr, |device| device.read(buffer))
     }
 
     fn write_read(&mut self, addr: u8, bytes: &[u8], buffer: &mut [u8]) -> Result<(), Self::Error> {
-        push_operation(
-            &mut self.state.borrow_mut(),
+        push_operation(&mut self.state.borrow_mut(), || {
             VirtualI2cOperation::WriteRead {
                 addr,
                 bytes: bytes.to_vec(),
                 len: buffer.len(),
-            },
-        );
+            }
+        });
         self.with_device(addr, |device| device.write_read(bytes, buffer))
     }
 }
@@ -267,5 +288,33 @@ mod tests {
 
         assert_eq!(bus.operation_count(), 0);
         assert!(bus.operations().is_empty());
+    }
+
+    #[test]
+    fn virtual_i2c_bus_recording_can_be_disabled_to_skip_allocation() {
+        let bus = VirtualI2cBus::new();
+        bus.attach_device(
+            0x77,
+            TestDevice {
+                writes: Vec::new(),
+                next_read: vec![0x60],
+            },
+        );
+        assert!(bus.is_operation_recording_enabled());
+
+        bus.set_operation_recording(false);
+        assert!(!bus.is_operation_recording_enabled());
+
+        let mut bus_handle = bus.clone();
+        let mut chip_id = [0u8; 1];
+        bus_handle.write_read(0x77, &[0xD0], &mut chip_id).unwrap();
+
+        assert_eq!(chip_id, [0x60]);
+        assert_eq!(bus.operation_count(), 0);
+        assert!(bus.operations().is_empty());
+
+        bus.set_operation_recording(true);
+        bus_handle.write_read(0x77, &[0xD0], &mut chip_id).unwrap();
+        assert_eq!(bus.operation_count(), 1);
     }
 }
