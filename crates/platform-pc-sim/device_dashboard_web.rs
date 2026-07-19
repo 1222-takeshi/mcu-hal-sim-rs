@@ -985,6 +985,43 @@ mod tests {
     }
 
     #[test]
+    fn device_simulation_rig_repeated_identical_selection_keeps_devices_attached() {
+        // Regression test: advance() skips DeviceSimulationRig::sync_selected_devices
+        // when the device selection is unchanged from the previous tick (a perf
+        // fix avoiding needless bus re-attachment churn), but sensors must keep
+        // reading correctly and no spurious enable/disable diagnostics should
+        // fire across repeated identical ticks.
+        let mut rig = DeviceSimulationRig::new(BoardProfile::OriginalEsp32);
+        let wiring_state = WiringState {
+            board: BoardProfile::OriginalEsp32,
+            sensor_profile: SensorProfile::Minimal,
+            selected_devices: vec![DeviceKind::Bme280, DeviceKind::Lcd1602],
+            show_bus_labels: false,
+        };
+
+        let state1 = rig.step(&wiring_state);
+        let diag_count_after_first = rig.diag_event_count;
+        let state2 = rig.step(&wiring_state);
+        let state3 = rig.step(&wiring_state);
+
+        assert!(state1.climate.temperature_c.is_some());
+        assert_eq!(state1.climate.temperature_c, state2.climate.temperature_c);
+        assert_eq!(state2.climate.temperature_c, state3.climate.temperature_c);
+        assert_eq!(
+            state2.wiring.attached_devices,
+            vec!["BME280 (0x77)".to_string(), "LCD1602 (0x27)".to_string()]
+        );
+        assert_eq!(
+            state3.wiring.attached_devices, state2.wiring.attached_devices,
+            "device selection unchanged across ticks must keep the same devices attached"
+        );
+        assert_eq!(
+            rig.diag_event_count, diag_count_after_first,
+            "unchanged device selection must not emit enable/disable diagnostics on later ticks"
+        );
+    }
+
+    #[test]
     fn device_simulation_rig_wiring_diagram_cache_tracks_config_changes() {
         // Regression test: snapshot() caches the formatted wiring diagram
         // keyed by WiringConfig so unchanged wiring reuses the cached lines,

@@ -308,7 +308,13 @@ impl DeviceSimulationRig {
             wiring_state.board,
             &wiring_state.selected_devices,
         );
-        self.sync_selected_devices(&selected_devices);
+        // `sync_selected_devices` re-attaches every enabled device to the
+        // virtual bus (a fresh Box+Rc allocation per device, see
+        // VirtualI2cBus::attach_device), which is pure churn when the
+        // selection hasn't changed since the previous tick.
+        if selected_devices != self.last_selected_devices {
+            self.sync_selected_devices(&selected_devices);
+        }
         self.bus.clear_operations();
 
         // Detect device toggle events compared to the previous tick.
