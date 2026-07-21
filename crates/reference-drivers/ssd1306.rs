@@ -162,12 +162,17 @@ const fn include_font() -> [[u8; 5]; 95] {
 pub struct Ssd1306Display<I2C> {
     i2c: I2C,
     address: u8,
+    last_frame: Option<TextFrame16x2>,
 }
 
 impl<I2C: I2cBus<Error = I2cError>> Ssd1306Display<I2C> {
     /// 初期化シーケンスを実行して `Ssd1306Display` を生成します。
     pub fn new(i2c: I2C, address: u8) -> Result<Self, DisplayError> {
-        let mut display = Self { i2c, address };
+        let mut display = Self {
+            i2c,
+            address,
+            last_frame: None,
+        };
         display.init()?;
         Ok(display)
     }
@@ -260,6 +265,10 @@ impl<I2C: I2cBus<Error = I2cError>> TextDisplay16x2 for Ssd1306Display<I2C> {
     type Error = DisplayError;
 
     fn render(&mut self, frame: &TextFrame16x2) -> Result<(), DisplayError> {
+        if self.last_frame == Some(*frame) {
+            return Ok(());
+        }
+
         self.clear()?;
         for row in 0..2usize {
             let page = (row * 2) as u8; // row 0 → page 0, row 1 → page 2
@@ -271,6 +280,8 @@ impl<I2C: I2cBus<Error = I2cError>> TextDisplay16x2 for Ssd1306Display<I2C> {
                 self.draw_char(page, col, byte)?;
             }
         }
+
+        self.last_frame = Some(*frame);
         Ok(())
     }
 }
@@ -438,6 +449,24 @@ mod tests {
         let writes_before_char = display.i2c.write_count;
         display.draw_char(0, 0, b'A').unwrap();
         assert_eq!(display.i2c.write_count - writes_before_char, 2);
+    }
+
+    #[test]
+    fn ssd1306_render_skips_i2c_rewrite_when_frame_is_unchanged() {
+        let i2c = StubI2c::default();
+        let mut display = Ssd1306Display::new(i2c, SSD1306_ADDRESS_DEFAULT).unwrap();
+        let frame = TextFrame16x2::from_lines("Hello, World!   ", "SSD1306 OLED    ");
+
+        display.render(&frame).unwrap();
+        let writes_after_first_render = display.i2c.write_count;
+        assert!(writes_after_first_render > 0);
+
+        display.render(&frame).unwrap();
+        assert_eq!(display.i2c.write_count, writes_after_first_render);
+
+        let other_frame = TextFrame16x2::from_lines("Temp 25.1C      ", "Hum  44.0%      ");
+        display.render(&other_frame).unwrap();
+        assert!(display.i2c.write_count > writes_after_first_render);
     }
 
     #[test]
