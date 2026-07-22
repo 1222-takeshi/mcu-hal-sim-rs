@@ -167,9 +167,13 @@ jobs:
           key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-git-
 
-      - name: Check no_std crates for no_std target
-        run: cargo check -p hal-api -p core-app -p reference-drivers -p platform-esp32 -p platform-avr -p platform-rp2040 --lib --target $NO_STD_TARGET --no-default-features
-
+      # `cargo clippy` performs a full compile-equivalent pass (it must
+      # type-check before it can lint) plus the lint pass itself, and it
+      # does not share incremental artifacts with plain `cargo check` since
+      # each uses a different compiler driver. Running `check` immediately
+      # before `clippy` with identical flags therefore compiled this exact
+      # crate/target combination twice for no extra coverage — clippy alone
+      # already fails the job on any compile error, not just lint warnings.
       - name: Clippy no_std crates for no_std target
         run: cargo clippy -p hal-api -p core-app -p reference-drivers -p platform-esp32 -p platform-avr -p platform-rp2040 --lib --target $NO_STD_TARGET --no-default-features -- -D warnings
 
@@ -241,9 +245,10 @@ jobs:
           key: ${{ runner.os }}-cargo-build-target-esp32c3-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-build-target-esp32c3-
 
-      - name: Check crates for ESP32-C3
-        run: cargo check -p hal-api -p core-app -p reference-drivers -p platform-esp32 --lib --target $ESP32C3_TARGET --no-default-features
-
+      # See the no_std job for why the separate `cargo check` step was
+      # dropped: `cargo clippy` with the same flags already re-validates
+      # compilation (and fails on compile errors) before it lints, so
+      # running both duplicated the full cross-compile for no gain.
       - name: Clippy crates for ESP32-C3
         run: cargo clippy -p hal-api -p core-app -p reference-drivers -p platform-esp32 --lib --target $ESP32C3_TARGET --no-default-features -- -D warnings
 
