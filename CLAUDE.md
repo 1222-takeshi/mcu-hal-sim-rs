@@ -110,8 +110,12 @@ mcu-hal-sim-rs/
 ├── firmware/
 │   ├── original-esp32-bringup/
 │   ├── original-esp32-climate-display/
+│   ├── original-esp32-ota-bringup/
+│   ├── original-esp32-robot-base/
+│   ├── original-esp32-wifi-climate/
 │   ├── m5stickc-bringup/
 │   ├── arduino-nano-bringup/
+│   ├── arduino-nano-climate-display/
 │   ├── raspi-pico-bringup/
 │   └── raspi-pico-climate-display/
 ├── docs/
